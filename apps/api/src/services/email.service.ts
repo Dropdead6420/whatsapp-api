@@ -8,6 +8,7 @@ interface EmailPayload {
 const FROM = process.env.SMTP_FROM ?? "noreply@nexaflow.ai";
 const PROVIDER = (process.env.EMAIL_PROVIDER ?? "console").toLowerCase();
 const RESEND_KEY = process.env.RESEND_API_KEY;
+const STRICT_DELIVERY = process.env.EMAIL_STRICT_DELIVERY === "true";
 
 async function sendViaResend(payload: EmailPayload): Promise<void> {
   if (!RESEND_KEY) {
@@ -31,7 +32,13 @@ async function sendViaResend(payload: EmailPayload): Promise<void> {
   if (!res.ok) {
     const body = await res.text();
     console.error("[email] resend failed", res.status, body);
-    throw new Error(`Resend API error: ${res.status}`);
+    if (STRICT_DELIVERY) {
+      throw new Error(`Resend API error: ${res.status}`);
+    }
+    console.warn(
+      "[email] EMAIL_STRICT_DELIVERY is not enabled; falling back to console delivery",
+    );
+    return sendViaConsole(payload);
   }
 }
 

@@ -47,6 +47,12 @@ model Tenant {
   wabaId                   String?          // WhatsApp Business Account ID
   wabaPhoneNumber          String?
   wabaAccessToken          String?          // Encrypted
+  wabaDisplayPhoneNumber   String?
+  wabaQualityRating        String?
+  wabaMessagingLimitTier   String?
+  wabaAccountStatus        String?
+  wabaLastSyncedAt         DateTime?
+  wabaLastSyncError        String?
 
   // Email Configuration
   emailProvider            String?          // "resend", "sendgrid", "smtp"

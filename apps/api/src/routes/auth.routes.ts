@@ -130,6 +130,31 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
       where: { email: email.toLowerCase() },
     });
     if (existing) {
+      if (
+        existing.status === UserStatus.PENDING_EMAIL_VERIFICATION &&
+        existing.tenantId
+      ) {
+        const { raw, hash } = authService.generateUrlSafeToken();
+        await prisma.emailVerificationToken.create({
+          data: {
+            userId: existing.id,
+            tenantId: existing.tenantId,
+            tokenHash: hash,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        });
+        const verifyUrl = `${WEB_URL}/verify-email?token=${raw}`;
+        await sendEmail(buildVerifyEmailEmail(existing.email, verifyUrl));
+        res.status(200).json({
+          success: true,
+          data: {
+            user: toPublicUser(existing),
+            message:
+              "Account already exists but is not verified. We sent a fresh verification link.",
+          },
+        });
+        return;
+      }
       throw new ApiError(
         ErrorCodes.CONFLICT,
         409,

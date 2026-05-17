@@ -66,6 +66,14 @@ export interface Tenant {
   logoUrl?: string;
   brandColors?: Record<string, string>;
   customCss?: string;
+  wabaId?: string;
+  wabaPhoneNumber?: string;
+  wabaDisplayPhoneNumber?: string;
+  wabaQualityRating?: string;
+  wabaMessagingLimitTier?: string;
+  wabaAccountStatus?: string;
+  wabaLastSyncedAt?: Date;
+  wabaLastSyncError?: string;
   messageQuotaPerMonth: number;
   contactLimit: number;
   agentLimit: number;

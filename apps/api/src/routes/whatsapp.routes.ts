@@ -25,6 +25,12 @@ import { scoreLead } from "../services/ai.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { findFlowForInbound, startFlowRun } from "../services/flow/engine";
 import { emitWebhookEvent } from "../services/webhook.service";
+import { extractRequestMeta, logAudit } from "../services/audit.service";
+import {
+  getWhatsAppConfig,
+  syncWhatsAppBusinessStatus,
+  updateWhatsAppConfig,
+} from "../services/whatsappConfig.service";
 
 const router = Router();
 
@@ -340,6 +346,13 @@ const sendTemplateSchema = z.object({
   bodyParams: z.array(z.string()).max(20).optional(),
 });
 
+const configSchema = z.object({
+  wabaId: z.string().trim().max(120).nullable().optional(),
+  phoneNumberId: z.string().trim().max(120).nullable().optional(),
+  accessToken: z.string().trim().min(10).max(5000).nullable().optional(),
+  clearAccessToken: z.boolean().optional(),
+});
+
 async function getTenantWabaConfig(tenantId: string) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
@@ -354,6 +367,73 @@ async function getTenantWabaConfig(tenantId: string) {
     accessToken: tenant.wabaAccessToken,
   };
 }
+
+router.get(
+  "/config",
+  requirePermission(Permissions.WABA_CONFIGURE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const config = await getWhatsAppConfig(req.tenantId!);
+      res.json({ success: true, data: config });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.patch(
+  "/config",
+  requirePermission(Permissions.WABA_CONFIGURE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = configSchema.parse(req.body);
+      const config = await updateWhatsAppConfig(req.tenantId!, body);
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "WhatsAppConfig",
+        resourceId: req.tenantId!,
+        newValues: {
+          wabaId: body.wabaId,
+          phoneNumberId: body.phoneNumberId,
+          accessTokenChanged: body.accessToken !== undefined || body.clearAccessToken === true,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: config });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/config/sync",
+  requirePermission(Permissions.WABA_CONFIGURE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const config = await syncWhatsAppBusinessStatus(req.tenantId!);
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "WhatsAppQuality",
+        resourceId: req.tenantId!,
+        newValues: {
+          qualityRating: config.qualityRating,
+          messagingLimitTier: config.messagingLimitTier,
+          accountStatus: config.accountStatus,
+          lastSyncError: config.lastSyncError,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: config });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.post(
   "/send-text",

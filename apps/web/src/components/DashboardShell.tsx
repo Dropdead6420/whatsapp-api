@@ -54,6 +54,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/contacts", label: "Contacts", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/leads", label: "Leads", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/campaigns", label: "Campaigns", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "campaigns" },
+      { href: "/whatsapp-settings", label: "WhatsApp", roles: ["BUSINESS_ADMIN"] },
       { href: "/canned-replies", label: "Canned Replies", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/webhooks", label: "Webhooks", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "webhooks" },
     ],
