@@ -24,6 +24,14 @@
   "author": "Sidharth Kumar",
   "license": "MIT",
   "devDependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "styled-jsx": "5.1.1",
     "turbo": "^2.9.14"
-  }
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "packageManager": "npm@10.0.0"
 }

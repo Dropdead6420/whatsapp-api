@@ -17,8 +17,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@nexaflow/shared": ["../../packages/shared/dist"],
+      "@nexaflow/db": ["../../packages/db/dist"]
     }
   },
   "include": ["src"],

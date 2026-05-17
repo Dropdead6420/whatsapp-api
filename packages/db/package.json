@@ -3,22 +3,31 @@
   "version": "0.1.0",
   "description": "Prisma database schema and types",
   "private": true,
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
-    "generate": "prisma generate",
-    "migrate": "prisma migrate dev",
-    "migrate:prod": "prisma migrate deploy",
+    "build": "tsc",
+    "generate": "prisma generate --schema prisma/schema.prisma",
+    "migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "migrate:prod": "prisma migrate deploy --schema prisma/schema.prisma",
     "seed": "tsx prisma/seed.ts",
-    "studio": "prisma studio"
+    "studio": "prisma studio --schema prisma/schema.prisma"
   },
   "dependencies": {
-    "@prisma/client": "^5.10.2"
+    "@prisma/client": "^5.1.0"
   },
   "devDependencies": {
-    "prisma": "^5.10.2",
-    "typescript": "^5.3.3",
-    "@types/node": "^20.10.6",
-    "tsx": "^4.7.0"
+    "prisma": "^5.1.0",
+    "typescript": "^5.2.0",
+    "@types/node": "^20.5.0",
+    "tsx": "^4.0.0"
   }
 }

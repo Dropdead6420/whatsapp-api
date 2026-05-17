@@ -61,8 +61,12 @@ model Tenant {
   campaignLimit            Int              @default(100)
   featuresEnabled          String?          // JSON: { chatbot, ads, creative_studio, ... }
 
+  // Inbox / support SLA — minutes from inbound to first agent reply
+  slaMinutes               Int              @default(30)
+
   // Relations
   users                    User[]
+  teams                    Team[]
   whatsappTemplates        WhatsAppTemplate[]
   contacts                 Contact[]
   campaigns                Campaign[]
@@ -74,6 +78,14 @@ model Tenant {
   webhooks                 Webhook[]
   auditLogs                AuditLog[]
   aiUsage                  AiUsage[]
+  invoices                 Invoice[]
+  passwordResetTokens      PasswordResetToken[]
+  emailVerificationTokens  EmailVerificationToken[]
+  cannedReplies            CannedReply[]
+  conversationNotes        ConversationNote[]
+  services                 Service[]
+  appointments             Appointment[]
+  flowRuns                 FlowRun[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -163,7 +175,7 @@ model OAuthAccount {
 model Team {
   id                       String           @id @default(cuid())
   tenantId                 String
-  tenant                   Tenant?
+  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name                     String
   description              String?
 
@@ -179,8 +191,49 @@ model Team {
 }
 
 // ============================================================================
+// PASSWORD RESET & EMAIL VERIFICATION
+// ============================================================================
+
+model PasswordResetToken {
+  id          String   @id @default(cuid())
+  userId      String
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id          String   @id @default(cuid())
+  userId      String
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================================
 // CONTACTS & LEADS
 // ============================================================================
+
+enum LifecycleStage {
+  LEAD
+  PROSPECT
+  CUSTOMER
+  REPEAT_CUSTOMER
+  VIP
+  CHURNED
+}
 
 model Contact {
   id                       String           @id @default(cuid())
@@ -196,10 +249,12 @@ model Contact {
   optedOutAt               DateTime?
   lastInteractionAt        DateTime?
   aiScore                  Float?           // AI lead score (0-1)
+  lifecycleStage           LifecycleStage   @default(LEAD)
 
   // Relations
   conversations            Conversation[]
   leads                    Lead[]
+  appointments             Appointment[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -207,6 +262,7 @@ model Contact {
   @@unique([tenantId, phoneNumber])
   @@index([tenantId])
   @@index([tags])
+  @@index([lifecycleStage])
 }
 
 enum LeadStatus {
@@ -217,6 +273,14 @@ enum LeadStatus {
   NEGOTIATION_FAILED
   CLOSED_WON
   CLOSED_LOST
+}
+
+enum LeadFollowUpStatus {
+  RECOMMENDED
+  SCHEDULED
+  SENT
+  DISMISSED
+  FAILED
 }
 
 model Lead {
@@ -238,6 +302,16 @@ model Lead {
   teamId                   String?
   team                     Team?            @relation(fields: [teamId], references: [id])
 
+  // AI follow-up recommendation and automation state.
+  followUpStatus           LeadFollowUpStatus?
+  followUpPriority         String?          // "low", "medium", "high"
+  followUpMessage          String?
+  followUpReason           String?
+  followUpDueAt            DateTime?
+  followUpRecommendedAt    DateTime?
+  followUpSentAt           DateTime?
+  followUpLastError        String?
+
   closedAt                 DateTime?
   closedWonAt              DateTime?
   createdAt                DateTime         @default(now())
@@ -247,6 +321,8 @@ model Lead {
   @@index([contactId])
   @@index([status])
   @@index([assigneeId])
+  @@index([followUpStatus])
+  @@index([followUpDueAt])
 }
 
 // ============================================================================
@@ -280,7 +356,16 @@ model Conversation {
   agent                    User?            @relation("ConversationAgent", fields: [agentId], references: [id])
 
   lastMessageAt            DateTime?
+  lastInboundAt            DateTime?        // for SLA computation
+  lastOutboundAt           DateTime?        // for first-response computation
   isActive                 Boolean          @default(true)
+
+  // V2 §3.3.5: tag conversations (Urgent, Follow-up, Closed, …)
+  labels                   String[]         @default([])
+
+  // SLA tracking (V2 §6.1 "Multi-Agent WhatsApp Inbox — SLA timers")
+  slaBreachedAt            DateTime?        // stamped when last-inbound exceeds slaMinutes without an agent reply
+  firstResponseSeconds     Int?             // seconds from first inbound → first outbound (after the conversation existed)
 
   // Relations
   messages                 Message[]
@@ -293,12 +378,17 @@ model Conversation {
   @@index([teamId])
   @@index([agentId])
   @@index([isActive])
+  @@index([labels])
+  @@index([slaBreachedAt])
 }
 
 model Message {
   id                       String           @id @default(cuid())
   conversationId           String
   conversation             Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  campaignId               String?
+  campaign                 Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   
   direction                MessageDirection
   status                   MessageStatus    @default(PENDING)
@@ -309,6 +399,8 @@ model Message {
   
   templateId               String?
   template                 WhatsAppTemplate? @relation(fields: [templateId], references: [id])
+
+  metaMessageId            String?          @unique
   
   aiGenerated              Boolean          @default(false)
   aiModel                  String?          // "claude-3-sonnet", etc.
@@ -320,6 +412,7 @@ model Message {
   updatedAt                DateTime         @updatedAt
 
   @@index([conversationId])
+  @@index([campaignId])
   @@index([status])
   @@index([createdAt])
 }
@@ -421,6 +514,9 @@ model Campaign {
   readCount                Int              @default(0)
   clickCount               Int              @default(0)
   conversionCount          Int              @default(0)
+
+  // Relations
+  messages                 Message[]
   
   startedAt                DateTime?
   completedAt              DateTime?
@@ -552,7 +648,9 @@ model Plan {
   adsIntegrationEnabled    Boolean          @default(false)
   creativeStudioEnabled    Boolean          @default(false)
   apiAccessEnabled         Boolean          @default(false)
-  
+
+  subscriptions            Subscription[]
+
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 }
@@ -591,8 +689,9 @@ model Subscription {
 model Invoice {
   id                       String           @id @default(cuid())
   tenantId                 String
+  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   subscriptionId           String?
-  
+
   invoiceNumber            String           @unique
   amountInPaisa            Int
   status                   String           // "draft", "sent", "paid", "failed"
@@ -686,4 +785,136 @@ model AuditLog {
   @@index([tenantId])
   @@index([userId])
   @@index([createdAt])
+}
+
+// ============================================================================
+// INBOX UTILITIES — canned replies & internal notes
+// ============================================================================
+
+model CannedReply {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shortcut    String   // e.g. "/hours" — must be tenant-unique
+  title       String
+  body        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, shortcut])
+  @@index([tenantId])
+}
+
+model ConversationNote {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversationId  String
+  authorId        String
+  body            String
+  createdAt       DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([tenantId])
+}
+
+// ============================================================================
+// APPOINTMENTS — V2 ICP (salons, clinics, spas, gyms, coaching)
+// ============================================================================
+
+model Service {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name            String
+  description     String?
+  durationMinutes Int           // service duration in minutes (e.g. 30, 60)
+  priceInPaisa    Int           // price in smallest unit (paise for INR)
+  isActive        Boolean       @default(true)
+
+  appointments    Appointment[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([tenantId])
+  @@index([isActive])
+}
+
+enum AppointmentStatus {
+  PENDING          // newly created, awaiting confirmation
+  CONFIRMED        // confirmed by business
+  CANCELLED        // cancelled (by customer or business)
+  COMPLETED        // the appointment happened
+  NO_SHOW          // customer didn't turn up
+}
+
+model Appointment {
+  id                  String             @id @default(cuid())
+  tenantId            String
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  contactId           String
+  contact             Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  serviceId           String
+  service             Service            @relation(fields: [serviceId], references: [id])
+
+  scheduledAt         DateTime
+  durationMinutes     Int                // snapshot at booking time so changing the Service later doesn't break history
+  status              AppointmentStatus  @default(PENDING)
+  notes               String?
+
+  source              String             @default("PUBLIC_FORM") // PUBLIC_FORM | ADMIN | API | WHATSAPP_FLOW
+
+  confirmationSentAt  DateTime?
+  reminderSentAt      DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@index([tenantId, scheduledAt])
+  @@index([contactId])
+  @@index([status])
+  @@index([reminderSentAt])
+}
+
+// ============================================================================
+// FLOW RUNTIME — tracks each execution of a ChatbotFlow against a contact
+// ============================================================================
+
+enum FlowRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  ABORTED
+  WAITING       // paused at a delay or wait-for-reply node
+}
+
+model FlowRun {
+  id              String         @id @default(cuid())
+  tenantId        String
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  flowId          String
+  contactId       String?
+  conversationId  String?
+
+  status          FlowRunStatus  @default(RUNNING)
+  currentNodeId   String?        // id of the node currently waiting / next to run
+  context         String         @default("{}") // JSON: per-run variables
+  trail           String         @default("[]") // JSON: array of {nodeId, at, action}
+  error           String?
+
+  startedAt       DateTime       @default(now())
+  resumeAt        DateTime?      // when WAITING due to a delay
+  completedAt     DateTime?
+
+  @@index([tenantId])
+  @@index([flowId])
+  @@index([conversationId])
+  @@index([status, resumeAt])
 }

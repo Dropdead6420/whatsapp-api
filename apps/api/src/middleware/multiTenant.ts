@@ -19,12 +19,12 @@ export interface RequestWithContext extends Request {
  */
 export const multiTenantMiddleware = (
   req: RequestWithContext,
-  res: Response,
+  _res: Response,
   next: NextFunction,
 ) => {
   try {
     // Extract tenantId from various sources
-    let tenantId = req.headers["x-tenant-id"] as string;
+    const tenantId = req.headers["x-tenant-id"] as string;
 
     if (!tenantId && req.headers.authorization) {
       // Could extract from JWT token here (will be implemented in auth phase)
@@ -48,7 +48,7 @@ export const multiTenantMiddleware = (
  */
 export const requireTenant = (
   req: RequestWithContext,
-  res: Response,
+  _res: Response,
   next: NextFunction,
 ) => {
   if (!req.tenantId) {
