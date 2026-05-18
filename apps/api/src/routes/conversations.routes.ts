@@ -18,6 +18,7 @@ import { sendWhatsAppText } from "../services/whatsapp.service";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
+import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { emitWebhookEvent } from "../services/webhook.service";
 
 const router = Router();
@@ -45,9 +46,17 @@ async function getTenantWabaConfig(tenantId: string) {
       "WhatsApp Business API is not configured for this tenant.",
     );
   }
+  const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+  if (!accessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp access token failed to decrypt.",
+    );
+  }
   return {
     phoneNumberId: tenant.wabaPhoneNumber,
-    accessToken: tenant.wabaAccessToken,
+    accessToken,
   };
 }
 

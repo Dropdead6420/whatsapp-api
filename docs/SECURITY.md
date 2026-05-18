@@ -171,9 +171,7 @@ at the call site — the audit blob is queryable by SuperAdmin and partner staff
 
 - **2FA**: schema exists (`User.twoFactorSecret`), flow not wired.
 - **OAuth providers**: `OAuthAccount` exists, providers not wired.
-- **Per-account login throttle**: only global IP-level limiter today.
-- **WABA token encryption at rest**: stored plaintext in DB column.
-- **Tenant suspension at the route layer**: `Tenant.status` is checked at login but not at every request.
+- **Tenant suspension at the route layer**: explicit per-tenant invalidation hook is not wired yet — relies on the 60s `AUTH_CTX_CACHE_TTL_SECONDS` expiry from T-090.
 - **Flow WEBHOOK node SSRF protection**: 15s timeout exists; no blocklist for RFC1918 / metadata IPs.
 - **Rate limiting per account + per tenant** on AI endpoints.
 

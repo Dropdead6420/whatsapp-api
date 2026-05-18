@@ -37,6 +37,7 @@ import {
   hasProcessedMetaMessage,
   verifyMetaSignature,
 } from "../services/whatsappWebhook.service";
+import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 
 const router = Router();
 
@@ -389,9 +390,17 @@ async function getTenantWabaConfig(tenantId: string) {
       "WhatsApp Business API is not configured for this tenant.",
     );
   }
+  const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+  if (!accessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp access token failed to decrypt.",
+    );
+  }
   return {
     phoneNumberId: tenant.wabaPhoneNumber,
-    accessToken: tenant.wabaAccessToken,
+    accessToken,
   };
 }
 

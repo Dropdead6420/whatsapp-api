@@ -1,5 +1,6 @@
 import { prisma } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { decryptTokenIfNeeded, encryptToken } from "../lib/tokenCrypto";
 
 const META_GRAPH_BASE =
   process.env.META_GRAPH_BASE_URL ?? "https://graph.facebook.com/v20.0";
@@ -103,7 +104,9 @@ export async function updateWhatsAppConfig(
         ? null
         : input.accessToken === undefined
           ? undefined
-          : input.accessToken || null,
+          : input.accessToken
+            ? encryptToken(input.accessToken)
+            : null,
       wabaLastSyncError: null,
     },
     select: {
@@ -139,6 +142,16 @@ export async function syncWhatsAppBusinessStatus(
     );
   }
 
+  // Decrypt before bearing it as a Meta Graph token.
+  const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+  if (!accessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp access token failed to decrypt.",
+    );
+  }
+
   const fields = [
     "display_phone_number",
     "verified_name",
@@ -152,7 +165,7 @@ export async function syncWhatsAppBusinessStatus(
   const url = `${META_GRAPH_BASE}/${tenant.wabaPhoneNumber}?fields=${encodeURIComponent(fields)}`;
 
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${tenant.wabaAccessToken}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
   const data = (await response.json().catch(() => ({}))) as MetaPhoneNumberStatus;
   if (!response.ok) {

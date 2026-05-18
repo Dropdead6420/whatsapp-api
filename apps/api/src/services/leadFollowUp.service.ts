@@ -7,6 +7,7 @@ import {
   MessageStatus,
 } from "@nexaflow/shared";
 import { assertCanSend, recordSend } from "./sendThrottle.service";
+import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { emitWebhookEvent } from "./webhook.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
@@ -30,9 +31,17 @@ async function getTenantWabaConfig(tenantId: string) {
       "WhatsApp Business API is not configured for this tenant.",
     );
   }
+  const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+  if (!accessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp access token failed to decrypt.",
+    );
+  }
   return {
     phoneNumberId: tenant.wabaPhoneNumber,
-    accessToken: tenant.wabaAccessToken,
+    accessToken,
   };
 }
 

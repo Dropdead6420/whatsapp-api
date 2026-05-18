@@ -6,6 +6,7 @@ import {
   MessageStatus,
 } from "@nexaflow/shared";
 import { sendWhatsAppTemplate } from "./whatsapp.service";
+import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { specToWhere, type SegmentFilterSpec } from "./segment.service";
 import { canSendNow, recordSend } from "./sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
@@ -73,6 +74,14 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
     });
     return;
   }
+  const accessToken = decryptTokenIfNeeded(campaign.tenant.wabaAccessToken);
+  if (!accessToken) {
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { status: CampaignStatus.FAILED },
+    });
+    return;
+  }
 
   const audience = parseAudience(campaign.targetContacts);
   const contacts = await resolveAudience(campaign.tenantId, audience);
@@ -127,7 +136,7 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
 
       const metaMessageId = await sendWhatsAppTemplate({
         phoneNumberId: campaign.tenant.wabaPhoneNumber,
-        accessToken: campaign.tenant.wabaAccessToken,
+        accessToken,
         to: contact.phoneNumber.replace(/^\+/, ""),
         templateName: campaign.template.name,
         languageCode: campaign.template.language ?? "en_US",

@@ -3,6 +3,7 @@ import { ApiError, MessageDirection, MessageStatus } from "@nexaflow/shared";
 import { sendWhatsAppText } from "../whatsapp.service";
 import { canSendNow, recordSend } from "../sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../billing.service";
+import { decryptTokenIfNeeded } from "../../lib/tokenCrypto";
 import { pickNextAgent } from "../routing.service";
 import { suggestReplies } from "../ai.service";
 import {
@@ -125,9 +126,16 @@ const messageHandler: NodeHandler = {
     }
 
     try {
+      const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+      if (!accessToken) {
+        return {
+          nextNodeId: node.next ?? null,
+          trail: { skipped: "WABA access token failed to decrypt" },
+        };
+      }
       const metaMessageId = await sendWhatsAppText({
         phoneNumberId: tenant.wabaPhoneNumber,
-        accessToken: tenant.wabaAccessToken,
+        accessToken,
         to: contact.phoneNumber.replace(/^\+/, ""),
         body: text,
       });

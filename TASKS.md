@@ -91,12 +91,9 @@ Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 Phase A is shipping code complete; a live k6 run against staging is the
 remaining gate before Phase B opens. See `apps/load/README.md`.
 
-**Phase B — Auth + Redis + send throttle hardening (100k concurrent / 400 MPS)**
-- T-090 Redis verification cache for access-token validation (sub-ms re-validation)
-- T-091 Per-account login throttle in Redis (5 fails / 15 min / account)
-- T-092 Redis Cluster behind `getRedis()` — shard by key prefix; failover test
-- T-093 Send throttle per-WABA-phone-number (today: per-tenant)
-- T-094 Envelope-encrypt `Tenant.wabaAccessToken` at rest with a KMS key (supersedes T-013)
+**Phase B — Auth + Redis + send throttle hardening (100k concurrent / 400 MPS)** ✅ code complete; load test pending
+
+A live k6 run at 100k concurrent / 400 MPS is the remaining gate before Phase C opens.
 
 **Phase C — Real-time inbox + read replicas (100k concurrent WS)**
 - T-100 WebSocket service (`APP_MODE=realtime`) with Socket.io + Redis adapter (supersedes T-061)
@@ -134,6 +131,11 @@ remaining gate before Phase B opens. See `apps/load/README.md`.
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-094 Envelope-encrypt `Tenant.wabaAccessToken` at rest**. AES-256-GCM with a per-record DEK encrypted under a KEK derived from `TENANT_TOKEN_ENCRYPTION_KEY` via HKDF. On-disk format `v1:<base64>`, version-prefixed for future KMS swap. Backwards compatible — legacy plaintext is passed through and re-encrypted on next write. 4 new unit tests; closes the WABA-token plaintext debt in SECURITY.md.
+- ✅ **T-093 Send throttle per-WABA-phone-number**. Adds a second sliding-window check keyed by phone-number id; `SEND_PER_PHONE_PER_SECOND_LIMIT` default 80. Wired through all 6 send paths.
+- ✅ **T-092 Redis Cluster behind `getRedis()`**. Cluster transport via `REDIS_CLUSTER_URLS`; tenant-scoped keys hash-tagged so multi-key ops stay on one slot. New `pingRedis()` replaces the cluster-incompatible `redis.ping()` in readiness checks.
+- ✅ **T-091 Per-account login throttle (5 fails / 15 min)**. Email is sha256-hashed before being used as a Redis key. Pre-check happens before bcrypt so locked-out attackers can't burn CPU. Closes the per-account throttle debt in SECURITY.md.
+- ✅ **T-090 Redis-cached auth context (sub-ms re-validation)**. requireAuth now consults a 60s Redis cache of `{userStatus, role, tenantId, tenantStatus, revokedAt}` and rejects suspended users/tenants without a DB hit on the hot path. Verified live: cache miss = 45ms, cache hits = 4–6ms.
 - ✅ **T-087 k6 load harness in `apps/load/`** — 3 scenarios (`auth-burst`, `inbox-poll`, `webhook-storm`) with thresholds aligned to the Phase A target (50k concurrent / 200 MPS).
 - ✅ **T-082..T-086 Remaining workers → BullMQ**. Appointment, flow, SLA, webhook retry, and lead follow-up workers all migrated off `setInterval` polling. Scan-style workers (appointment / flow / sla / lead-followup) use repeatable scan jobs every 30–60s; the webhook retry worker uses BullMQ-native `attempts` + a custom backoff strategy preserving the existing 1m/5m/30m/2h schedule. Flow worker uses `updateMany where status=WAITING` to atomically claim runs across replicas. `/admin/queues` reports depth for all 6 queues. See ADR-015.
 - ✅ **T-081 PgBouncer + `DATABASE_URL_POOLED`**. `edoburu/pgbouncer:v1.24.1-p1` added to docker-compose on `:6432` in transaction mode. `packages/db/src/index.ts` reads `DATABASE_URL_POOLED || DATABASE_URL` at runtime; schema's `env("DATABASE_URL")` continues to drive `prisma migrate`. Backwards compatible — dev keeps working without the pool. See ADR-016.

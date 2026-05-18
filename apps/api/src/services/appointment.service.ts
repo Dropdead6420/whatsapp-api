@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import { prisma } from "@nexaflow/db";
+import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { canSendNow, recordSend } from "./sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
@@ -87,9 +88,16 @@ async function sendAppointmentMessage(
       }
       throw err;
     }
+    const accessToken = decryptTokenIfNeeded(appt.tenant.wabaAccessToken);
+    if (!accessToken) {
+      console.warn(
+        `[appointments] ${kind} skipped for ${appt.id}: access token failed to decrypt`,
+      );
+      return false;
+    }
     const metaMessageId = await sendWhatsAppText({
       phoneNumberId: appt.tenant.wabaPhoneNumber,
-      accessToken: appt.tenant.wabaAccessToken,
+      accessToken,
       to: appt.contact.phoneNumber.replace(/^\+/, ""),
       body,
     });
