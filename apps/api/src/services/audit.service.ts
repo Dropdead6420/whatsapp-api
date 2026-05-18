@@ -7,6 +7,7 @@ export type AuditAction =
   | "DELETE"
   | "LOGIN"
   | "LOGIN_FAILED"
+  | "LOGIN_THROTTLED"
   | "LOGOUT"
   | "SIGNUP"
   | "PASSWORD_RESET_REQUEST"

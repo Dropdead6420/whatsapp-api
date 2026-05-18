@@ -18,6 +18,10 @@ import {
   isRefreshTokenBlacklisted,
   revokeRefreshToken,
   invalidateAuthContext,
+  clearLoginFails,
+  getLoginFailCount,
+  getLoginThrottleConfig,
+  recordLoginFail,
 } from "../lib/redis";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import {
@@ -232,6 +236,18 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
     const { email, password } = parseBody(loginSchema, req.body);
     const meta = extractRequestMeta(req);
 
+    // Per-account throttle (T-091). Pre-check before the bcrypt call so we
+    // refuse to burn CPU on a locked-out address.
+    const throttleCfg = getLoginThrottleConfig();
+    const existingFails = await getLoginFailCount(email);
+    if (existingFails >= throttleCfg.max) {
+      throw new ApiError(
+        ErrorCodes.TOO_MANY_REQUESTS,
+        429,
+        `Too many failed login attempts. Try again in ${Math.ceil(throttleCfg.windowSeconds / 60)} minutes.`,
+      );
+    }
+
     const user = await prisma.user.findFirst({
       where: { email: email.toLowerCase() },
     });
@@ -243,16 +259,20 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
     );
 
     if (!user) {
+      // Record the fail even when the account doesn't exist — otherwise
+      // attackers can enumerate addresses for free.
+      await recordLoginFail(email);
       throw invalidCredentials;
     }
 
     const passwordOk = await authService.comparePassword(password, user.password);
     if (!passwordOk) {
+      const failResult = await recordLoginFail(email);
       if (user.tenantId) {
         await logAudit({
           tenantId: user.tenantId,
           userId: user.id,
-          action: "LOGIN_FAILED",
+          action: failResult.thresholdHit ? "LOGIN_THROTTLED" : "LOGIN_FAILED",
           resource: "User",
           resourceId: user.id,
           ...meta,
@@ -284,6 +304,10 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
       user.role as UserRole,
       user.tenantId,
     );
+
+    // Successful login — clear the throttle counter so the next typo
+    // doesn't start halfway to lockout.
+    await clearLoginFails(email);
 
     await prisma.user.update({
       where: { id: user.id },

@@ -1,4 +1,5 @@
 import { createClient, RedisClientType } from "redis";
+import { createHash } from "node:crypto";
 
 let client: RedisClientType | null = null;
 let connecting: Promise<RedisClientType> | null = null;
@@ -122,4 +123,78 @@ export async function invalidateAuthContext(userId: string): Promise<void> {
   } catch {
     // Non-fatal — the cache will expire on its own within the TTL.
   }
+}
+
+// ----------------------------------------------------------------------------
+// Per-account login throttle (T-091). Bucket = sha256(lowercased email).
+// We never log the email value into Redis. After LOGIN_FAILS_MAX failed
+// attempts inside LOGIN_FAILS_WINDOW_SECONDS, login returns 429 until the
+// window expires. The global IP-level rate limit still applies on top.
+// ----------------------------------------------------------------------------
+
+const LOGIN_FAIL_PREFIX = "auth:login-fail:";
+const LOGIN_FAILS_MAX = Number(process.env.LOGIN_FAILS_MAX ?? 5);
+const LOGIN_FAILS_WINDOW_SECONDS = Number(
+  process.env.LOGIN_FAILS_WINDOW_SECONDS ?? 15 * 60,
+);
+
+function loginFailKey(email: string): string {
+  const hash = createHash("sha256").update(email.toLowerCase()).digest("hex");
+  return `${LOGIN_FAIL_PREFIX}${hash.slice(0, 32)}`;
+}
+
+export async function getLoginFailCount(email: string): Promise<number> {
+  try {
+    const r = await getRedis();
+    const v = await r.get(loginFailKey(email));
+    return v ? Number(v) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Throws nothing — the route layer reads the count and decides whether to
+ * 429. Returns true when the account just crossed the threshold so callers
+ * can audit-log the lockout transition.
+ */
+export async function recordLoginFail(email: string): Promise<{
+  count: number;
+  ttlSeconds: number;
+  thresholdHit: boolean;
+}> {
+  try {
+    const r = await getRedis();
+    const key = loginFailKey(email);
+    const tx = r.multi();
+    tx.incr(key);
+    tx.expire(key, LOGIN_FAILS_WINDOW_SECONDS, "NX");
+    tx.ttl(key);
+    const results = (await tx.exec()) ?? [];
+    const count = Number(results[0]) || 0;
+    const ttl = Number(results[2]) || LOGIN_FAILS_WINDOW_SECONDS;
+    return {
+      count,
+      ttlSeconds: ttl > 0 ? ttl : LOGIN_FAILS_WINDOW_SECONDS,
+      thresholdHit: count === LOGIN_FAILS_MAX,
+    };
+  } catch {
+    return { count: 0, ttlSeconds: 0, thresholdHit: false };
+  }
+}
+
+export async function clearLoginFails(email: string): Promise<void> {
+  try {
+    const r = await getRedis();
+    await r.del(loginFailKey(email));
+  } catch {
+    // Non-fatal.
+  }
+}
+
+export function getLoginThrottleConfig(): {
+  max: number;
+  windowSeconds: number;
+} {
+  return { max: LOGIN_FAILS_MAX, windowSeconds: LOGIN_FAILS_WINDOW_SECONDS };
 }
