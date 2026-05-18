@@ -18,6 +18,36 @@ services:
       timeout: 5s
       retries: 5
 
+  # PgBouncer sits in front of Postgres so many API/worker replicas can
+  # share a small upstream connection budget. App queries should use
+  # DATABASE_URL_POOLED (port 6432); Prisma migrations + schema diff use
+  # DATABASE_URL (direct, port 5432).
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: nexaflow-pgbouncer
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: nexaflow
+      DB_PASSWORD: nexaflow
+      DB_NAME: nexaflow_dev
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "25"
+      MIN_POOL_SIZE: "5"
+      RESERVE_POOL_SIZE: "5"
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "psql -h 127.0.0.1 -p 5432 -U nexaflow -d nexaflow_dev -c 'select 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: nexaflow-redis

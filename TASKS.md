@@ -87,7 +87,6 @@ Detailed plan lives in [`docs/SCALE_PLAN_1M.md`](docs/SCALE_PLAN_1M.md).
 Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 
 **Phase A — Worker fleet + DB pool (50k concurrent / 200 MPS)**
-- T-081 PgBouncer in compose + `DATABASE_URL_POOLED` env (Codex-ready)
 - T-082 Migrate appointment worker to BullMQ
 - T-083 Migrate flow runtime worker to BullMQ (preserves DELAY resume semantics)
 - T-084 Migrate SLA worker to BullMQ (or convert to a singleton scheduled job)
@@ -138,6 +137,7 @@ Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-081 PgBouncer + `DATABASE_URL_POOLED`**. `edoburu/pgbouncer:v1.24.1-p1` added to docker-compose on `:6432` in transaction mode. `packages/db/src/index.ts` reads `DATABASE_URL_POOLED || DATABASE_URL` at runtime; schema's `env("DATABASE_URL")` continues to drive `prisma migrate`. Backwards compatible — dev keeps working without the pool. See ADR-016.
 - ✅ **T-080 Campaign worker migrated to BullMQ**. `dispatchCampaign(id)` is now a queue job; a repeatable `scan` job runs every 30s and enqueues due `SCHEDULED` campaigns with `jobId: dispatch:<id>` for natural dedup. Producer side covered by 2 unit tests; live boot verified the scheduler registers in Redis (`bull:campaign-dispatch:repeat:scan`) and shutdown drains cleanly in <1s. Added `GET /api/v1/admin/queues` for depth visibility. Bull v4 dep dropped (it was unused). See ADR-015.
 - ✅ **T-003 Inbound WhatsApp webhook idempotency + signature verification**. `Message.metaMessageId` is unique, webhook raw body is preserved, `X-Hub-Signature-256` is verified with constant-time HMAC when `META_APP_SECRET` is configured, production fails closed without a real secret, duplicate provider message ids skip all downstream side-effects, and duplicate-key races return `null` instead of re-processing.
 - ✅ **T-002 Wallet debits wired into AI calls** (shared `callLlmJson()` pre-checks via `assertCanAffordAi`, logs `AiUsage`, then debits idempotently via `debitAi(AiUsage.id)`). Supports global `AI_CALL_COST_CREDITS` and per-feature overrides like `AI_CALL_COST_CREDITS_CAMPAIGN_AUTOPILOT`. Tests cover success debit, provider failure no-debit, and feature override pricing.

@@ -226,3 +226,22 @@ Format:
   - `bull` v4 dropped; nobody else imported it. Reduces install surface.
   - When `APP_MODE=worker` is set in deployment, the worker process consumes the queue without an HTTP listener.
   - Shutdown order is now `stopWorkers() → closeQueues() → prisma.$disconnect + closeRedis`. `closeQueues` awaits in-flight jobs to drain.
+
+---
+
+## ADR-016 — PgBouncer in transaction mode for runtime; direct URL for migrations
+
+- **Date**: 2026-05-18
+- **Status**: Accepted
+- **Context**: Phase A scale plan wants multi-replica API + worker deployments. A single Postgres only tolerates ~100 connections. With Prisma's default connection pool of 17 per client, 6 replicas already exhausts the budget.
+- **Decision**:
+  - **Pooler**: `edoburu/pgbouncer:v1.24.1-p1` in docker-compose, listening on `:6432`, transaction-mode (`POOL_MODE=transaction`), `MAX_CLIENT_CONN=1000`, `DEFAULT_POOL_SIZE=25`.
+  - **Two URLs**:
+    - `DATABASE_URL` → direct upstream (port 5432). Used by Prisma `migrate` / `db push` (session-mode features the transaction-mode pool can't proxy).
+    - `DATABASE_URL_POOLED` → through PgBouncer (port 6432, query string `?pgbouncer=true` so Prisma disables prepared statements).
+  - **Runtime selection**: `packages/db/src/index.ts` reads `DATABASE_URL_POOLED || DATABASE_URL` and passes the chosen URL via `datasources.db.url` at PrismaClient construction. The schema's `url = env("DATABASE_URL")` is unchanged — migrations still read the direct URL.
+  - **Backwards compatible**: dev with no PgBouncer keeps working because `DATABASE_URL_POOLED` is optional.
+- **Consequences**:
+  - The app can scale to many replicas while the upstream Postgres connection count stays bounded.
+  - Transaction mode forbids session-level features (`SET LOCAL` outside a tx, advisory locks across calls, etc). Prisma client doesn't use them; if a future feature needs them, route it through `directUrl`.
+  - PgBouncer's `pgbouncer` admin DB requires its own auth and is not exposed via the app user. The compose health check uses `pg_isready` on the upstream behind the pool.
