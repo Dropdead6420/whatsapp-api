@@ -17,6 +17,7 @@ import {
   isRefreshTokenActive,
   isRefreshTokenBlacklisted,
   revokeRefreshToken,
+  invalidateAuthContext,
 } from "../lib/redis";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import {
@@ -350,6 +351,9 @@ router.post("/logout", async (req: Request, res: Response, next: NextFunction) =
       try {
         const payload = authService.verifyRefreshToken(refreshToken);
         await revokeRefreshToken(payload.jti);
+        // Drop the cached auth context so a stolen access token can't keep
+        // riding the cache TTL after logout.
+        await invalidateAuthContext(payload.userId);
       } catch {
         // already invalid — silently succeed
       }
@@ -442,6 +446,9 @@ router.post(
           data: { usedAt: new Date() },
         }),
       ]);
+
+      // Drop cached auth context so the next request re-validates.
+      await invalidateAuthContext(record.userId);
 
       if (record.tenantId) {
         await logAudit({
