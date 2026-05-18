@@ -65,12 +65,24 @@ describe("whatsapp factory", () => {
     mocks.routeFindFirst.mockResolvedValue({
       tenantId: "t1",
       phoneNumberId: null,
-      providerKey: "GUPSHUP", // not registered yet
+      providerKey: "DIALOG_360", // not registered yet
       isActive: true,
     });
     const { getWhatsAppProvider } = await import("./index");
     const provider = await getWhatsAppProvider({ tenantId: "t1" });
     expect(provider.key).toBe("meta");
+  });
+
+  it("returns the Gupshup adapter when the route picks it", async () => {
+    mocks.routeFindFirst.mockResolvedValue({
+      tenantId: "t1",
+      phoneNumberId: null,
+      providerKey: "GUPSHUP",
+      isActive: true,
+    });
+    const { getWhatsAppProvider } = await import("./index");
+    const provider = await getWhatsAppProvider({ tenantId: "t1" });
+    expect(provider.key).toBe("gupshup");
   });
 
   it("falls back to Meta when the ProviderRoute lookup throws", async () => {

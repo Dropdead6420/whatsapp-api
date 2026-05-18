@@ -26,14 +26,14 @@ _(none — open this column when a slice is in flight)_
 - **Scope**: L — split into 3 sub-tasks (Claude: plan before assigning)
 - **Why**: Manual WABA token paste is a non-starter for non-technical users.
 
-### T-005 — Provider Abstraction Layer
+### T-005 — Provider Abstraction Layer ✅ shipped
 - **Priority**: P1
 - **Blueprint**: §5.3 + ADR-007 (superseded by ADR-017 + ADR-018)
-- **Scope**: L — split into:
+- **Scope**: L — shipped in three steps:
   1. ~~Interface + Meta adapter~~ ✅ shipped (T-005a, ADR-017)
   2. ~~`ProviderRoute` table + tenant-aware factory~~ ✅ shipped (T-005b, ADR-018)
-  3. Gupshup adapter (first BSP)
-- **Why**: Single biggest architectural lock-in if we keep delaying. Future BSP work is cheap once this lands.
+  3. ~~Gupshup adapter (first BSP)~~ ✅ shipped (T-005c)
+- **Follow-up**: T-005d — per-tenant config from `ProviderRoute.config` (envelope-encrypted) so Gupshup credentials don't have to be env-wide.
 
 ---
 
@@ -126,6 +126,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-005c Gupshup adapter (first non-Meta BSP)**. `services/whatsapp/providers/gupshup.ts` implements the `WhatsAppProvider` interface against Gupshup's form-encoded `/wa/api/v1/msg` + `/wa/api/v1/template/msg` endpoints; registered in the factory's `ADAPTERS` map. Credentials read from `GUPSHUP_API_KEY` / `GUPSHUP_APP_NAME` / `GUPSHUP_SOURCE` env (per-tenant config from `ProviderRoute.config` follows as T-005d). 4 unit tests with mocked fetch + a new factory test for Gupshup routing. 33/33 tests pass.
 - ✅ **T-005b ProviderRoute table + tenant-aware factory**. New `ProviderRoute` model + `WhatsAppProviderKey` enum (META / GUPSHUP / DIALOG_360 / TWILIO / HAPTIK). `getWhatsAppProvider({tenantId, phoneNumberId?})` consults the table: phone-scoped row → tenant default → Meta fallback. All 7 send sites now pass `tenantId`; existing tenants see zero routing change (no rows = Meta). 5 new factory unit tests cover the lookup matrix. See ADR-018.
 - ✅ **T-005a Provider abstraction (Meta-only baseline)**. New `services/whatsapp/` with `WhatsAppProvider` interface + `metaProvider` adapter + `getWhatsAppProvider()` factory. Old `services/whatsapp.service.ts` becomes a thin re-exporter — every existing send-path caller keeps working unchanged. ADR-017 documents the contract. 23/23 tests still pass; live API boots + shuts down clean. Unblocks T-005b (`ProviderRoute` table) and T-005c (Gupshup adapter).
 - ✅ **T-124 Chaos drill runbook**. `docs/CHAOS_DRILL_RUNBOOK.md` — 5 scenarios (kill worker, kill replica, kill Redis shard, saturate Anthropic, cold-cache restart) with expected behavior + page-if thresholds. Staging-only; quarterly cadence.

@@ -6,6 +6,7 @@ import type {
   WhatsAppProvider,
 } from "./types";
 import { metaProvider } from "./providers/meta";
+import { gupshupProvider } from "./providers/gupshup";
 
 // Factory + back-compat thin wrappers (T-005 steps 1 + 2).
 //
@@ -20,7 +21,8 @@ import { metaProvider } from "./providers/meta";
 
 const ADAPTERS: Partial<Record<WhatsAppProviderKey, WhatsAppProvider>> = {
   [WhatsAppProviderKey.META]: metaProvider,
-  // Future: gupshup, dialog360, twilio, haptik adapters land here.
+  [WhatsAppProviderKey.GUPSHUP]: gupshupProvider,
+  // Future: dialog360, twilio, haptik adapters land here.
 };
 
 export interface ProviderSelector {
