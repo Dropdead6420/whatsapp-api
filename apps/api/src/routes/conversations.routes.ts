@@ -26,13 +26,42 @@ const router = Router();
 router.use(requireAuth, requireTenantScope);
 
 const listSchema = z.object({
+  // page is retained for backwards compatibility; cursor takes precedence.
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
+  // Cursor-based pagination (T-102). Opaque base64 token returned in
+  // `nextCursor` on the previous page.
+  cursor: z.string().min(1).max(128).optional(),
   assignedToMe: z.coerce.boolean().optional(),
   isActive: z.coerce.boolean().optional(),
   label: z.string().trim().min(1).max(40).optional(),
   slaBreached: z.coerce.boolean().optional(),
 });
+
+interface ConversationCursor {
+  lastMessageAt: string | null;
+  id: string;
+}
+
+function encodeCursor(c: ConversationCursor): string {
+  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+}
+
+function decodeCursor(raw: string): ConversationCursor | null {
+  try {
+    const json = Buffer.from(raw, "base64url").toString("utf8");
+    const parsed = JSON.parse(json) as ConversationCursor;
+    if (typeof parsed.id !== "string") return null;
+    if (
+      parsed.lastMessageAt !== null &&
+      typeof parsed.lastMessageAt !== "string"
+    )
+      return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 const replySchema = z.object({
   body: z.string().min(1).max(4096),
@@ -74,31 +103,82 @@ router.get(
       if (q.slaBreached === true) where.slaBreachedAt = { not: null };
       if (q.slaBreached === false) where.slaBreachedAt = null;
 
-      // List endpoint is read-heavy; route through the replica when configured.
-      // Falls back to the primary when DATABASE_URL_READ is unset.
-      const [total, items] = await prismaRead.$transaction([
-        prismaRead.conversation.count({ where }),
-        prismaRead.conversation.findMany({
-          where,
-          skip: (q.page - 1) * q.limit,
-          take: q.limit,
-          orderBy: { lastMessageAt: "desc" },
-          include: {
-            contact: true,
-            agent: { select: { id: true, name: true } },
-            messages: { orderBy: { createdAt: "desc" }, take: 1 },
-          },
-        }),
-      ]);
+      // Cursor pagination (T-102). The composite (lastMessageAt, id) cursor
+      // tolerates ties when many conversations share the same millisecond
+      // timestamp — keyset pagination stays correct.
+      const useCursor = typeof q.cursor === "string";
+      const cursor = useCursor ? decodeCursor(q.cursor!) : null;
+      if (useCursor && !cursor) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "Invalid pagination cursor.",
+        );
+      }
+      if (cursor) {
+        const lastMessageAt = cursor.lastMessageAt
+          ? new Date(cursor.lastMessageAt)
+          : null;
+        // (lastMessageAt, id) strictly less than the cursor. Null
+        // lastMessageAt sorts last in DESC order.
+        if (lastMessageAt) {
+          where.OR = [
+            { lastMessageAt: { lt: lastMessageAt } },
+            { lastMessageAt, id: { lt: cursor.id } },
+          ];
+        } else {
+          where.lastMessageAt = null;
+          where.id = { lt: cursor.id };
+        }
+      }
 
+      const take = q.limit + 1; // fetch one extra to know if there's a next page
+      const items = await prismaRead.conversation.findMany({
+        where,
+        ...(useCursor ? {} : { skip: (q.page - 1) * q.limit }),
+        take,
+        orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
+        include: {
+          contact: true,
+          agent: { select: { id: true, name: true } },
+          messages: { orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      });
+
+      const hasMore = items.length > q.limit;
+      const page = hasMore ? items.slice(0, q.limit) : items;
+      const last = page[page.length - 1];
+      const nextCursor =
+        hasMore && last
+          ? encodeCursor({
+              lastMessageAt: last.lastMessageAt
+                ? last.lastMessageAt.toISOString()
+                : null,
+              id: last.id,
+            })
+          : null;
+
+      if (useCursor) {
+        res.json({
+          success: true,
+          data: page,
+          pagination: { limit: q.limit, nextCursor, hasMore },
+        });
+        return;
+      }
+
+      // Legacy offset response — kept for backwards compat. Count is
+      // intentionally O(filtered rows); the cursor form skips it.
+      const total = await prismaRead.conversation.count({ where });
       res.json({
         success: true,
-        data: items,
+        data: page,
         pagination: {
           page: q.page,
           limit: q.limit,
           total,
           totalPages: Math.max(1, Math.ceil(total / q.limit)),
+          nextCursor,
         },
       });
     } catch (err) {
