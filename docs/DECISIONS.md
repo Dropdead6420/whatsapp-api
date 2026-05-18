@@ -284,3 +284,21 @@ Format:
   - 5 new unit tests in `services/whatsapp/index.test.ts` cover the lookup matrix (no selector, no row, phone-scoped match, missing adapter, DB failure). All five pass.
   - The unique constraint on `(tenantId, phoneNumberId)` means deactivating a route is a `isActive: false` flip — never a delete — so audit trails stay intact.
   - Future SuperAdmin UI lands as a CRUD on this table; partner-portal flows pick the same factory by passing the tenant they're operating on.
+
+---
+
+## ADR-019 — Per-tenant provider config carried via `SendContext`; encrypted in `ProviderRoute.config`
+
+- **Date**: 2026-05-19
+- **Status**: Accepted; extends ADR-017 + ADR-018 (T-005 step 4 — T-005d)
+- **Context**: ADR-018 introduced `ProviderRoute.config` as a String? blob, but the Gupshup adapter shipped in T-005c only read env vars. Two problems with the env-only path: (1) it forces a single set of Gupshup credentials across every tenant, defeating the point of per-tenant routing; (2) it can't survive multi-tenant deployments where each customer brings their own BSP account.
+- **Decision**:
+  - Extend the `WhatsAppProvider` interface so both `sendText` and `sendTemplate` accept an optional `ctx: SendContext`. `SendContext.config` is the decrypted, JSON-parsed contents of `ProviderRoute.config` for the matching route. Meta's adapter accepts but ignores `ctx`; Gupshup (and future BSPs) read `ctx.config` first and fall back to env vars only when the ctx is missing or incomplete.
+  - The factory does the decrypt + parse, then **closure-binds** the context onto the returned adapter (`bindContext(adapter, config)`) so call sites don't see the new arg. The back-compat wrappers (`sendWhatsAppText` / `sendWhatsAppTemplate`) keep their existing signature — call sites pass `tenantId` as before, and the routing + config-binding happens transparently.
+  - On disk, `ProviderRoute.config` will be **envelope-encrypted** using the same `tokenCrypto` module that protects `Tenant.wabaAccessToken` (T-094, ADR-014). The decrypt path uses `decryptTokenIfNeeded` so a legacy plaintext blob is read transparently and re-encrypted on next write. The write path (Admin/SuperAdmin CRUD route — to land as T-005e) is the only place encryption fires.
+  - Failure modes are deliberately quiet: a malformed JSON blob, a decrypt failure, or a missing required key (e.g. Gupshup with no `apiKey`) does **not** demote the provider. The adapter just falls back to env at send time and operators see the regular Gupshup "not configured" error if env is also unset.
+- **Consequences**:
+  - Zero-disruption rollout — adapters that don't care about ctx (Meta) ignore it; ones that do (Gupshup) get cleaner per-tenant credentials. Existing tenants with no `ProviderRoute` row are untouched.
+  - 4 new unit tests cover ctx-preferred-over-env, partial-ctx fall-through, factory binding through the adapter, and malformed-JSON tolerance.
+  - The factory pattern of "return a closure-bound adapter" leaves room for future per-tenant policy injection (rate-limit budgets, trace metadata, retry hints) by extending `SendContext` without touching call sites.
+  - **T-005e** (next): SuperAdmin route for `ProviderRoute` CRUD that encrypts `config` on write. Until that lands, per-tenant routes must be inserted manually.

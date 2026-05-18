@@ -6,11 +6,50 @@ import { useRouter } from "next/navigation";
 import { login, ApiClientError } from "../../../src/lib/api";
 import { roleHome } from "../../../src/hooks/useAuth";
 
+interface LoginError {
+  message: string;
+  hint?: string;
+}
+
+// Map server-side ApiClientError codes to user-facing copy. Falling back
+// to the API's own message string is fine — those are already vetted —
+// but explicit cases let us add a hint (resend link, retry-window, etc).
+function explainLoginError(err: unknown): LoginError {
+  if (err instanceof ApiClientError) {
+    switch (err.code) {
+      case "INVALID_CREDENTIALS":
+        return { message: "Email or password is incorrect." };
+      case "TOO_MANY_REQUESTS":
+        return {
+          message: err.message,
+          hint:
+            "Too many failed attempts on this account. Wait the cooldown out or reset your password.",
+        };
+      case "EMAIL_NOT_VERIFIED":
+        return {
+          message: "Please verify your email before logging in.",
+          hint: "Check your inbox for the verification link — or sign up again to resend.",
+        };
+      case "FORBIDDEN":
+        return { message: err.message };
+      default:
+        return { message: err.message };
+    }
+  }
+  // Network error / API unreachable. Most common cause is the API
+  // process not running locally — surface that so the user doesn't
+  // chase a phantom credential bug.
+  return {
+    message: "Can't reach the server.",
+    hint: "Check your connection, or confirm the API is running on the expected port.",
+  };
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoginError | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -21,9 +60,7 @@ export default function LoginPage() {
       const { user } = await login(email.trim(), password);
       router.push(roleHome(user.role));
     } catch (err) {
-      const msg =
-        err instanceof ApiClientError ? err.message : "Login failed. Try again.";
-      setError(msg);
+      setError(explainLoginError(err));
     } finally {
       setBusy(false);
     }
@@ -66,8 +103,14 @@ export default function LoginPage() {
         </div>
 
         {error && (
-          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
+          <div
+            role="alert"
+            className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          >
+            <div className="font-medium">{error.message}</div>
+            {error.hint && (
+              <div className="mt-1 text-xs text-red-600/80">{error.hint}</div>
+            )}
           </div>
         )}
 

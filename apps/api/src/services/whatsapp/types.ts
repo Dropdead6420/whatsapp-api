@@ -50,7 +50,20 @@ export interface ProviderCapabilities {
   readonly supportsMedia: boolean;
 }
 
+/**
+ * Per-call context the factory passes to an adapter. Today it only
+ * carries the decrypted `ProviderRoute.config` blob; future fields
+ * (e.g. tenant brand, audit metadata) extend the same object so the
+ * interface stays stable.
+ */
+export interface SendContext {
+  /** Decrypted, JSON-parsed `ProviderRoute.config`. NULL when the
+   *  caller is using env-only configuration (the Meta adapter never
+   *  needs this; Gupshup / 360dialog / Twilio prefer it). */
+  config?: Record<string, unknown> | null;
+}
+
 export interface WhatsAppProvider extends ProviderCapabilities {
-  sendText(args: SendTextArgs): Promise<SendResult>;
-  sendTemplate(args: SendTemplateArgs): Promise<SendResult>;
+  sendText(args: SendTextArgs, ctx?: SendContext): Promise<SendResult>;
+  sendTemplate(args: SendTemplateArgs, ctx?: SendContext): Promise<SendResult>;
 }

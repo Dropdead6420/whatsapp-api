@@ -125,4 +125,62 @@ describe("gupshupProvider", () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("prefers ctx.config over env vars (T-005d)", async () => {
+    fetchMock.mockResolvedValue(
+      okResponse({ status: "submitted", messageId: "gs-ctx-1" }),
+    );
+    // Env says one thing — context overrides with per-tenant credentials.
+    process.env.GUPSHUP_API_KEY = "sk_env_default";
+    process.env.GUPSHUP_APP_NAME = "EnvDefaultApp";
+    process.env.GUPSHUP_SOURCE = "10000000000";
+
+    const { gupshupProvider } = await import("./gupshup");
+    await gupshupProvider.sendText(
+      {
+        phoneNumberId: "n/a",
+        accessToken: "n/a",
+        to: "919999999999",
+        body: "tenant-specific creds",
+      },
+      {
+        config: {
+          apiKey: "sk_tenant_abc",
+          appName: "TenantAbcApp",
+          source: "919876543210",
+        },
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init?.headers).toMatchObject({ apikey: "sk_tenant_abc" });
+    const form = new URLSearchParams(init?.body as string);
+    expect(form.get("source")).toBe("919876543210"); // ctx value, not env
+    expect(form.get("src.name")).toBe("TenantAbcApp");
+  });
+
+  it("falls through to env when ctx.config is missing required fields", async () => {
+    fetchMock.mockResolvedValue(
+      okResponse({ status: "submitted", messageId: "gs-fallback-1" }),
+    );
+
+    const { gupshupProvider } = await import("./gupshup");
+    await gupshupProvider.sendText(
+      {
+        phoneNumberId: "n/a",
+        accessToken: "n/a",
+        to: "919999999999",
+        body: "partial ctx",
+      },
+      { config: { apiKey: "" /* incomplete */ } }, // missing appName + source
+    );
+
+    // Env values were used because ctx was incomplete.
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init?.headers).toMatchObject({ apikey: "sk_test_gupshup" });
+    const form = new URLSearchParams(init?.body as string);
+    expect(form.get("source")).toBe("15551234567");
+    expect(form.get("src.name")).toBe("NexaFlowDev");
+  });
 });

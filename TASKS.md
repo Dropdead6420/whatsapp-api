@@ -28,12 +28,13 @@ _(none — open this column when a slice is in flight)_
 
 ### T-005 — Provider Abstraction Layer ✅ shipped
 - **Priority**: P1
-- **Blueprint**: §5.3 + ADR-007 (superseded by ADR-017 + ADR-018)
-- **Scope**: L — shipped in three steps:
+- **Blueprint**: §5.3 + ADR-007 (superseded by ADR-017 + ADR-018 + ADR-019)
+- **Scope**: L — shipped in four steps:
   1. ~~Interface + Meta adapter~~ ✅ shipped (T-005a, ADR-017)
   2. ~~`ProviderRoute` table + tenant-aware factory~~ ✅ shipped (T-005b, ADR-018)
   3. ~~Gupshup adapter (first BSP)~~ ✅ shipped (T-005c)
-- **Follow-up**: T-005d — per-tenant config from `ProviderRoute.config` (envelope-encrypted) so Gupshup credentials don't have to be env-wide.
+  4. ~~Per-tenant config from `ProviderRoute.config` (decrypted + ctx-bound)~~ ✅ shipped (T-005d, ADR-019)
+- **Follow-up**: T-005e — SuperAdmin CRUD route for `ProviderRoute` that envelope-encrypts `config` on write.
 
 ---
 
@@ -126,6 +127,8 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-005d Per-tenant config from `ProviderRoute.config` via `SendContext`**. `WhatsAppProvider` methods now accept an optional `ctx: SendContext` carrying the decrypted, JSON-parsed route config. Factory does the decrypt (via `tokenCrypto.decryptTokenIfNeeded` — legacy plaintext passes through) + binds it onto a closure-wrapped adapter, so call sites don't change. Gupshup adapter prefers `ctx.config` over env; partial config falls through to env. 4 new unit tests + 2 new factory tests. See ADR-019. T-005e (SuperAdmin CRUD UI that encrypts on write) is the natural follow-up.
+- ✅ **Login UX hardening**. The login page now maps `ApiClientError.code` to specific user-facing copy (`INVALID_CREDENTIALS`, `TOO_MANY_REQUESTS`, `EMAIL_NOT_VERIFIED`, `FORBIDDEN`), and surfaces a "Can't reach the server" message — not a credential error — when fetch itself fails. Adds a contextual hint below the main message for the throttled and unverified cases. Closes the bug where every failure looked like a wrong password.
 - ✅ **T-005c Gupshup adapter (first non-Meta BSP)**. `services/whatsapp/providers/gupshup.ts` implements the `WhatsAppProvider` interface against Gupshup's form-encoded `/wa/api/v1/msg` + `/wa/api/v1/template/msg` endpoints; registered in the factory's `ADAPTERS` map. Credentials read from `GUPSHUP_API_KEY` / `GUPSHUP_APP_NAME` / `GUPSHUP_SOURCE` env (per-tenant config from `ProviderRoute.config` follows as T-005d). 4 unit tests with mocked fetch + a new factory test for Gupshup routing. 33/33 tests pass.
 - ✅ **T-005b ProviderRoute table + tenant-aware factory**. New `ProviderRoute` model + `WhatsAppProviderKey` enum (META / GUPSHUP / DIALOG_360 / TWILIO / HAPTIK). `getWhatsAppProvider({tenantId, phoneNumberId?})` consults the table: phone-scoped row → tenant default → Meta fallback. All 7 send sites now pass `tenantId`; existing tenants see zero routing change (no rows = Meta). 5 new factory unit tests cover the lookup matrix. See ADR-018.
 - ✅ **T-005a Provider abstraction (Meta-only baseline)**. New `services/whatsapp/` with `WhatsAppProvider` interface + `metaProvider` adapter + `getWhatsAppProvider()` factory. Old `services/whatsapp.service.ts` becomes a thin re-exporter — every existing send-path caller keeps working unchanged. ADR-017 documents the contract. 23/23 tests still pass; live API boots + shuts down clean. Unblocks T-005b (`ProviderRoute` table) and T-005c (Gupshup adapter).

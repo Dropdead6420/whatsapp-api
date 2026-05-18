@@ -1,10 +1,15 @@
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import type {
+  SendContext,
   SendResult,
   SendTemplateArgs,
   SendTextArgs,
   WhatsAppProvider,
 } from "../types";
+
+// Meta adapter doesn't consume ctx.config — credentials still live on the
+// Tenant row (wabaAccessToken etc.). The arg is accepted for interface
+// uniformity with the other BSP adapters.
 
 // Meta Cloud API adapter — verbatim port of the previous
 // services/whatsapp.service.ts behavior, behind the WhatsAppProvider
@@ -56,7 +61,7 @@ export const metaProvider: WhatsAppProvider = {
   key: "meta",
   supportsMedia: true,
 
-  async sendText(args: SendTextArgs): Promise<SendResult> {
+  async sendText(args: SendTextArgs, _ctx?: SendContext): Promise<SendResult> {
     const url = `${META_GRAPH_BASE}/${args.phoneNumberId}/messages`;
     const res = await postToMeta(url, args.accessToken, {
       messaging_product: "whatsapp",
@@ -67,7 +72,10 @@ export const metaProvider: WhatsAppProvider = {
     return { providerMessageId: unwrapMessageId(res) };
   },
 
-  async sendTemplate(args: SendTemplateArgs): Promise<SendResult> {
+  async sendTemplate(
+    args: SendTemplateArgs,
+    _ctx?: SendContext,
+  ): Promise<SendResult> {
     const url = `${META_GRAPH_BASE}/${args.phoneNumberId}/messages`;
     const res = await postToMeta(url, args.accessToken, {
       messaging_product: "whatsapp",

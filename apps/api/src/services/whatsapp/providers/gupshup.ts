@@ -1,30 +1,26 @@
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import type {
+  SendContext,
   SendResult,
   SendTemplateArgs,
   SendTextArgs,
   WhatsAppProvider,
 } from "../types";
 
-// Gupshup BSP adapter — T-005c, first non-Meta provider.
+// Gupshup BSP adapter — T-005c.
 //
 // API surface differs from Meta:
 //   - Endpoint: https://api.gupshup.io/wa/api/v1/msg
 //   - Auth: `apikey` header (not Bearer)
 //   - Body: application/x-www-form-urlencoded (not JSON)
 //   - Sender identity comes from the configured `source` phone, not Meta's
-//     phoneNumberId. We keep the SendTextArgs.phoneNumberId in the
-//     interface — Gupshup ignores it; the `source` is read from
-//     GUPSHUP_SOURCE env (or ProviderRoute.config in a future iteration).
+//     phoneNumberId. The interface still carries phoneNumberId — Gupshup
+//     just ignores it.
 //
-// Credentials today come from env:
-//   - GUPSHUP_API_KEY  — required
-//   - GUPSHUP_APP_NAME — required (the Gupshup app id / src.name)
-//   - GUPSHUP_SOURCE   — required (the WABA-registered phone, E.164 no +)
-//
-// Per-tenant config from ProviderRoute.config lands in T-005d; env-only
-// is enough to validate the wire format and prove the interface
-// boundary holds.
+// Credentials are resolved in this order (T-005d):
+//   1. ctx.config (decrypted `ProviderRoute.config`, per-tenant)
+//   2. GUPSHUP_API_KEY / GUPSHUP_APP_NAME / GUPSHUP_SOURCE env (bootstrap
+//      for the dev path and for tenants without a config row yet)
 
 const GUPSHUP_API_BASE =
   process.env.GUPSHUP_API_BASE_URL ?? "https://api.gupshup.io/wa/api/v1";
@@ -35,7 +31,23 @@ interface GupshupCreds {
   source: string;
 }
 
-function readEnvCreds(): GupshupCreds {
+function readCredsFromContext(ctx?: SendContext): GupshupCreds | null {
+  const cfg = ctx?.config;
+  if (!cfg) return null;
+  const apiKey =
+    typeof cfg.apiKey === "string" && cfg.apiKey.trim() ? cfg.apiKey : null;
+  const appName =
+    typeof cfg.appName === "string" && cfg.appName.trim() ? cfg.appName : null;
+  const source =
+    typeof cfg.source === "string" && cfg.source.trim() ? cfg.source : null;
+  if (!apiKey || !appName || !source) return null;
+  return { apiKey, appName, source };
+}
+
+function readCreds(ctx?: SendContext): GupshupCreds {
+  const fromCtx = readCredsFromContext(ctx);
+  if (fromCtx) return fromCtx;
+
   const apiKey = process.env.GUPSHUP_API_KEY;
   const appName = process.env.GUPSHUP_APP_NAME;
   const source = process.env.GUPSHUP_SOURCE;
@@ -43,7 +55,7 @@ function readEnvCreds(): GupshupCreds {
     throw new ApiError(
       ErrorCodes.BAD_REQUEST,
       400,
-      "Gupshup adapter is not configured. Set GUPSHUP_API_KEY, GUPSHUP_APP_NAME, GUPSHUP_SOURCE (per-tenant route config lands in T-005d).",
+      "Gupshup adapter is not configured. Set ProviderRoute.config with {apiKey, appName, source} for the tenant, or GUPSHUP_API_KEY / GUPSHUP_APP_NAME / GUPSHUP_SOURCE env vars.",
     );
   }
   return { apiKey, appName, source };
@@ -94,8 +106,8 @@ export const gupshupProvider: WhatsAppProvider = {
   key: "gupshup",
   supportsMedia: true,
 
-  async sendText(args: SendTextArgs): Promise<SendResult> {
-    const creds = readEnvCreds();
+  async sendText(args: SendTextArgs, ctx?: SendContext): Promise<SendResult> {
+    const creds = readCreds(ctx);
     const body = new URLSearchParams({
       channel: "whatsapp",
       source: creds.source,
@@ -107,8 +119,11 @@ export const gupshupProvider: WhatsAppProvider = {
     return { providerMessageId: unwrapMessageId(res) };
   },
 
-  async sendTemplate(args: SendTemplateArgs): Promise<SendResult> {
-    const creds = readEnvCreds();
+  async sendTemplate(
+    args: SendTemplateArgs,
+    ctx?: SendContext,
+  ): Promise<SendResult> {
+    const creds = readCreds(ctx);
     const body = new URLSearchParams({
       channel: "whatsapp",
       source: creds.source,

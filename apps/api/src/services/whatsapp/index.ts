@@ -1,5 +1,6 @@
 import { prisma, WhatsAppProviderKey } from "@nexaflow/db";
 import type {
+  SendContext,
   SendResult,
   SendTemplateArgs,
   SendTextArgs,
@@ -7,6 +8,7 @@ import type {
 } from "./types";
 import { metaProvider } from "./providers/meta";
 import { gupshupProvider } from "./providers/gupshup";
+import { decryptTokenIfNeeded } from "../../lib/tokenCrypto";
 
 // Factory + back-compat thin wrappers (T-005 steps 1 + 2).
 //
@@ -33,11 +35,54 @@ export interface ProviderSelector {
 }
 
 /**
+ * Wrap an adapter so its sends carry the route's decrypted config
+ * without the caller having to pass it. Keeps the returned object
+ * shape-compatible with WhatsAppProvider so existing call sites
+ * (sendWhatsAppText / sendWhatsAppTemplate wrappers) don't change.
+ */
+function bindContext(
+  adapter: WhatsAppProvider,
+  config: SendContext["config"],
+): WhatsAppProvider {
+  if (!config) return adapter;
+  const ctx: SendContext = { config };
+  return {
+    key: adapter.key,
+    supportsMedia: adapter.supportsMedia,
+    sendText: (args) => adapter.sendText(args, ctx),
+    sendTemplate: (args) => adapter.sendTemplate(args, ctx),
+  };
+}
+
+/** Decrypt + JSON-parse ProviderRoute.config. Returns null on any
+ *  failure (decrypt error, malformed JSON) — the adapter then falls
+ *  back to its env-based credentials path. */
+function parseRouteConfig(raw: string | null | undefined): SendContext["config"] {
+  if (!raw) return null;
+  try {
+    const decrypted = decryptTokenIfNeeded(raw);
+    if (!decrypted) return null;
+    const parsed = JSON.parse(decrypted) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve which provider handles a send. Lookup order:
  *
  *   1. Active route matching (tenantId, phoneNumberId) exactly.
  *   2. Active route for the tenant with NULL phoneNumberId (default).
  *   3. Meta Cloud (built-in fallback).
+ *
+ * When a route row carries a `config` blob, it's decrypted + bound
+ * into the returned provider so the adapter receives it via `ctx`
+ * on every send. Decrypt / parse failures degrade silently to the
+ * adapter's env-based credentials path.
  *
  * Unknown providerKey entries (e.g. a future provider that isn't
  * implemented in this build) also fall back to Meta with a warning;
@@ -72,7 +117,7 @@ export async function getWhatsAppProvider(
       );
       return metaProvider;
     }
-    return adapter;
+    return bindContext(adapter, parseRouteConfig(row.config));
   } catch (err) {
     // DB hiccup — fall back rather than fail the send.
     console.warn(
