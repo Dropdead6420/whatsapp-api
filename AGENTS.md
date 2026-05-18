@@ -19,6 +19,24 @@ NexaFlow AI is a **full-stack, multi-tenant SaaS platform** combining WhatsApp B
 
 ---
 
+## 📌 Current Source of Truth
+
+Use `/Users/sidharthkumar/Downloads/NexaFlow_AI_Final_Product_Blueprint.pdf` as the latest product blueprint. The current build priority is:
+
+1. Core customer product: auth, dashboard, WhatsApp Cloud API, inbox, contacts, templates, campaigns
+2. Meta onboarding: Embedded Signup, WABA connection, phone number connection, webhook automation, business profile manager
+3. Partner portal: partner dashboard, customer management, wallet, transactions, team, demo system
+4. White label portal: custom domains, logo/colors, email branding, module control, preview mode
+5. AI automation: AI workflow builder, AI agents, AI compliance, AI partner assistant, AI onboarding assistant
+6. Enterprise scale: provider routing, marketplace, advanced analytics, omnichannel expansion
+
+The final positioning is: **AI-powered no-code customer automation operating system**, not only a WhatsApp API platform.
+
+Track implementation status in `docs/BLUEPRINT_PHASE_AUDIT.md`.
+Track scale architecture in `docs/10M_SCALE_ARCHITECTURE.md`.
+
+---
+
 ## 🏗 Architecture Overview
 
 ### 5 User-Facing Interfaces

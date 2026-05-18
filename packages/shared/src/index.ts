@@ -56,6 +56,38 @@ export enum TenantStatus {
   DELETED = "DELETED",
 }
 
+export enum DomainPortalType {
+  PARTNER = "PARTNER",
+  CUSTOMER = "CUSTOMER",
+  DEMO = "DEMO",
+  API = "API",
+  TRACKING = "TRACKING",
+}
+
+export enum DomainDnsStatus {
+  PENDING = "PENDING",
+  CNAME_FOUND = "CNAME_FOUND",
+  TXT_VERIFIED = "TXT_VERIFIED",
+  FAILED = "FAILED",
+}
+
+export enum DomainSslStatus {
+  PENDING = "PENDING",
+  ACTIVE = "ACTIVE",
+  FAILED = "FAILED",
+}
+
+export enum DomainStatus {
+  PENDING_DNS = "PENDING_DNS",
+  DNS_FOUND = "DNS_FOUND",
+  TXT_VERIFIED = "TXT_VERIFIED",
+  SSL_PENDING = "SSL_PENDING",
+  SSL_ACTIVE = "SSL_ACTIVE",
+  LIVE = "LIVE",
+  FAILED = "FAILED",
+  SUSPENDED = "SUSPENDED",
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -80,6 +112,86 @@ export interface Tenant {
   aiCreditsPerMonth: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface Domain {
+  id: string;
+  tenantId: string;
+  partnerTenantId?: string | null;
+  domain: string;
+  portalType: DomainPortalType;
+  verificationToken: string;
+  cnameHost: string;
+  cnameValue: string;
+  txtHost: string;
+  txtValue: string;
+  dnsStatus: DomainDnsStatus;
+  sslStatus: DomainSslStatus;
+  status: DomainStatus;
+  isPrimary: boolean;
+  lastCheckedAt?: Date | null;
+  lastError?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export enum WalletStatus {
+  ACTIVE = "ACTIVE",
+  SUSPENDED = "SUSPENDED",
+}
+
+export enum WalletBillingMode {
+  PREPAID = "PREPAID",
+  POSTPAID = "POSTPAID",
+}
+
+export enum WalletTransactionType {
+  CREDIT_ALLOCATION = "CREDIT_ALLOCATION",
+  CREDIT_REVERSAL = "CREDIT_REVERSAL",
+  MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT",
+  TRANSFER_IN = "TRANSFER_IN",
+  TRANSFER_OUT = "TRANSFER_OUT",
+  MESSAGE_DEBIT = "MESSAGE_DEBIT",
+  AI_DEBIT = "AI_DEBIT",
+  WORKFLOW_DEBIT = "WORKFLOW_DEBIT",
+  EXPIRY = "EXPIRY",
+  AUTO_RECHARGE = "AUTO_RECHARGE",
+}
+
+export enum WalletTransactionDirection {
+  CREDIT = "CREDIT",
+  DEBIT = "DEBIT",
+}
+
+export interface Wallet {
+  id: string;
+  tenantId: string;
+  status: WalletStatus;
+  billingMode: WalletBillingMode;
+  balanceCredits: number;
+  reservedCredits: number;
+  creditLimit: number;
+  lowBalanceThreshold: number;
+  autoRechargeEnabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface WalletTransaction {
+  id: string;
+  walletId: string;
+  tenantId: string;
+  actorUserId?: string | null;
+  type: WalletTransactionType;
+  direction: WalletTransactionDirection;
+  amountCredits: number;
+  balanceAfterCredits: number;
+  reason: string;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  counterpartyWalletId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: Date;
 }
 
 // ============================================================================
@@ -397,6 +509,8 @@ export const Permissions = {
   TEAM_MANAGE: "team:manage",
   BILLING_VIEW: "billing:view",
   BILLING_MANAGE: "billing:manage",
+  WALLET_VIEW: "wallet:view",
+  WALLET_MANAGE: "wallet:manage",
   WABA_CONFIGURE: "waba:configure",
 
   // Agent
@@ -417,6 +531,8 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.TEAM_MANAGE,
     Permissions.BILLING_VIEW,
     Permissions.BILLING_MANAGE,
+    Permissions.WALLET_VIEW,
+    Permissions.WALLET_MANAGE,
     Permissions.CONTACT_READ,
   ],
   [UserRole.BUSINESS_ADMIN]: [
@@ -431,6 +547,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.FLOW_PUBLISH,
     Permissions.TEAM_MANAGE,
     Permissions.BILLING_VIEW,
+    Permissions.WALLET_VIEW,
     Permissions.WABA_CONFIGURE,
     Permissions.CONVERSATION_READ,
     Permissions.CONVERSATION_REPLY,

@@ -20,6 +20,15 @@ export async function getRedis(): Promise<RedisClientType> {
   return connecting;
 }
 
+export async function closeRedis(): Promise<void> {
+  const active = client;
+  client = null;
+  connecting = null;
+  if (active?.isOpen) {
+    await active.quit();
+  }
+}
+
 const REFRESH_PREFIX = "auth:refresh:";
 const BLACKLIST_PREFIX = "auth:blacklist:";
 

@@ -1,0 +1,110 @@
+# Example production shape. Replace image names and secret refs for your cloud.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexaflow-api
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: nexaflow-api
+  template:
+    metadata:
+      labels:
+        app: nexaflow-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/dropdead6420/whatsapp-api-api:latest
+          ports:
+            - containerPort: 3001
+          envFrom:
+            - secretRef:
+                name: nexaflow-api-env
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: APP_MODE
+              value: api
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 3001
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "768Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexaflow-api
+spec:
+  selector:
+    app: nexaflow-api
+  ports:
+    - port: 80
+      targetPort: 3001
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nexaflow-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nexaflow-api
+  minReplicas: 6
+  maxReplicas: 200
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexaflow-worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nexaflow-worker
+  template:
+    metadata:
+      labels:
+        app: nexaflow-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/dropdead6420/whatsapp-api-api:latest
+          envFrom:
+            - secretRef:
+                name: nexaflow-api-env
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: APP_MODE
+              value: worker
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "768Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"

@@ -26,6 +26,38 @@ enum TenantStatus {
   DELETED
 }
 
+enum DomainPortalType {
+  PARTNER
+  CUSTOMER
+  DEMO
+  API
+  TRACKING
+}
+
+enum DomainDnsStatus {
+  PENDING
+  CNAME_FOUND
+  TXT_VERIFIED
+  FAILED
+}
+
+enum DomainSslStatus {
+  PENDING
+  ACTIVE
+  FAILED
+}
+
+enum DomainStatus {
+  PENDING_DNS
+  DNS_FOUND
+  TXT_VERIFIED
+  SSL_PENDING
+  SSL_ACTIVE
+  LIVE
+  FAILED
+  SUSPENDED
+}
+
 model Tenant {
   id                       String           @id @default(cuid())
   name                     String
@@ -85,6 +117,10 @@ model Tenant {
   auditLogs                AuditLog[]
   aiUsage                  AiUsage[]
   invoices                 Invoice[]
+  wallet                   Wallet?
+  walletTransactions       WalletTransaction[] @relation("TenantWalletTransactions")
+  domains                  Domain[]         @relation("TenantDomains")
+  partnerDomains           Domain[]         @relation("PartnerDomains")
   passwordResetTokens      PasswordResetToken[]
   emailVerificationTokens  EmailVerificationToken[]
   cannedReplies            CannedReply[]
@@ -97,6 +133,40 @@ model Tenant {
   updatedAt                DateTime         @updatedAt
 
   @@index([parentTenantId])
+  @@index([status])
+}
+
+model Domain {
+  id                       String           @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant           @relation("TenantDomains", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  partnerTenantId          String?
+  partnerTenant            Tenant?          @relation("PartnerDomains", fields: [partnerTenantId], references: [id], onDelete: SetNull)
+
+  domain                   String           @unique
+  portalType               DomainPortalType
+  verificationToken        String
+
+  cnameHost                String
+  cnameValue               String
+  txtHost                  String
+  txtValue                 String
+
+  dnsStatus                DomainDnsStatus  @default(PENDING)
+  sslStatus                DomainSslStatus  @default(PENDING)
+  status                   DomainStatus     @default(PENDING_DNS)
+  isPrimary                Boolean          @default(false)
+
+  lastCheckedAt            DateTime?
+  lastError                String?
+
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  @@index([tenantId])
+  @@index([partnerTenantId])
+  @@index([portalType])
   @@index([status])
 }
 
@@ -143,6 +213,7 @@ model User {
   leads                    Lead[]           @relation("LeadAssignee")
   apiKeys                  ApiKey[]
   auditLogs                AuditLog[]
+  walletTransactions       WalletTransaction[]
   oauthAccounts            OAuthAccount[]
 
   lastLoginAt              DateTime?
@@ -666,6 +737,88 @@ enum SubscriptionStatus {
   PAST_DUE
   CANCELLED
   EXPIRED
+}
+
+enum WalletStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum WalletBillingMode {
+  PREPAID
+  POSTPAID
+}
+
+enum WalletTransactionType {
+  CREDIT_ALLOCATION
+  CREDIT_REVERSAL
+  MANUAL_ADJUSTMENT
+  TRANSFER_IN
+  TRANSFER_OUT
+  MESSAGE_DEBIT
+  AI_DEBIT
+  WORKFLOW_DEBIT
+  EXPIRY
+  AUTO_RECHARGE
+}
+
+enum WalletTransactionDirection {
+  CREDIT
+  DEBIT
+}
+
+model Wallet {
+  id                       String           @id @default(cuid())
+  tenantId                 String           @unique
+  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  status                   WalletStatus     @default(ACTIVE)
+  billingMode              WalletBillingMode @default(PREPAID)
+  balanceCredits           Int              @default(0)
+  reservedCredits          Int              @default(0)
+  creditLimit              Int              @default(0)
+  lowBalanceThreshold      Int              @default(100)
+  autoRechargeEnabled      Boolean          @default(false)
+
+  transactions             WalletTransaction[] @relation("WalletTransactions")
+  counterpartyTransactions WalletTransaction[] @relation("CounterpartyWallet")
+
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  @@index([status])
+  @@index([billingMode])
+}
+
+model WalletTransaction {
+  id                       String           @id @default(cuid())
+  walletId                 String
+  wallet                   Wallet           @relation("WalletTransactions", fields: [walletId], references: [id], onDelete: Cascade)
+
+  tenantId                 String
+  tenant                   Tenant           @relation("TenantWalletTransactions", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  actorUserId              String?
+  actorUser                User?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  type                     WalletTransactionType
+  direction                WalletTransactionDirection
+  amountCredits            Int
+  balanceAfterCredits      Int
+  reason                   String
+  referenceType            String?
+  referenceId              String?
+  counterpartyWalletId     String?
+  counterpartyWallet       Wallet?          @relation("CounterpartyWallet", fields: [counterpartyWalletId], references: [id], onDelete: SetNull)
+  metadata                 String?
+
+  createdAt                DateTime         @default(now())
+
+  @@index([walletId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([actorUserId])
+  @@index([type])
+  @@index([referenceType, referenceId])
 }
 
 model Subscription {

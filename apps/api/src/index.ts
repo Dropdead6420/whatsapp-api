@@ -2,8 +2,10 @@ import "dotenv/config";
 import express, { Express, Request, Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import { prisma } from "@nexaflow/db";
+import { closeRedis, getRedis } from "./lib/redis";
 import { errorHandler } from "./middleware/errorHandler";
+import { redisRateLimit } from "./middleware/redisRateLimit";
 import { authMiddleware } from "./middleware/auth";
 import authRoutes from "./routes/auth.routes";
 import tenantsRoutes from "./routes/tenants.routes";
@@ -23,15 +25,46 @@ import appointmentsRoutes, {
 } from "./routes/appointments.routes";
 import flowsRoutes from "./routes/flows.routes";
 import webhooksRoutes from "./routes/webhooks.routes";
-import { startCampaignWorker } from "./services/campaign.service";
-import { startAppointmentWorker } from "./services/appointment.service";
-import { startFlowWorker } from "./services/flow/engine";
-import { startSlaWorker } from "./services/sla.service";
-import { startWebhookWorker } from "./services/webhook.service";
-import { startLeadFollowUpWorker } from "./services/leadFollowUp.service";
+import domainsRoutes from "./routes/domains.routes";
+import walletsRoutes from "./routes/wallets.routes";
+import {
+  startCampaignWorker,
+  stopCampaignWorker,
+} from "./services/campaign.service";
+import {
+  startAppointmentWorker,
+  stopAppointmentWorker,
+} from "./services/appointment.service";
+import { startFlowWorker, stopFlowWorker } from "./services/flow/engine";
+import { startSlaWorker, stopSlaWorker } from "./services/sla.service";
+import {
+  startWebhookWorker,
+  stopWebhookWorker,
+} from "./services/webhook.service";
+import {
+  startLeadFollowUpWorker,
+  stopLeadFollowUpWorker,
+} from "./services/leadFollowUp.service";
 
 const app: Express = express();
 const PORT = process.env.PORT ?? 3001;
+type AppMode = "api" | "worker" | "all";
+
+function parseAppMode(value: string | undefined): AppMode {
+  const fallback = process.env.NODE_ENV === "production" ? "api" : "all";
+  if (!value) return fallback;
+  if (value === "api" || value === "worker" || value === "all") return value;
+  console.warn(`[startup] invalid APP_MODE=${value}; falling back to ${fallback}`);
+  return fallback;
+}
+
+const APP_MODE = parseAppMode(process.env.APP_MODE);
+const START_HTTP = APP_MODE === "api" || APP_MODE === "all";
+const START_WORKERS = APP_MODE === "worker" || APP_MODE === "all";
+const API_RATE_LIMIT_MAX = Number(process.env.API_RATE_LIMIT_MAX ?? 300);
+const PUBLIC_BOOKING_RATE_LIMIT_MAX = Number(
+  process.env.PUBLIC_BOOKING_RATE_LIMIT_MAX ?? 20,
+);
 
 app.set("trust proxy", 1);
 app.use(helmet());
@@ -51,34 +84,50 @@ app.use("/webhooks/whatsapp", webhookRouter);
 // Public booking endpoints — no auth, so they need their own rate limit.
 // 20 requests per IP per 15 minutes is plenty for legitimate bookings while
 // blunting spam.
-const publicBookingLimiter = rateLimit({
+const publicBookingLimiter = redisRateLimit({
+  name: "public-booking",
   windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: { code: "TOO_MANY_REQUESTS", message: "Too many booking requests." },
-  },
+  max: PUBLIC_BOOKING_RATE_LIMIT_MAX,
 });
 app.use("/public/booking", publicBookingLimiter, publicBookingRouter);
 
-const apiLimiter = rateLimit({
+const apiLimiter = redisRateLimit({
+  name: "api",
   windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: { code: "TOO_MANY_REQUESTS", message: "Rate limit exceeded." } },
+  max: API_RATE_LIMIT_MAX,
 });
 app.use("/api/", apiLimiter);
 
 app.use(authMiddleware);
+
+app.get("/live", (_req: Request, res: Response) => {
+  res.json({ status: "alive", timestamp: new Date().toISOString() });
+});
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 app.get("/api/v1/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", api: "NexaFlow AI v0.1.0", timestamp: new Date().toISOString() });
+});
+app.get(["/ready", "/api/v1/ready"], async (_req: Request, res: Response) => {
+  const startedAt = Date.now();
+  const checks = await Promise.allSettled([
+    prisma.$queryRaw`SELECT 1`,
+    getRedis().then((redis) => redis.ping()),
+  ]);
+  const services = [
+    { name: "postgres", ok: checks[0].status === "fulfilled" },
+    { name: "redis", ok: checks[1].status === "fulfilled" },
+  ];
+  const ready = services.every((service) => service.ok);
+  res.status(ready ? 200 : 503).json({
+    status: ready ? "ready" : "not_ready",
+    mode: APP_MODE,
+    latencyMs: Date.now() - startedAt,
+    services,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use("/api/v1/auth", authRoutes);
@@ -97,6 +146,8 @@ app.use("/api/v1/services", servicesRoutes);
 app.use("/api/v1/appointments", appointmentsRoutes);
 app.use("/api/v1/flows", flowsRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);
+app.use("/api/v1/domains", domainsRoutes);
+app.use("/api/v1/wallets", walletsRoutes);
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({
@@ -110,22 +161,64 @@ app.use((req: Request, res: Response) => {
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`🚀 NexaFlow API listening on http://localhost:${PORT}`);
-  console.log(`   Health:        http://localhost:${PORT}/api/v1/health`);
-  console.log(`   Webhook:       http://localhost:${PORT}/webhooks/whatsapp`);
-  console.log(`   Auth:          /api/v1/auth/{signup,login,refresh,logout,me}`);
-  console.log(`   Tenants:       /api/v1/tenants (SuperAdmin)`);
-  console.log(`   Contacts:      /api/v1/contacts`);
-  console.log(`   Campaigns:     /api/v1/campaigns`);
-  console.log(`   AI Copy:       /api/v1/ai/copy`);
-  void startCampaignWorker();
-  void startAppointmentWorker();
-  void startFlowWorker();
-  void startSlaWorker();
-  void startWebhookWorker();
-  void startLeadFollowUpWorker();
-});
+let server: ReturnType<Express["listen"]> | null = null;
+let shuttingDown = false;
+
+async function startWorkers(): Promise<void> {
+  await startCampaignWorker();
+  await startAppointmentWorker();
+  await startFlowWorker();
+  await startSlaWorker();
+  await startWebhookWorker();
+  await startLeadFollowUpWorker();
+}
+
+function stopWorkers(): void {
+  stopCampaignWorker();
+  stopAppointmentWorker();
+  stopFlowWorker();
+  stopSlaWorker();
+  stopWebhookWorker();
+  stopLeadFollowUpWorker();
+}
+
+if (START_HTTP) {
+  server = app.listen(PORT, () => {
+    console.log(`🚀 NexaFlow API listening on http://localhost:${PORT}`);
+    console.log(`   Mode:          ${APP_MODE}`);
+    console.log(`   Health:        http://localhost:${PORT}/api/v1/health`);
+    console.log(`   Readiness:     http://localhost:${PORT}/api/v1/ready`);
+    console.log(`   Webhook:       http://localhost:${PORT}/webhooks/whatsapp`);
+    console.log(`   Auth:          /api/v1/auth/{signup,login,refresh,logout,me}`);
+    console.log(`   Tenants:       /api/v1/tenants (SuperAdmin)`);
+    console.log(`   Contacts:      /api/v1/contacts`);
+    console.log(`   Campaigns:     /api/v1/campaigns`);
+    console.log(`   AI Copy:       /api/v1/ai/copy`);
+  });
+}
+
+if (START_WORKERS) {
+  void startWorkers();
+  if (!START_HTTP) {
+    console.log("⚙️  NexaFlow worker process started");
+    console.log(`   Mode: ${APP_MODE}`);
+  }
+}
+
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] received ${signal}`);
+  stopWorkers();
+
+  await new Promise<void>((resolve) => {
+    if (!server) return resolve();
+    server.close(() => resolve());
+  });
+
+  await Promise.allSettled([prisma.$disconnect(), closeRedis()]);
+  process.exit(0);
+}
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
@@ -134,5 +227,7 @@ process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error);
   process.exit(1);
 });
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
 
 export default app;

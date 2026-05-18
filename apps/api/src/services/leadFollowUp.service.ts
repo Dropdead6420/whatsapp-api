@@ -10,6 +10,7 @@ import { sendWhatsAppText } from "./whatsapp.service";
 import { emitWebhookEvent } from "./webhook.service";
 
 let workerStarted = false;
+let workerHandle: ReturnType<typeof setInterval> | null = null;
 
 async function getTenantWabaConfig(tenantId: string) {
   const tenant = await prisma.tenant.findUnique({
@@ -164,7 +165,6 @@ async function processDueFollowUps(): Promise<void> {
 
 export async function startLeadFollowUpWorker(): Promise<void> {
   if (workerStarted) return;
-  workerStarted = true;
 
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -176,10 +176,19 @@ export async function startLeadFollowUpWorker(): Promise<void> {
     return;
   }
 
+  workerStarted = true;
   console.log("[lead-follow-up] worker started");
-  setInterval(() => {
+  workerHandle = setInterval(() => {
     void processDueFollowUps().catch((err) =>
       console.error("[lead-follow-up] worker tick failed", err),
     );
   }, 60_000);
+}
+
+export function stopLeadFollowUpWorker(): void {
+  if (workerHandle) {
+    clearInterval(workerHandle);
+    workerHandle = null;
+  }
+  workerStarted = false;
 }

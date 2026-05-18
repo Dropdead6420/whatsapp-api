@@ -7,8 +7,12 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "DOTENV_CONFIG_PATH=../../.env tsx watch src/index.ts",
+    "dev:api": "DOTENV_CONFIG_PATH=../../.env APP_MODE=api tsx watch src/index.ts",
+    "dev:worker": "DOTENV_CONFIG_PATH=../../.env APP_MODE=worker tsx watch src/index.ts",
     "build": "tsc",
-    "start": "DOTENV_CONFIG_PATH=../../.env tsx dist/index.js",
+    "start": "DOTENV_CONFIG_PATH=../../.env node dist/index.js",
+    "start:api": "DOTENV_CONFIG_PATH=../../.env APP_MODE=api node dist/index.js",
+    "start:worker": "DOTENV_CONFIG_PATH=../../.env APP_MODE=worker node dist/index.js",
     "lint": "eslint src --ext .ts",
     "test": "vitest"
   },

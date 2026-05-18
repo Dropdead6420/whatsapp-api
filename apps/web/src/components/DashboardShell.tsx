@@ -60,6 +60,13 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "White Label",
+    items: [
+      { href: "/domains", label: "Domains", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN"] },
+      { href: "/wallets", label: "Wallets", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN", "BUSINESS_ADMIN"] },
+    ],
+  },
+  {
     label: "Platform",
     items: [
       { href: "/tenants", label: "Tenants", roles: ["SUPER_ADMIN"] },
