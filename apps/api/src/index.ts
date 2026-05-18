@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import { prisma } from "@nexaflow/db";
 import { closeRedis, getRedis } from "./lib/redis";
+import { closeQueues } from "./lib/queue";
 import { errorHandler } from "./middleware/errorHandler";
 import { redisRateLimit } from "./middleware/redisRateLimit";
 import { authMiddleware } from "./middleware/auth";
@@ -227,6 +228,7 @@ async function shutdown(signal: string): Promise<void> {
     server.close(() => resolve());
   });
 
+  await closeQueues();
   await Promise.allSettled([prisma.$disconnect(), closeRedis()]);
   process.exit(0);
 }

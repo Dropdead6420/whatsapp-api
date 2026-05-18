@@ -201,3 +201,28 @@ Format:
   - Tests cover the five cases that matter: valid sig, missing sig, bad sig, dev fallback, prod fail-closed, duplicate replay, P2002 race. Service mocks Prisma; route stays integration-tested via the live API.
   - We accept that the signature check rejects retries with malformed signatures — Meta itself never sends those, so a 403 is a real attacker, not a flake.
   - This closes the two oldest items on the SECURITY.md debt list.
+
+---
+
+## ADR-015 — BullMQ for durable queues; campaign worker is the first migration
+
+- **Date**: 2026-05-18
+- **Status**: Accepted (campaign worker migrated; remaining 5 workers tracked in TASKS Phase A)
+- **Context**: All six background workers ran as in-process `setInterval` polls. That model couldn't survive an API process restart (in-flight work was lost), couldn't scale horizontally (every replica would re-do the same scans), and gave no operator visibility into queue depth. The 1M-user scale plan §8 calls out durable queues as the first move.
+- **Decision**:
+  - **Library**: BullMQ ≥ 5 with `ioredis` (the `bull` v4 dep was vestigial; removed).
+  - **Connection**: `lib/queue.ts:getQueueConnection()` returns a `{ url, maxRetriesPerRequest: null }` object. BullMQ owns connection lifecycle; we never expose an IORedis instance.
+  - **First migration**: campaign worker. `dispatchCampaign(id)` is unchanged (still the unit of work). The polling loop is replaced by:
+    1. A repeatable `scan` job (every 30s via `upsertJobScheduler`) that queries `SCHEDULED` campaigns whose `scheduledFor <= now` and enqueues a `dispatch` job per campaign.
+    2. A BullMQ `Worker` with `concurrency: 1` that processes both `scan` and `dispatch` jobs on the same queue.
+    3. The campaign API route's "send now" path calls `enqueueCampaign(id)` instead of invoking the dispatcher directly.
+  - **Idempotency**: every `dispatch` job uses `jobId: dispatch:<campaignId>`. BullMQ silently drops duplicate adds, so the scan scheduler racing a manual "send now" can never produce two parallel dispatches.
+  - **Concurrency**: 1 per worker process. Horizontal scale comes from running `APP_MODE=worker` on multiple boxes. Bumping in-process concurrency would race the per-tenant send throttle.
+  - **Retry**: `attempts: 3` with exponential backoff (5s base). `dispatchCampaign` itself is idempotent on `Message.metaMessageId` and `WalletTransaction(walletId, referenceType, referenceId)`, so a retry doesn't double-send or double-debit.
+  - **Observability**: `GET /api/v1/admin/queues` returns `{waiting, active, delayed, failed, completed}` per queue. SuperAdmin only.
+  - **Failure mode at boot**: if Redis is unreachable, `startCampaignWorker` logs and returns — the API still serves traffic. Matches the prior degraded-mode behaviour.
+- **Consequences**:
+  - First worker is real; the other five (`appointment`, `flow`, `sla`, `webhook-retry`, `lead-follow-up`) still run in-process. They migrate one at a time per the scale plan (T-082 through T-086) so we never deploy six new failure modes at once.
+  - `bull` v4 dropped; nobody else imported it. Reduces install surface.
+  - When `APP_MODE=worker` is set in deployment, the worker process consumes the queue without an HTTP listener.
+  - Shutdown order is now `stopWorkers() → closeQueues() → prisma.$disconnect + closeRedis`. `closeQueues` awaits in-flight jobs to drain.

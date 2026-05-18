@@ -15,7 +15,7 @@ import {
 } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
-import { dispatchCampaign } from "../services/campaign.service";
+import { enqueueCampaign } from "../services/campaign.service";
 import { requireFeature } from "../services/features.service";
 
 const router = Router();
@@ -106,8 +106,9 @@ router.post(
       if (!campaign) {
         throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Campaign not found.");
       }
-      // Fire and forget — the worker model is in-process for now.
-      void dispatchCampaign(campaign.id);
+      // Enqueue into BullMQ. The worker processes one dispatch at a time and
+      // the jobId dedupes against the scan scheduler racing the same campaign.
+      await enqueueCampaign(campaign.id);
       await logAudit({
         tenantId: req.tenantId!,
         userId: req.userId!,

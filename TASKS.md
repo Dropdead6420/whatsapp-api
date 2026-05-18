@@ -87,7 +87,6 @@ Detailed plan lives in [`docs/SCALE_PLAN_1M.md`](docs/SCALE_PLAN_1M.md).
 Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 
 **Phase A — Worker fleet + DB pool (50k concurrent / 200 MPS)**
-- T-080 Migrate campaign worker to BullMQ (Codex-ready; first move per scale plan §8)
 - T-081 PgBouncer in compose + `DATABASE_URL_POOLED` env (Codex-ready)
 - T-082 Migrate appointment worker to BullMQ
 - T-083 Migrate flow runtime worker to BullMQ (preserves DELAY resume semantics)
@@ -139,6 +138,7 @@ Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-080 Campaign worker migrated to BullMQ**. `dispatchCampaign(id)` is now a queue job; a repeatable `scan` job runs every 30s and enqueues due `SCHEDULED` campaigns with `jobId: dispatch:<id>` for natural dedup. Producer side covered by 2 unit tests; live boot verified the scheduler registers in Redis (`bull:campaign-dispatch:repeat:scan`) and shutdown drains cleanly in <1s. Added `GET /api/v1/admin/queues` for depth visibility. Bull v4 dep dropped (it was unused). See ADR-015.
 - ✅ **T-003 Inbound WhatsApp webhook idempotency + signature verification**. `Message.metaMessageId` is unique, webhook raw body is preserved, `X-Hub-Signature-256` is verified with constant-time HMAC when `META_APP_SECRET` is configured, production fails closed without a real secret, duplicate provider message ids skip all downstream side-effects, and duplicate-key races return `null` instead of re-processing.
 - ✅ **T-002 Wallet debits wired into AI calls** (shared `callLlmJson()` pre-checks via `assertCanAffordAi`, logs `AiUsage`, then debits idempotently via `debitAi(AiUsage.id)`). Supports global `AI_CALL_COST_CREDITS` and per-feature overrides like `AI_CALL_COST_CREDITS_CAMPAIGN_AUTOPILOT`. Tests cover success debit, provider failure no-debit, and feature override pricing.
 - ✅ **T-001 Wallet debits wired into 7 WhatsApp send paths** (whatsapp routes ×2, conversation reply, campaign worker, appointment worker, lead follow-up, flow MESSAGE node). Feature-flagged via `WALLET_BILLING_ENABLED` (default off). Idempotent via unique index on `WalletTransaction(walletId, referenceType, referenceId)`. Pre-check returns 402; campaign worker treats 402 as PAUSED. See ADR-013.

@@ -10,6 +10,7 @@ import {
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import { getRedis } from "../lib/redis";
+import { getCampaignQueue, queueDepth } from "../lib/queue";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   ALL_FEATURES,
@@ -115,6 +116,26 @@ router.get("/health", async (_req: RequestWithAuth, res: Response, next: NextFun
     next(err);
   }
 });
+
+// GET /api/v1/admin/queues — BullMQ depth snapshot for SuperAdmin observability.
+router.get(
+  "/queues",
+  async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const campaign = getCampaignQueue();
+      const counts = await queueDepth(campaign);
+      res.json({
+        success: true,
+        data: {
+          checkedAt: new Date().toISOString(),
+          queues: [{ name: campaign.name, ...counts }],
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /api/v1/admin/audit-logs
 router.get(

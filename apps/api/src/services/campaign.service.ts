@@ -1,3 +1,4 @@
+import { Worker } from "bullmq";
 import { prisma } from "@nexaflow/db";
 import {
   CampaignStatus,
@@ -9,6 +10,13 @@ import { specToWhere, type SegmentFilterSpec } from "./segment.service";
 import { canSendNow, recordSend } from "./sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
 import { ApiError } from "@nexaflow/shared";
+import {
+  getCampaignQueue,
+  getQueueConnection,
+  QueueNames,
+  trackWorker,
+  type CampaignJobData,
+} from "../lib/queue";
 
 interface CampaignAudience {
   contactIds?: string[];
@@ -179,10 +187,62 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
   });
 }
 
-let interval: ReturnType<typeof setInterval> | null = null;
+// ----------------------------------------------------------------------------
+// Producer API — both the API route ("send now") and the scan scheduler
+// call enqueueCampaign. `jobId` deduplicates: if the same campaign is
+// enqueued twice (e.g. scheduler tick + manual send), BullMQ silently drops
+// the second add. The worker is the single mover of state for SCHEDULED →
+// RUNNING / COMPLETED / FAILED / PAUSED.
+// ----------------------------------------------------------------------------
 
-export async function startCampaignWorker(intervalMs = 30_000): Promise<void> {
-  if (interval) return;
+export async function enqueueCampaign(campaignId: string): Promise<void> {
+  const q = getCampaignQueue();
+  await q.add(
+    "dispatch",
+    { campaignId },
+    {
+      // Idempotency: same campaign enqueued twice collapses into one job.
+      jobId: `dispatch:${campaignId}`,
+    },
+  );
+}
+
+async function scanScheduledCampaigns(): Promise<number> {
+  const due = await prisma.campaign.findMany({
+    where: {
+      status: CampaignStatus.SCHEDULED,
+      scheduledFor: { lte: new Date() },
+    },
+    select: { id: true },
+    take: 100,
+  });
+  for (const c of due) {
+    await enqueueCampaign(c.id);
+  }
+  return due.length;
+}
+
+// ----------------------------------------------------------------------------
+// Worker lifecycle — replaces the old setInterval polling loop. The worker
+// processes two job kinds on the same queue:
+//
+//   1. "scan"     — repeated by BullMQ every SCAN_INTERVAL_MS; queries
+//                   SCHEDULED campaigns whose scheduledFor <= now and
+//                   enqueues a "dispatch" job for each.
+//   2. "dispatch" — runs dispatchCampaign(campaignId). One concurrent
+//                   per worker instance; horizontal scale comes from running
+//                   APP_MODE=worker on multiple boxes.
+//
+// On Redis outage we log + degrade to no-op rather than crashing the API.
+// ----------------------------------------------------------------------------
+
+const SCAN_INTERVAL_MS = 30_000;
+const SCAN_JOB_NAME = "scan";
+
+let campaignWorker: Worker<CampaignJobData> | null = null;
+
+export async function startCampaignWorker(): Promise<void> {
+  if (campaignWorker) return;
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch {
@@ -192,30 +252,63 @@ export async function startCampaignWorker(intervalMs = 30_000): Promise<void> {
     return;
   }
 
-  const tick = async () => {
-    try {
-      const due = await prisma.campaign.findMany({
-        where: {
-          status: CampaignStatus.SCHEDULED,
-          scheduledFor: { lte: new Date() },
-        },
-        take: 5,
-      });
-      for (const c of due) {
-        await dispatchCampaign(c.id);
+  const q = getCampaignQueue();
+
+  // Reset any pre-existing scan schedule so we don't accumulate duplicates
+  // on a redeploy with a different interval. Failures are non-fatal — the
+  // first scheduler.add below will overwrite.
+  try {
+    await q.removeJobScheduler(SCAN_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SCAN_JOB_NAME,
+      { every: SCAN_INTERVAL_MS },
+      { name: SCAN_JOB_NAME, data: { kind: "scan-scheduled" } },
+    );
+  } catch (err) {
+    console.warn(
+      "[campaign-worker] could not register scan scheduler (Redis unavailable?)",
+      (err as Error).message,
+    );
+    return;
+  }
+
+  campaignWorker = new Worker<CampaignJobData>(
+    QueueNames.CAMPAIGN_DISPATCH,
+    async (job) => {
+      if (job.name === SCAN_JOB_NAME) {
+        const enqueued = await scanScheduledCampaigns();
+        return { enqueued };
       }
-    } catch (err) {
-      console.error("[campaign-worker] tick failed", err);
-    }
-  };
-  // Defer first tick so connect happens after startup completes.
-  setTimeout(tick, 5_000);
-  interval = setInterval(tick, intervalMs);
+      const data = job.data as { campaignId: string };
+      await dispatchCampaign(data.campaignId);
+      return { dispatched: data.campaignId };
+    },
+    {
+      connection: getQueueConnection(),
+      // One dispatch at a time per worker; horizontal concurrency comes from
+      // running multiple worker processes. Bumping this risks tripping the
+      // per-tenant throttle inside dispatchCampaign.
+      concurrency: 1,
+    },
+  );
+
+  campaignWorker.on("failed", (job, err) => {
+    console.error(
+      `[campaign-worker] job ${job?.id} (${job?.name}) failed:`,
+      err?.message,
+    );
+  });
+  campaignWorker.on("error", (err) => {
+    // Redis disconnects bubble here; BullMQ will reconnect.
+    console.error("[campaign-worker] worker error:", err.message);
+  });
+
+  trackWorker(campaignWorker);
 }
 
 export function stopCampaignWorker(): void {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
+  if (campaignWorker) {
+    void campaignWorker.close();
+    campaignWorker = null;
   }
 }
