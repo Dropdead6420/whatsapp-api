@@ -1,3 +1,4 @@
+import { Worker } from "bullmq";
 import { prisma } from "@nexaflow/db";
 import {
   ApiError,
@@ -9,9 +10,13 @@ import { assertCanSend, recordSend } from "./sendThrottle.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { emitWebhookEvent } from "./webhook.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
-
-let workerStarted = false;
-let workerHandle: ReturnType<typeof setInterval> | null = null;
+import {
+  getLeadFollowUpQueue,
+  getQueueConnection,
+  QueueNames,
+  trackWorker,
+  type LeadFollowUpJobData,
+} from "../lib/queue";
 
 async function getTenantWabaConfig(tenantId: string) {
   const tenant = await prisma.tenant.findUnique({
@@ -168,8 +173,13 @@ async function processDueFollowUps(): Promise<void> {
   }
 }
 
+const SCAN_INTERVAL_MS = 60_000;
+const SCAN_JOB_NAME = "scan";
+
+let leadFollowUpWorker: Worker<LeadFollowUpJobData> | null = null;
+
 export async function startLeadFollowUpWorker(): Promise<void> {
-  if (workerStarted) return;
+  if (leadFollowUpWorker) return;
 
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -181,19 +191,47 @@ export async function startLeadFollowUpWorker(): Promise<void> {
     return;
   }
 
-  workerStarted = true;
-  console.log("[lead-follow-up] worker started");
-  workerHandle = setInterval(() => {
-    void processDueFollowUps().catch((err) =>
-      console.error("[lead-follow-up] worker tick failed", err),
+  const q = getLeadFollowUpQueue();
+  try {
+    await q.removeJobScheduler(SCAN_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SCAN_JOB_NAME,
+      { every: SCAN_INTERVAL_MS },
+      { name: SCAN_JOB_NAME, data: { kind: "scan" } },
     );
-  }, 60_000);
+  } catch (err) {
+    console.warn(
+      "[lead-follow-up] could not register scan scheduler (Redis unavailable?)",
+      (err as Error).message,
+    );
+    return;
+  }
+
+  leadFollowUpWorker = new Worker<LeadFollowUpJobData>(
+    QueueNames.LEAD_FOLLOWUP_DISPATCH,
+    async () => {
+      await processDueFollowUps();
+    },
+    {
+      connection: getQueueConnection(),
+      concurrency: 1,
+    },
+  );
+
+  leadFollowUpWorker.on("failed", (job, err) => {
+    console.error(`[lead-follow-up] job ${job?.id} failed:`, err?.message);
+  });
+  leadFollowUpWorker.on("error", (err) => {
+    console.error("[lead-follow-up] worker error:", err.message);
+  });
+
+  trackWorker(leadFollowUpWorker);
+  console.log("[lead-follow-up] worker started");
 }
 
 export function stopLeadFollowUpWorker(): void {
-  if (workerHandle) {
-    clearInterval(workerHandle);
-    workerHandle = null;
+  if (leadFollowUpWorker) {
+    void leadFollowUpWorker.close();
+    leadFollowUpWorker = null;
   }
-  workerStarted = false;
 }

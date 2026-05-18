@@ -1,5 +1,13 @@
 import crypto from "node:crypto";
+import { Worker, UnrecoverableError } from "bullmq";
 import { prisma } from "@nexaflow/db";
+import {
+  getQueueConnection,
+  getWebhookQueue,
+  QueueNames,
+  trackWorker,
+  type WebhookJobData,
+} from "../lib/queue";
 
 /**
  * Outbound webhook system (V2 §3.3.6 "webhook builder").
@@ -99,8 +107,10 @@ export async function emitWebhookEvent(
     for (const sub of subs) {
       const attempt = await deliver(sub.url, sub.secret, body);
       if (attempt.ok) continue;
-      // Persist for retry. Use exponential backoff: 1m, 5m, 30m, 2h.
-      await prisma.webhookLog.create({
+      // Failed first attempt — persist the audit row and hand the rest to
+      // BullMQ. The retry queue uses native attempts + custom backoff,
+      // replacing the old nextRetryAt polling.
+      const log = await prisma.webhookLog.create({
         data: {
           webhookId: sub.id,
           event,
@@ -109,83 +119,140 @@ export async function emitWebhookEvent(
           response: attempt.responseBody ?? null,
           error: attempt.error ?? null,
           attempt: 1,
-          nextRetryAt: new Date(Date.now() + 60_000),
+          nextRetryAt: null,
         },
       });
+      void enqueueWebhookRetry(log.id, sub.retryAttempts ?? 4);
     }
   } catch (err) {
     console.error("[webhook:emit]", err);
   }
 }
 
-const BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
+// Existing schedule: 1m, 5m, 30m, 2h. Index by BullMQ's `attemptsMade`,
+// which is 1 on the first retry, 2 on the second, ...
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
 
-let workerHandle: ReturnType<typeof setInterval> | null = null;
+const WEBHOOK_BACKOFF = "webhookExponential";
 
-async function retryDueLogs(): Promise<void> {
-  const due = await prisma.webhookLog.findMany({
-    where: { nextRetryAt: { lte: new Date() } },
-    orderBy: { createdAt: "asc" },
-    take: 20,
+async function enqueueWebhookRetry(
+  webhookLogId: string,
+  maxAttempts: number,
+): Promise<void> {
+  const q = getWebhookQueue();
+  // attempts counts initial + retries in BullMQ. We've already done the
+  // first attempt synchronously; queue the remaining maxAttempts - 1.
+  const remaining = Math.max(1, maxAttempts - 1);
+  await q.add(
+    "deliver",
+    { webhookLogId },
+    {
+      jobId: `deliver:${webhookLogId}`,
+      attempts: remaining,
+      backoff: { type: WEBHOOK_BACKOFF, delay: 0 },
+    },
+  );
+}
+
+async function processWebhookDelivery(
+  job: { data: WebhookJobData; attemptsMade: number },
+): Promise<void> {
+  const { webhookLogId } = job.data;
+  const log = await prisma.webhookLog.findUnique({
+    where: { id: webhookLogId },
   });
-  for (const log of due) {
-    const webhook = await prisma.webhook.findUnique({
-      where: { id: log.webhookId },
+  if (!log) {
+    throw new UnrecoverableError("WebhookLog row missing");
+  }
+  const webhook = await prisma.webhook.findUnique({
+    where: { id: log.webhookId },
+  });
+  if (!webhook || !webhook.isActive) {
+    await prisma.webhookLog.update({
+      where: { id: log.id },
+      data: { error: "subscription inactive" },
     });
-    if (!webhook || !webhook.isActive) {
-      // Subscription gone or paused — stop retrying.
-      await prisma.webhookLog.update({
-        where: { id: log.id },
-        data: { nextRetryAt: null, error: log.error ?? "subscription inactive" },
-      });
-      continue;
-    }
-    const attempt = await deliver(webhook.url, webhook.secret, log.payload);
-    if (attempt.ok) {
-      await prisma.webhookLog.update({
-        where: { id: log.id },
-        data: {
-          statusCode: attempt.statusCode,
-          response: attempt.responseBody,
-          error: null,
-          nextRetryAt: null,
-          attempt: log.attempt + 1,
-        },
-      });
-      continue;
-    }
-    const nextAttempt = log.attempt + 1;
-    const maxAttempts = webhook.retryAttempts ?? 4;
-    const giveUp = nextAttempt >= maxAttempts;
-    const backoff = BACKOFF_MS[Math.min(nextAttempt - 1, BACKOFF_MS.length - 1)];
+    // Don't retry — subscription is gone or paused.
+    throw new UnrecoverableError("webhook subscription inactive");
+  }
+
+  const attempt = await deliver(webhook.url, webhook.secret, log.payload);
+  // attemptsMade is 0 on the first retry. The audit log's `attempt` reflects
+  // the human-readable count (initial=1, +N retries).
+  const auditAttempt = (log.attempt ?? 1) + 1;
+
+  if (attempt.ok) {
     await prisma.webhookLog.update({
       where: { id: log.id },
       data: {
-        statusCode: attempt.statusCode ?? null,
-        response: attempt.responseBody ?? null,
-        error: attempt.error ?? null,
-        attempt: nextAttempt,
-        nextRetryAt: giveUp ? null : new Date(Date.now() + backoff),
+        statusCode: attempt.statusCode,
+        response: attempt.responseBody,
+        error: null,
+        attempt: auditAttempt,
       },
     });
+    return;
   }
+
+  await prisma.webhookLog.update({
+    where: { id: log.id },
+    data: {
+      statusCode: attempt.statusCode ?? null,
+      response: attempt.responseBody ?? null,
+      error: attempt.error ?? null,
+      attempt: auditAttempt,
+    },
+  });
+  throw new Error(`webhook delivery failed: ${attempt.error ?? "unknown"}`);
 }
 
-export async function startWebhookWorker(intervalMs = 60_000): Promise<void> {
-  if (workerHandle) return;
+let webhookWorker: Worker<WebhookJobData> | null = null;
+
+export async function startWebhookWorker(): Promise<void> {
+  if (webhookWorker) return;
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch {
     console.warn("[webhook-worker] database unavailable; worker not started.");
     return;
   }
-  setTimeout(() => void retryDueLogs(), 15_000);
-  workerHandle = setInterval(() => void retryDueLogs(), intervalMs);
+
+  webhookWorker = new Worker<WebhookJobData>(
+    QueueNames.WEBHOOK_DELIVERY,
+    processWebhookDelivery,
+    {
+      connection: getQueueConnection(),
+      concurrency: 4,
+      settings: {
+        backoffStrategy: (attemptsMade: number) => {
+          // attemptsMade is 1-based after the first failure. Clamp to the
+          // last element so very late retries don't crash on out-of-range.
+          const idx = Math.min(attemptsMade - 1, RETRY_DELAYS_MS.length - 1);
+          return RETRY_DELAYS_MS[Math.max(0, idx)];
+        },
+      },
+    },
+  );
+
+  webhookWorker.on("failed", (job, err) => {
+    // Per-attempt errors are already persisted to WebhookLog. Just log the
+    // final-failure case so operators can correlate.
+    if (job?.attemptsMade && job.opts.attempts && job.attemptsMade >= job.opts.attempts) {
+      console.warn(
+        `[webhook-worker] gave up on ${job.id} after ${job.attemptsMade} attempts: ${err?.message}`,
+      );
+    }
+  });
+  webhookWorker.on("error", (err) => {
+    console.error("[webhook-worker] worker error:", err.message);
+  });
+
+  trackWorker(webhookWorker);
 }
 
 export function stopWebhookWorker(): void {
-  if (workerHandle) {
-    clearInterval(workerHandle);
-    workerHandle = null;
+  if (webhookWorker) {
+    void webhookWorker.close();
+    webhookWorker = null;
   }
 }

@@ -14,7 +14,9 @@ import {
   getAppointmentQueue,
   getCampaignQueue,
   getFlowQueue,
+  getLeadFollowUpQueue,
   getSlaQueue,
+  getWebhookQueue,
   queueDepth,
 } from "../lib/queue";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
@@ -133,6 +135,8 @@ router.get(
         getAppointmentQueue(),
         getFlowQueue(),
         getSlaQueue(),
+        getWebhookQueue(),
+        getLeadFollowUpQueue(),
       ];
       const rows = await Promise.all(
         queues.map(async (q) => ({ name: q.name, ...(await queueDepth(q)) })),
