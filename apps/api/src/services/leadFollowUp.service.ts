@@ -97,6 +97,7 @@ export async function sendLeadFollowUp(
   await assertCanSend(tenantId, { phoneNumberId: config.phoneNumberId });
   const conversation = await getOrCreateConversation(tenantId, lead.contactId);
   const metaMessageId = await sendWhatsAppText({
+    tenantId,
     phoneNumberId: config.phoneNumberId,
     accessToken: config.accessToken,
     to: lead.contact.phoneNumber.replace(/^\+/, ""),

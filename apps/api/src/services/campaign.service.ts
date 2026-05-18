@@ -135,6 +135,7 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
       }
 
       const metaMessageId = await sendWhatsAppTemplate({
+        tenantId: campaign.tenantId,
         phoneNumberId: campaign.tenant.wabaPhoneNumber,
         accessToken,
         to: contact.phoneNumber.replace(/^\+/, ""),

@@ -411,6 +411,7 @@ router.post(
       const config = await getTenantWabaConfig(req.tenantId!);
       await assertCanSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });
       const metaMessageId = await sendWhatsAppText({
+        tenantId: req.tenantId!,
         phoneNumberId: config.phoneNumberId,
         accessToken: config.accessToken,
         to: conversation.contact.phoneNumber.replace(/^\+/, ""),

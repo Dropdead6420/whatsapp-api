@@ -17,6 +17,19 @@ vi.mock("@nexaflow/db", () => ({
     campaign: {
       findMany: mocks.prismaCampaignFindMany,
     },
+    providerRoute: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+  },
+  // Transitive import via services/whatsapp/index.ts after T-005b — the
+  // factory needs the enum names; we never invoke the actual factory in
+  // these tests (the producer tests only call enqueueCampaign).
+  WhatsAppProviderKey: {
+    META: "META",
+    GUPSHUP: "GUPSHUP",
+    DIALOG_360: "DIALOG_360",
+    TWILIO: "TWILIO",
+    HAPTIK: "HAPTIK",
   },
 }));
 

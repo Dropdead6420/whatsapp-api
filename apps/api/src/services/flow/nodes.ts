@@ -134,6 +134,7 @@ const messageHandler: NodeHandler = {
         };
       }
       const metaMessageId = await sendWhatsAppText({
+        tenantId: ctx.tenantId,
         phoneNumberId: tenant.wabaPhoneNumber,
         accessToken,
         to: contact.phoneNumber.replace(/^\+/, ""),

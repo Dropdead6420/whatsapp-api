@@ -264,3 +264,23 @@ Format:
   - The factory is the **only** code outside `services/whatsapp/` that may know which provider is in use. Reviewers should reject any new direct import from `providers/*` outside that boundary.
   - When step 2 lands, the factory will accept a `tenantId` (or `{tenantId, phoneNumberId}`) so multi-provider routing per tenant becomes a one-line change at every call site that already has the tenant in scope.
   - Webhook inbound is **not** yet provider-aware. Each new BSP will need to normalize its inbound payload to the Meta-shape `MetaWebhookBody` we already parse, OR we'll define a `parseInbound(raw): InboundMessage` method on the interface when the second adapter lands. Deliberately deferred until we have a real second provider to design against.
+
+---
+
+## ADR-018 — ProviderRoute table is the source of truth for BSP routing
+
+- **Date**: 2026-05-19
+- **Status**: Accepted; extends ADR-017 (T-005 step 2)
+- **Context**: With the provider interface in place (ADR-017), the factory needs to pick the right adapter per send. Hardcoding by tenant ID would defeat the point; we want runtime config that SuperAdmin can update without a deploy.
+- **Decision**:
+  - New `ProviderRoute` model: `(tenantId, providerKey, phoneNumberId?, isActive, config?)` with a unique constraint on `(tenantId, phoneNumberId)`.
+  - `phoneNumberId = NULL` = the **default route** for that tenant. A row with a specific `phoneNumberId` is the **scoped route** that takes precedence when the call site knows which WABA phone to use.
+  - `WhatsAppProviderKey` enum: `META | GUPSHUP | DIALOG_360 | TWILIO | HAPTIK`. Adding a new BSP = new enum value + new adapter in `services/whatsapp/providers/`.
+  - `config String?` is a JSON blob for provider-specific credentials (Gupshup needs app name + API key; 360dialog needs an API key). It will be **envelope-encrypted on write** using the same `tokenCrypto` we ship for `Tenant.wabaAccessToken` (T-094). For the Meta-only baseline, `config` stays null because Meta credentials still live on the `Tenant` row.
+  - Factory lookup order: phone-scoped active row → tenant default active row → Meta fallback. Unknown `providerKey` (e.g. a future provider compiled into a different build) also falls back to Meta with a `console.warn` so operators see misconfig but no traffic drops.
+  - All 7 send sites (campaign, appointment, conversation reply, whatsapp routes ×2, lead follow-up, flow MESSAGE node) now pass `tenantId` to the back-compat wrappers. Callers that don't have tenant context still work via the unconditional Meta path.
+- **Consequences**:
+  - Zero-disruption rollout — no existing tenant has a `ProviderRoute` row, so every send still routes through Meta exactly as before. The first tenant with a Gupshup or 360dialog provider is one row insert away once T-005c lands.
+  - 5 new unit tests in `services/whatsapp/index.test.ts` cover the lookup matrix (no selector, no row, phone-scoped match, missing adapter, DB failure). All five pass.
+  - The unique constraint on `(tenantId, phoneNumberId)` means deactivating a route is a `isActive: false` flip — never a delete — so audit trails stay intact.
+  - Future SuperAdmin UI lands as a CRUD on this table; partner-portal flows pick the same factory by passing the tenant they're operating on.

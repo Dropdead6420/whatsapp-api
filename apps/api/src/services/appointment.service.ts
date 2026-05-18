@@ -96,6 +96,7 @@ async function sendAppointmentMessage(
       return false;
     }
     const metaMessageId = await sendWhatsAppText({
+      tenantId: appt.tenantId,
       phoneNumberId: appt.tenant.wabaPhoneNumber,
       accessToken,
       to: appt.contact.phoneNumber.replace(/^\+/, ""),

@@ -129,12 +129,51 @@ model Tenant {
   services                 Service[]
   appointments             Appointment[]
   flowRuns                 FlowRun[]
+  providerRoutes           ProviderRoute[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
   @@index([parentTenantId])
   @@index([status])
+}
+
+// ProviderRoute (T-005b, ADR-018) — routes WhatsApp send traffic to a
+// specific BSP for a given tenant (and optionally a specific phone-number
+// id). When no row matches a tenant, the factory falls back to Meta Cloud.
+enum WhatsAppProviderKey {
+  META
+  GUPSHUP
+  DIALOG_360
+  TWILIO
+  HAPTIK
+}
+
+model ProviderRoute {
+  id            String              @id @default(cuid())
+  tenantId      String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  providerKey   WhatsAppProviderKey
+
+  // Optional: scope this route to a single WABA phone number. NULL means
+  // "default route for this tenant".
+  phoneNumberId String?
+
+  isActive      Boolean             @default(true)
+
+  // Provider-specific config blob — Gupshup needs an API key + app name;
+  // 360dialog needs an API key; etc. JSON, envelope-encrypted on write.
+  config        String?
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  // One active default route per tenant (NULL phone) and one per
+  // (tenant, phone). Deactivate before reassigning.
+  @@unique([tenantId, phoneNumberId])
+  @@index([tenantId])
+  @@index([isActive])
 }
 
 model Domain {
