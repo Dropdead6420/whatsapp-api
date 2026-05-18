@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { prisma } from "@nexaflow/db";
+import { prisma, prismaRead } from "@nexaflow/db";
 import {
   ApiError,
   ErrorCodes,
@@ -165,9 +165,9 @@ router.get(
       if (q.action) where.action = q.action;
       if (q.resource) where.resource = q.resource;
 
-      const [total, items] = await prisma.$transaction([
-        prisma.auditLog.count({ where }),
-        prisma.auditLog.findMany({
+      const [total, items] = await prismaRead.$transaction([
+        prismaRead.auditLog.count({ where }),
+        prismaRead.auditLog.findMany({
           where,
           skip: (q.page - 1) * q.limit,
           take: q.limit,

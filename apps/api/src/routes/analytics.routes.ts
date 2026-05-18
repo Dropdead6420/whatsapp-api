@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from "express";
-import { prisma } from "@nexaflow/db";
+// Analytics is read-only; route through the replica when configured.
+import { prismaRead as prisma } from "@nexaflow/db";
 import {
   ApiError,
   CampaignStatus,

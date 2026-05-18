@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { prisma } from "@nexaflow/db";
+import { prisma, prismaRead } from "@nexaflow/db";
 import {
   ApiError,
   ErrorCodes,
@@ -74,9 +74,11 @@ router.get(
       if (q.slaBreached === true) where.slaBreachedAt = { not: null };
       if (q.slaBreached === false) where.slaBreachedAt = null;
 
-      const [total, items] = await prisma.$transaction([
-        prisma.conversation.count({ where }),
-        prisma.conversation.findMany({
+      // List endpoint is read-heavy; route through the replica when configured.
+      // Falls back to the primary when DATABASE_URL_READ is unset.
+      const [total, items] = await prismaRead.$transaction([
+        prismaRead.conversation.count({ where }),
+        prismaRead.conversation.findMany({
           where,
           skip: (q.page - 1) * q.limit,
           take: q.limit,
