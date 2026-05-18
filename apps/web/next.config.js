@@ -22,6 +22,50 @@ const nextConfig = {
     ];
     return config;
   },
+  // CDN cache headers (T-113). Hashed build assets are immutable; the
+  // marketing root is stable enough to edge-cache with revalidation;
+  // public image/text files cache for an hour. Auth-gated dashboard
+  // pages intentionally stay uncached (no header → Next default).
+  async headers() {
+    return [
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/_next/image/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      },
+      {
+        source: "/",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=300, stale-while-revalidate=86400",
+          },
+        ],
+      },
+      {
+        source: "/:path*.{png,jpg,jpeg,gif,webp,svg,ico,txt}",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=3600, stale-while-revalidate=86400",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

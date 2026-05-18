@@ -99,12 +99,14 @@ A live k6 run at 100k concurrent / 400 MPS is the remaining gate before Phase C 
 
 A live WS load run at 100k concurrent and an inbox-poll k6 scenario against a replica setup are the remaining gates before Phase D opens.
 
-**Phase D — Storage partitioning + cold path (sustained 1M)**
-- T-110 Declarative monthly partitioning for `Message`, `AuditLog`, `AiUsage`, `WebhookLog`
-- T-111 Cold-storage archival for messages > 30 days (replica table or OpenSearch index)
+**Phase D — Storage partitioning + cold path (sustained 1M)** 🟡 planned + T-113 shipped
+
+Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md). Migration-mode swap from `prisma db push` → `prisma migrate` is the prerequisite for T-110/T-111/T-112.
+
+- T-110 Declarative monthly partitioning for `Message`, `AuditLog`, `AiUsage`, `WebhookLog` — needs migration-mode swap first
+- T-111 Cold-storage archival for messages > 30 days (depends on T-110)
 - T-112 OpenSearch index for contact + message full-text search; replace `contains` queries
-- T-113 CDN config for `/_next/static/*` and the public marketing page
-- T-114 *(plan-only this phase, implement if Phase C load test shows wallet contention)* Wallet sharding strategy
+- T-114 Wallet sharding strategy (plan-only — implement only if Phase C load shows real contention)
 
 **Phase E — Observability + chaos (production-ready 1M)**
 - T-120 OpenTelemetry traces (Next → API → DB → Redis → workers → Meta)
@@ -128,6 +130,9 @@ A live WS load run at 100k concurrent and an inbox-poll k6 scenario against a re
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-113 CDN cache headers**. `next.config.js` declares `Cache-Control` for `/_next/static` (immutable, 1y), `/_next/image` (1d + SWR 7d), the marketing root (s-maxage 5min + SWR 1d), and public image/text files (1h + SWR 1d). Dashboard pages stay uncached. The CDN itself (Cloudflare / Vercel) is operationally configured; this is the origin-side contract.
+- ✅ **Phase D storage plan**. Consolidated `docs/PHASE_D_STORAGE_PLAN.md` covering T-110 monthly partitioning (rollout order, SQL skeleton, partition-maintenance worker design), T-111 cold-storage archival, T-112 OpenSearch search, and T-114 wallet sharding. Implementation gated on a migration-mode swap from `db push` to `prisma migrate` (separate small task).
+- ✅ **Bug-fix pass on Phase A-C work**. realtime.ts cast-LHS → canonical assignment; conversations cursor pagination dropped a dead null branch and now treats a null cursor.lastMessageAt defensively as `now()`; apiKeyAuth.ts notes the missing per-key rate-limit enforcement so the next reader sees the gap.
 - ✅ **T-141B Developer/API Portal API usage logs + sandbox endpoint**. Added `ApiRequestLog`, API-key auth middleware using stored hashes, `/api/public/v1/status` key-authenticated sandbox endpoint, last-used updates, per-request logging, and recent-call viewer in `/developer`.
 - ✅ **T-141A Developer/API Portal API key management**. Added tenant-scoped `/api/v1/api-keys` create/list/update/revoke routes behind `developerPortal` + `api_keys:manage`, a `/developer` Business Admin UI, one-time plaintext secret reveal, SHA-256 stored hashes only, audit logs for create/update/delete, and unit tests for key generation/hash/list/revoke behavior.
 - ✅ **T-103 `useInbox` hook: WS subscribe + polling fallback**. New `apps/web/src/hooks/useInbox.ts` owns fetch + Socket.io subscription + 15s polling fallback when WS is offline. The inbox page exposes a "Live"/"Polling" pill so operators can see realtime state at a glance. Re-fetches on `message:received`, `message:sent`, `conversation:updated`, `conversation:assigned`.
