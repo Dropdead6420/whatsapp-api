@@ -14,12 +14,6 @@ blueprint reference, scope (S/M/L), and acceptance criteria.
 
 ## Active
 
-_(none — open this column when a slice is in flight)_
-
----
-
-## Next up
-
 ### T-002 — Wire wallet deductions into AI calls
 - **Priority**: P0
 - **Blueprint**: §3.5, §6
@@ -30,6 +24,10 @@ _(none — open this column when a slice is in flight)_
   - In `ai.service.ts callLlmJson()`: pre-check before Anthropic call, debit after on the returned `AiUsage.id`.
   - Per-feature cost mapping via `AI_CALL_COST_CREDITS_AUTOPILOT` etc. env vars, or a `Plan.aiCostPerCall` column (defer to a follow-up).
 - **Tests**: success debits; failure doesn't; per-feature cost differs.
+
+---
+
+## Next up
 
 ### T-003 — Idempotency on inbound WhatsApp webhooks
 - **Priority**: P0 (security debt)
@@ -95,8 +93,48 @@ _(none — open this column when a slice is in flight)_
 - T-055 Template AI generator + approval predictor
 
 ### Enterprise / scale (blueprint §14 Phase 6)
-- T-060 Move workers to dedicated process + Redis-backed leader election (ADR-010)
-- T-061 Real-time inbox via Socket.io (already in deps; not wired)
+
+Detailed plan lives in [`docs/SCALE_PLAN_1M.md`](docs/SCALE_PLAN_1M.md).
+Tasks below are sequenced; do not jump ahead without finishing the prior phase.
+
+**Phase A — Worker fleet + DB pool (50k concurrent / 200 MPS)**
+- T-080 Migrate campaign worker to BullMQ (Codex-ready; first move per scale plan §8)
+- T-081 PgBouncer in compose + `DATABASE_URL_POOLED` env (Codex-ready)
+- T-082 Migrate appointment worker to BullMQ
+- T-083 Migrate flow runtime worker to BullMQ (preserves DELAY resume semantics)
+- T-084 Migrate SLA worker to BullMQ (or convert to a singleton scheduled job)
+- T-085 Migrate outbound webhook retry to BullMQ with native retry/backoff
+- T-086 Migrate lead follow-up worker to BullMQ
+- T-087 k6 load test harness in `apps/load/` + `auth-burst`, `inbox-poll`, `webhook-storm` scenarios
+
+**Phase B — Auth + Redis + send throttle hardening (100k concurrent / 400 MPS)**
+- T-090 Redis verification cache for access-token validation (sub-ms re-validation)
+- T-091 Per-account login throttle in Redis (5 fails / 15 min / account)
+- T-092 Redis Cluster behind `getRedis()` — shard by key prefix; failover test
+- T-093 Send throttle per-WABA-phone-number (today: per-tenant)
+- T-094 Envelope-encrypt `Tenant.wabaAccessToken` at rest with a KMS key (supersedes T-013)
+
+**Phase C — Real-time inbox + read replicas (100k concurrent WS)**
+- T-100 WebSocket service (`APP_MODE=realtime`) with Socket.io + Redis adapter (supersedes T-061)
+- T-101 Postgres read replica(s); route read-only queries to replicas via Prisma datasource
+- T-102 Cursor-based pagination for conversation list (replace `skip/take`)
+- T-103 Inbox `useInbox` hook: WS subscribe with polling fallback
+
+**Phase D — Storage partitioning + cold path (sustained 1M)**
+- T-110 Declarative monthly partitioning for `Message`, `AuditLog`, `AiUsage`, `WebhookLog`
+- T-111 Cold-storage archival for messages > 30 days (replica table or OpenSearch index)
+- T-112 OpenSearch index for contact + message full-text search; replace `contains` queries
+- T-113 CDN config for `/_next/static/*` and the public marketing page
+- T-114 *(plan-only this phase, implement if Phase C load test shows wallet contention)* Wallet sharding strategy
+
+**Phase E — Observability + chaos (production-ready 1M)**
+- T-120 OpenTelemetry traces (Next → API → DB → Redis → workers → Meta)
+- T-121 Sentry integration (api, web, workers)
+- T-122 RED metrics per route, per tenant tier (anonymized)
+- T-123 Synthetic checks on /health, /api/v1/health, public booking, login flow
+- T-124 Chaos drill: kill workers / one Postgres replica / one Redis shard in staging
+
+**Non-scale enterprise**
 - T-062 Scheduled report exports (PDF / CSV)
 - T-063 API-key management UI
 
