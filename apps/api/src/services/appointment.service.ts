@@ -1,8 +1,16 @@
+import { Worker } from "bullmq";
 import { prisma } from "@nexaflow/db";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { canSendNow, recordSend } from "./sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
 import { ApiError } from "@nexaflow/shared";
+import {
+  getAppointmentQueue,
+  getQueueConnection,
+  QueueNames,
+  trackWorker,
+  type AppointmentJobData,
+} from "../lib/queue";
 
 /**
  * Background worker for appointment confirmations + reminders.
@@ -141,12 +149,20 @@ async function dispatchReminders(): Promise<void> {
   }
 }
 
-let interval: ReturnType<typeof setInterval> | null = null;
+// ----------------------------------------------------------------------------
+// BullMQ worker — replaces the old setInterval. A single repeatable "scan"
+// job runs every SCAN_INTERVAL_MS; the worker tick dispatches confirmations
+// then reminders. Idempotent at the DB level (confirmationSentAt /
+// reminderSentAt stamps), so a duplicate tick from a race is safe.
+// ----------------------------------------------------------------------------
 
-export async function startAppointmentWorker(
-  intervalMs = 5 * 60 * 1000, // every 5 minutes
-): Promise<void> {
-  if (interval) return;
+const SCAN_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
+const SCAN_JOB_NAME = "scan";
+
+let appointmentWorker: Worker<AppointmentJobData> | null = null;
+
+export async function startAppointmentWorker(): Promise<void> {
+  if (appointmentWorker) return;
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch {
@@ -156,22 +172,50 @@ export async function startAppointmentWorker(
     return;
   }
 
-  const tick = async () => {
-    try {
+  const q = getAppointmentQueue();
+  try {
+    await q.removeJobScheduler(SCAN_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SCAN_JOB_NAME,
+      { every: SCAN_INTERVAL_MS },
+      { name: SCAN_JOB_NAME, data: { kind: "scan" } },
+    );
+  } catch (err) {
+    console.warn(
+      "[appointment-worker] could not register scan scheduler (Redis unavailable?)",
+      (err as Error).message,
+    );
+    return;
+  }
+
+  appointmentWorker = new Worker<AppointmentJobData>(
+    QueueNames.APPOINTMENT_DISPATCH,
+    async () => {
       await dispatchConfirmations();
       await dispatchReminders();
-    } catch (err) {
-      console.error("[appointment-worker] tick failed", err);
-    }
-  };
+    },
+    {
+      connection: getQueueConnection(),
+      concurrency: 1,
+    },
+  );
 
-  setTimeout(tick, 10_000);
-  interval = setInterval(tick, intervalMs);
+  appointmentWorker.on("failed", (job, err) => {
+    console.error(
+      `[appointment-worker] job ${job?.id} failed:`,
+      err?.message,
+    );
+  });
+  appointmentWorker.on("error", (err) => {
+    console.error("[appointment-worker] worker error:", err.message);
+  });
+
+  trackWorker(appointmentWorker);
 }
 
 export function stopAppointmentWorker(): void {
-  if (interval) {
-    clearInterval(interval);
-    interval = null;
+  if (appointmentWorker) {
+    void appointmentWorker.close();
+    appointmentWorker = null;
   }
 }

@@ -10,7 +10,13 @@ import {
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import { getRedis } from "../lib/redis";
-import { getCampaignQueue, queueDepth } from "../lib/queue";
+import {
+  getAppointmentQueue,
+  getCampaignQueue,
+  getFlowQueue,
+  getSlaQueue,
+  queueDepth,
+} from "../lib/queue";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   ALL_FEATURES,
@@ -122,13 +128,20 @@ router.get(
   "/queues",
   async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
-      const campaign = getCampaignQueue();
-      const counts = await queueDepth(campaign);
+      const queues = [
+        getCampaignQueue(),
+        getAppointmentQueue(),
+        getFlowQueue(),
+        getSlaQueue(),
+      ];
+      const rows = await Promise.all(
+        queues.map(async (q) => ({ name: q.name, ...(await queueDepth(q)) })),
+      );
       res.json({
         success: true,
         data: {
           checkedAt: new Date().toISOString(),
-          queues: [{ name: campaign.name, ...counts }],
+          queues: rows,
         },
       });
     } catch (err) {

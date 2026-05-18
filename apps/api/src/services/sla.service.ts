@@ -1,4 +1,12 @@
+import { Worker } from "bullmq";
 import { prisma } from "@nexaflow/db";
+import {
+  getSlaQueue,
+  getQueueConnection,
+  QueueNames,
+  trackWorker,
+  type SlaJobData,
+} from "../lib/queue";
 
 /**
  * SLA worker — stamps `slaBreachedAt` on conversations where:
@@ -9,8 +17,6 @@ import { prisma } from "@nexaflow/db";
  * It's cleared when the agent replies (see conversations.routes.ts) and when
  * a new inbound arrives (see whatsapp.routes.ts).
  */
-
-let workerHandle: ReturnType<typeof setInterval> | null = null;
 
 async function tick(): Promise<void> {
   // Pull tenants with their SLA setting; iterate per tenant so we use the
@@ -54,21 +60,60 @@ async function tick(): Promise<void> {
   }
 }
 
-export async function startSlaWorker(intervalMs = 60_000): Promise<void> {
-  if (workerHandle) return;
+const SCAN_INTERVAL_MS = 60_000;
+const SCAN_JOB_NAME = "scan";
+
+let slaWorker: Worker<SlaJobData> | null = null;
+
+export async function startSlaWorker(): Promise<void> {
+  if (slaWorker) return;
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch {
     console.warn("[sla-worker] database unavailable; worker not started.");
     return;
   }
-  setTimeout(() => void tick(), 5_000);
-  workerHandle = setInterval(() => void tick(), intervalMs);
+
+  const q = getSlaQueue();
+  try {
+    await q.removeJobScheduler(SCAN_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SCAN_JOB_NAME,
+      { every: SCAN_INTERVAL_MS },
+      { name: SCAN_JOB_NAME, data: { kind: "scan" } },
+    );
+  } catch (err) {
+    console.warn(
+      "[sla-worker] could not register scan scheduler (Redis unavailable?)",
+      (err as Error).message,
+    );
+    return;
+  }
+
+  slaWorker = new Worker<SlaJobData>(
+    QueueNames.SLA_DISPATCH,
+    async () => {
+      await tick();
+    },
+    {
+      connection: getQueueConnection(),
+      concurrency: 1,
+    },
+  );
+
+  slaWorker.on("failed", (job, err) => {
+    console.error(`[sla-worker] job ${job?.id} failed:`, err?.message);
+  });
+  slaWorker.on("error", (err) => {
+    console.error("[sla-worker] worker error:", err.message);
+  });
+
+  trackWorker(slaWorker);
 }
 
 export function stopSlaWorker(): void {
-  if (workerHandle) {
-    clearInterval(workerHandle);
-    workerHandle = null;
+  if (slaWorker) {
+    void slaWorker.close();
+    slaWorker = null;
   }
 }

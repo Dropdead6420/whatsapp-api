@@ -1,3 +1,4 @@
+import { Worker } from "bullmq";
 import { prisma } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import { nodeRegistry } from "./nodes";
@@ -7,6 +8,13 @@ import {
   FlowNode,
   FlowRuntimeError,
 } from "./types";
+import {
+  getFlowQueue,
+  getQueueConnection,
+  QueueNames,
+  trackWorker,
+  type FlowJobData,
+} from "../../lib/queue";
 
 const MAX_NODES_PER_RUN = 50; // guard against runaway loops
 
@@ -290,13 +298,44 @@ export async function findFlowForInbound(
   return null;
 }
 
-let workerHandle: ReturnType<typeof setInterval> | null = null;
+// ----------------------------------------------------------------------------
+// BullMQ worker — replaces setInterval polling for resuming WAITING runs.
+//
+// DELAY semantics are preserved: when a flow node sets resumeAt, it stays in
+// status=WAITING in Postgres. The scan job (every SCAN_INTERVAL_MS) finds
+// runs whose resumeAt has passed, atomically transitions to RUNNING, then
+// re-enters executeFlowRun. The flip-to-RUNNING is the lock — two concurrent
+// scanners can't both pick up the same run because `update where status =
+// WAITING` is racy-safe in Postgres.
+// ----------------------------------------------------------------------------
 
-/**
- * Background worker — resumes WAITING runs whose resumeAt has passed.
- */
-export async function startFlowWorker(intervalMs = 30_000): Promise<void> {
-  if (workerHandle) return;
+const SCAN_INTERVAL_MS = 30_000;
+const SCAN_JOB_NAME = "scan";
+
+let flowWorker: Worker<FlowJobData> | null = null;
+
+async function tickResumeDue(): Promise<void> {
+  const due = await prisma.flowRun.findMany({
+    where: {
+      status: "WAITING",
+      resumeAt: { lte: new Date() },
+    },
+    select: { id: true },
+    take: 25,
+  });
+  for (const r of due) {
+    // Atomic claim: only flip RUNNING if still WAITING.
+    const claim = await prisma.flowRun.updateMany({
+      where: { id: r.id, status: "WAITING" },
+      data: { status: "RUNNING" },
+    });
+    if (claim.count === 0) continue; // another worker beat us
+    await executeFlowRun(r.id);
+  }
+}
+
+export async function startFlowWorker(): Promise<void> {
+  if (flowWorker) return;
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch {
@@ -304,34 +343,46 @@ export async function startFlowWorker(intervalMs = 30_000): Promise<void> {
     return;
   }
 
-  const tick = async () => {
-    try {
-      const due = await prisma.flowRun.findMany({
-        where: {
-          status: "WAITING",
-          resumeAt: { lte: new Date() },
-        },
-        select: { id: true },
-        take: 25,
-      });
-      for (const r of due) {
-        await prisma.flowRun.update({
-          where: { id: r.id },
-          data: { status: "RUNNING" },
-        });
-        await executeFlowRun(r.id);
-      }
-    } catch (err) {
-      console.error("[flow-worker] tick failed", err);
-    }
-  };
-  setTimeout(tick, 10_000);
-  workerHandle = setInterval(tick, intervalMs);
+  const q = getFlowQueue();
+  try {
+    await q.removeJobScheduler(SCAN_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SCAN_JOB_NAME,
+      { every: SCAN_INTERVAL_MS },
+      { name: SCAN_JOB_NAME, data: { kind: "scan" } },
+    );
+  } catch (err) {
+    console.warn(
+      "[flow-worker] could not register scan scheduler (Redis unavailable?)",
+      (err as Error).message,
+    );
+    return;
+  }
+
+  flowWorker = new Worker<FlowJobData>(
+    QueueNames.FLOW_DISPATCH,
+    async () => {
+      await tickResumeDue();
+    },
+    {
+      connection: getQueueConnection(),
+      concurrency: 1,
+    },
+  );
+
+  flowWorker.on("failed", (job, err) => {
+    console.error(`[flow-worker] job ${job?.id} failed:`, err?.message);
+  });
+  flowWorker.on("error", (err) => {
+    console.error("[flow-worker] worker error:", err.message);
+  });
+
+  trackWorker(flowWorker);
 }
 
 export function stopFlowWorker(): void {
-  if (workerHandle) {
-    clearInterval(workerHandle);
-    workerHandle = null;
+  if (flowWorker) {
+    void flowWorker.close();
+    flowWorker = null;
   }
 }

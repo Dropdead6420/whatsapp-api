@@ -10,6 +10,11 @@ export function getQueueConnection(): ConnectionOptions {
 
 export const QueueNames = {
   CAMPAIGN_DISPATCH: "campaign-dispatch",
+  APPOINTMENT_DISPATCH: "appointment-dispatch",
+  FLOW_DISPATCH: "flow-dispatch",
+  SLA_DISPATCH: "sla-dispatch",
+  WEBHOOK_DELIVERY: "webhook-delivery",
+  LEAD_FOLLOWUP_DISPATCH: "lead-followup-dispatch",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -22,26 +27,66 @@ interface CampaignScanData {
 }
 export type CampaignJobData = CampaignDispatchData | CampaignScanData;
 
-let campaignQueueSingleton: Queue<CampaignJobData> | null = null;
+interface AppointmentScanData {
+  kind: "scan";
+}
+export type AppointmentJobData = AppointmentScanData;
+
+interface FlowScanData {
+  kind: "scan";
+}
+export type FlowJobData = FlowScanData;
+
+export type SlaJobData = { kind: "scan" };
+export type LeadFollowUpJobData = { kind: "scan" };
+
+interface WebhookDeliveryData {
+  webhookLogId: string;
+}
+export type WebhookJobData = WebhookDeliveryData;
+
+const queueSingletons = new Map<string, Queue>();
+
+function makeQueue<T>(name: string): Queue<T> {
+  const existing = queueSingletons.get(name);
+  if (existing) return existing as Queue<T>;
+  const q = new Queue<T>(name, {
+    connection: getQueueConnection(),
+    defaultJobOptions: {
+      // Keep last 1k completed for the /admin/queues view; drop older to
+      // bound Redis memory.
+      removeOnComplete: { count: 1000 },
+      removeOnFail: { count: 5000 },
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5_000 },
+    },
+  });
+  queueSingletons.set(name, q);
+  return q;
+}
 
 export function getCampaignQueue(): Queue<CampaignJobData> {
-  if (!campaignQueueSingleton) {
-    campaignQueueSingleton = new Queue<CampaignJobData>(
-      QueueNames.CAMPAIGN_DISPATCH,
-      {
-        connection: getQueueConnection(),
-        defaultJobOptions: {
-          // Keep last 1k completed for the /admin/queues view; drop older to
-          // bound Redis memory.
-          removeOnComplete: { count: 1000 },
-          removeOnFail: { count: 5000 },
-          attempts: 3,
-          backoff: { type: "exponential", delay: 5_000 },
-        },
-      },
-    );
-  }
-  return campaignQueueSingleton;
+  return makeQueue<CampaignJobData>(QueueNames.CAMPAIGN_DISPATCH);
+}
+
+export function getAppointmentQueue(): Queue<AppointmentJobData> {
+  return makeQueue<AppointmentJobData>(QueueNames.APPOINTMENT_DISPATCH);
+}
+
+export function getFlowQueue(): Queue<FlowJobData> {
+  return makeQueue<FlowJobData>(QueueNames.FLOW_DISPATCH);
+}
+
+export function getSlaQueue(): Queue<SlaJobData> {
+  return makeQueue<SlaJobData>(QueueNames.SLA_DISPATCH);
+}
+
+export function getWebhookQueue(): Queue<WebhookJobData> {
+  return makeQueue<WebhookJobData>(QueueNames.WEBHOOK_DELIVERY);
+}
+
+export function getLeadFollowUpQueue(): Queue<LeadFollowUpJobData> {
+  return makeQueue<LeadFollowUpJobData>(QueueNames.LEAD_FOLLOWUP_DISPATCH);
 }
 
 // Test/shutdown helper. Closes the singleton + all registered workers.
@@ -55,10 +100,9 @@ export async function closeQueues(): Promise<void> {
   const workers = Array.from(registeredWorkers);
   registeredWorkers.clear();
   await Promise.allSettled(workers.map((w) => w.close()));
-  if (campaignQueueSingleton) {
-    await campaignQueueSingleton.close().catch(() => undefined);
-    campaignQueueSingleton = null;
-  }
+  const queues = Array.from(queueSingletons.values());
+  queueSingletons.clear();
+  await Promise.allSettled(queues.map((q) => q.close()));
 }
 
 export async function queueDepth(
