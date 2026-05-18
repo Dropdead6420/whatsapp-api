@@ -86,13 +86,10 @@ The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None 
 Detailed plan lives in [`docs/SCALE_PLAN_1M.md`](docs/SCALE_PLAN_1M.md).
 Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 
-**Phase A — Worker fleet + DB pool (50k concurrent / 200 MPS)**
-- T-082 Migrate appointment worker to BullMQ
-- T-083 Migrate flow runtime worker to BullMQ (preserves DELAY resume semantics)
-- T-084 Migrate SLA worker to BullMQ (or convert to a singleton scheduled job)
-- T-085 Migrate outbound webhook retry to BullMQ with native retry/backoff
-- T-086 Migrate lead follow-up worker to BullMQ
-- T-087 k6 load test harness in `apps/load/` + `auth-burst`, `inbox-poll`, `webhook-storm` scenarios
+**Phase A — Worker fleet + DB pool (50k concurrent / 200 MPS)** ✅ code complete; load test pending
+
+Phase A is shipping code complete; a live k6 run against staging is the
+remaining gate before Phase B opens. See `apps/load/README.md`.
 
 **Phase B — Auth + Redis + send throttle hardening (100k concurrent / 400 MPS)**
 - T-090 Redis verification cache for access-token validation (sub-ms re-validation)
@@ -137,6 +134,8 @@ Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-087 k6 load harness in `apps/load/`** — 3 scenarios (`auth-burst`, `inbox-poll`, `webhook-storm`) with thresholds aligned to the Phase A target (50k concurrent / 200 MPS).
+- ✅ **T-082..T-086 Remaining workers → BullMQ**. Appointment, flow, SLA, webhook retry, and lead follow-up workers all migrated off `setInterval` polling. Scan-style workers (appointment / flow / sla / lead-followup) use repeatable scan jobs every 30–60s; the webhook retry worker uses BullMQ-native `attempts` + a custom backoff strategy preserving the existing 1m/5m/30m/2h schedule. Flow worker uses `updateMany where status=WAITING` to atomically claim runs across replicas. `/admin/queues` reports depth for all 6 queues. See ADR-015.
 - ✅ **T-081 PgBouncer + `DATABASE_URL_POOLED`**. `edoburu/pgbouncer:v1.24.1-p1` added to docker-compose on `:6432` in transaction mode. `packages/db/src/index.ts` reads `DATABASE_URL_POOLED || DATABASE_URL` at runtime; schema's `env("DATABASE_URL")` continues to drive `prisma migrate`. Backwards compatible — dev keeps working without the pool. See ADR-016.
 - ✅ **T-080 Campaign worker migrated to BullMQ**. `dispatchCampaign(id)` is now a queue job; a repeatable `scan` job runs every 30s and enqueues due `SCHEDULED` campaigns with `jobId: dispatch:<id>` for natural dedup. Producer side covered by 2 unit tests; live boot verified the scheduler registers in Redis (`bull:campaign-dispatch:repeat:scan`) and shutdown drains cleanly in <1s. Added `GET /api/v1/admin/queues` for depth visibility. Bull v4 dep dropped (it was unused). See ADR-015.
 - ✅ **T-003 Inbound WhatsApp webhook idempotency + signature verification**. `Message.metaMessageId` is unique, webhook raw body is preserved, `X-Hub-Signature-256` is verified with constant-time HMAC when `META_APP_SECRET` is configured, production fails closed without a real secret, duplicate provider message ids skip all downstream side-effects, and duplicate-key races return `null` instead of re-processing.
