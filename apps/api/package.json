@@ -33,7 +33,9 @@
     "@anthropic-ai/sdk": "^0.16.0",
     "openai": "^4.20.0",
     "socket.io": "^4.7.0",
-    "@socket.io/redis-adapter": "^8.3.0"
+    "@socket.io/redis-adapter": "^8.3.0",
+    "@sentry/node": "^8.0.0",
+    "prom-client": "^15.1.0"
   },
   "devDependencies": {
     "typescript": "^5.2.0",

@@ -19,6 +19,7 @@ import {
   getWebhookQueue,
   queueDepth,
 } from "../lib/queue";
+import { metricsRegistry } from "../lib/observability";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   ALL_FEATURES,
@@ -124,6 +125,21 @@ router.get("/health", async (_req: RequestWithAuth, res: Response, next: NextFun
     next(err);
   }
 });
+
+// GET /api/v1/admin/metrics — Prometheus scrape endpoint. SuperAdmin only.
+// Returns prom-client text exposition; the body is large, so this route
+// bypasses the JSON shape.
+router.get(
+  "/metrics",
+  async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      res.setHeader("Content-Type", metricsRegistry.contentType);
+      res.send(await metricsRegistry.metrics());
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /api/v1/admin/queues — BullMQ depth snapshot for SuperAdmin observability.
 router.get(

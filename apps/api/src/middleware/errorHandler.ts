@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { captureException } from "../lib/observability";
 
 /**
  * Global error handler middleware. Must be the last middleware registered.
@@ -56,6 +57,13 @@ export const errorHandler = (
     });
     return;
   }
+
+  // 500-class — capture in Sentry. ApiError / ZodError are caller bugs and
+  // already returned above; this branch is the truly unexpected one.
+  captureException(err, {
+    url: req.originalUrl,
+    method: req.method,
+  });
 
   res.status(500).json({
     success: false,

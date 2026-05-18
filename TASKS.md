@@ -108,12 +108,8 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 - T-112 OpenSearch index for contact + message full-text search; replace `contains` queries
 - T-114 Wallet sharding strategy (plan-only — implement only if Phase C load shows real contention)
 
-**Phase E — Observability + chaos (production-ready 1M)**
-- T-120 OpenTelemetry traces (Next → API → DB → Redis → workers → Meta)
-- T-121 Sentry integration (api, web, workers)
-- T-122 RED metrics per route, per tenant tier (anonymized)
-- T-123 Synthetic checks on /health, /api/v1/health, public booking, login flow
-- T-124 Chaos drill: kill workers / one Postgres replica / one Redis shard in staging
+**Phase E — Observability + chaos (production-ready 1M)** 🟡 T-121/T-122/T-123/T-124 shipped; T-120 deferred
+- T-120 OpenTelemetry traces (Next → API → DB → Redis → workers → Meta) — deferred until span data becomes load-bearing; Sentry traces + Prometheus give us enough for now
 
 **Non-scale enterprise**
 - T-062 Scheduled report exports (PDF / CSV)
@@ -130,6 +126,10 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-124 Chaos drill runbook**. `docs/CHAOS_DRILL_RUNBOOK.md` — 5 scenarios (kill worker, kill replica, kill Redis shard, saturate Anthropic, cold-cache restart) with expected behavior + page-if thresholds. Staging-only; quarterly cadence.
+- ✅ **T-123 Synthetic checks**. `apps/load/scenarios/synthetic-checks.js` — k6 script that probes `/live`, `/api/v1/health`, `/api/v1/ready` (verifies postgres+redis), public booking, and the login pipeline (deliberately bad password → canonical 401). Designed for cron from any external runner (Cloudflare Workers, Datadog, GH Actions). k6 exits non-zero on regression.
+- ✅ **T-122 RED metrics via prom-client**. `nexaflow_http_requests_total`, `nexaflow_http_request_duration_seconds`, `nexaflow_http_request_errors_total` labeled by `{method, route, status_class}`; default Node.js + process metrics also exposed. Route labels use Express's matched-route path with a cardinality-strip fallback that requires BOTH letters and digits so words like "conversations" stay verbatim while CUIDs/UUIDs collapse to `/:id`. Exposed at `GET /api/v1/admin/metrics` (SuperAdmin only). Verified live with 8+ request samples.
+- ✅ **T-121 Sentry integration**. `lib/observability.ts:initSentry()` wires `@sentry/node` v8 when `SENTRY_DSN` is a live URL; no-ops on placeholder / unset. Error handler forwards 500-class to `captureException`; `unhandledRejection` + `uncaughtException` also captured. `SENTRY_TRACES_SAMPLE_RATE` default 0.1. `sendDefaultPii: false` — request bodies never leave the box.
 - ✅ **T-113 CDN cache headers**. `next.config.js` declares `Cache-Control` for `/_next/static` (immutable, 1y), `/_next/image` (1d + SWR 7d), the marketing root (s-maxage 5min + SWR 1d), and public image/text files (1h + SWR 1d). Dashboard pages stay uncached. The CDN itself (Cloudflare / Vercel) is operationally configured; this is the origin-side contract.
 - ✅ **Phase D storage plan**. Consolidated `docs/PHASE_D_STORAGE_PLAN.md` covering T-110 monthly partitioning (rollout order, SQL skeleton, partition-maintenance worker design), T-111 cold-storage archival, T-112 OpenSearch search, and T-114 wallet sharding. Implementation gated on a migration-mode swap from `db push` to `prisma migrate` (separate small task).
 - ✅ **Bug-fix pass on Phase A-C work**. realtime.ts cast-LHS → canonical assignment; conversations cursor pagination dropped a dead null branch and now treats a null cursor.lastMessageAt defensively as `now()`; apiKeyAuth.ts notes the missing per-key rate-limit enforcement so the next reader sees the gap.

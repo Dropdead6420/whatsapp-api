@@ -6,6 +6,11 @@ import { prisma } from "@nexaflow/db";
 import { closeRedis, pingRedis } from "./lib/redis";
 import { closeQueues } from "./lib/queue";
 import { attachRealtime, closeRealtime } from "./lib/realtime";
+import {
+  initSentry,
+  httpMetricsMiddleware,
+  captureException,
+} from "./lib/observability";
 import { errorHandler } from "./middleware/errorHandler";
 import { redisRateLimit } from "./middleware/redisRateLimit";
 import { authMiddleware } from "./middleware/auth";
@@ -50,6 +55,10 @@ import {
   stopLeadFollowUpWorker,
 } from "./services/leadFollowUp.service";
 
+// Sentry init must run before any other module imports that throw, so
+// keep this as the first stateful side-effect after env load.
+initSentry();
+
 const app: Express = express();
 const PORT = process.env.PORT ?? 3001;
 type AppMode = "api" | "worker" | "all";
@@ -72,6 +81,10 @@ const PUBLIC_BOOKING_RATE_LIMIT_MAX = Number(
 
 app.set("trust proxy", 1);
 app.use(helmet());
+
+// RED metrics — runs before all route handlers so it captures every
+// request, including 404s and rate-limited bounces.
+app.use(httpMetricsMiddleware);
 app.use(
   cors({
     origin: process.env.WEB_URL ?? "http://localhost:3000",
@@ -247,9 +260,13 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
+  captureException(reason instanceof Error ? reason : new Error(String(reason)), {
+    source: "unhandledRejection",
+  });
 });
 process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error);
+  captureException(error, { source: "uncaughtException" });
   process.exit(1);
 });
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
