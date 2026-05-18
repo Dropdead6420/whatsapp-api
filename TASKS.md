@@ -20,31 +20,15 @@ _(none — open this column when a slice is in flight)_
 
 ## Next up
 
-### T-001 — Wire wallet deductions into the WhatsApp send path
-- **Priority**: P0
-- **Blueprint**: §3.5, §9
-- **Scope**: M
-- **Why**: Wallet + Transaction shipped; deductions never fire, so the ledger is decorative.
-- **Plan**:
-  - Add a `WHATSAPP_MESSAGE_COST_PAISA` env config (default 30 paisa).
-  - In `sendWhatsAppText` and `sendWhatsAppTemplate` adapter calls: after a successful Meta response, call `wallet.debit(tenantId, cost, { kind: 'WHATSAPP_MESSAGE', relatedId: metaMessageId })` inside a single `prisma.$transaction` with the Message insert.
-  - On failure, no debit. On webhook delivery failure replay, **do not** double-charge — use `relatedId` as the idempotency key.
-  - Add `wallet.balance < cost` pre-check before `assertCanSend` — fail with `INSUFFICIENT_CREDITS` (new ErrorCode).
-- **Tests**:
-  - Successful send debits.
-  - Failed Meta call leaves balance unchanged.
-  - Duplicate Meta replay produces only one debit.
-- **Acceptance**: live smoke shows balance dropping per send; campaign worker halts on `INSUFFICIENT_CREDITS` and stamps `Campaign.status = PAUSED`.
-
 ### T-002 — Wire wallet deductions into AI calls
 - **Priority**: P0
 - **Blueprint**: §3.5, §6
-- **Scope**: M
+- **Scope**: S (helpers already exist from T-001)
 - **Why**: AI credits are listed on `Tenant.aiCreditsPerMonth` but never decremented.
 - **Plan**:
-  - Convert `aiCreditsPerMonth` enforcement into wallet debits at AI-call granularity. Cost map per feature in env or `Plan`.
-  - In `callLlmJson()` after a successful Anthropic response, debit `aiCreditCost` from the tenant wallet (same idempotency contract as T-001 using the `AiUsage.id`).
-  - Pre-check the wallet before the Anthropic call — return 402 `INSUFFICIENT_CREDITS` early.
+  - Use the `assertCanAffordAi` + `debitAi` helpers already in `billing.service.ts`.
+  - In `ai.service.ts callLlmJson()`: pre-check before Anthropic call, debit after on the returned `AiUsage.id`.
+  - Per-feature cost mapping via `AI_CALL_COST_CREDITS_AUTOPILOT` etc. env vars, or a `Plan.aiCostPerCall` column (defer to a follow-up).
 - **Tests**: success debits; failure doesn't; per-feature cost differs.
 
 ### T-003 — Idempotency on inbound WhatsApp webhooks
@@ -128,6 +112,7 @@ _(none — open this column when a slice is in flight)_
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-001 Wallet debits wired into 7 WhatsApp send paths** (whatsapp routes ×2, conversation reply, campaign worker, appointment worker, lead follow-up, flow MESSAGE node). Feature-flagged via `WALLET_BILLING_ENABLED` (default off). Idempotent via unique index on `WalletTransaction(walletId, referenceType, referenceId)`. Pre-check returns 402; campaign worker treats 402 as PAUSED. See ADR-013.
 - ✅ Domain Connection: schema, API, DNS verification, `/domains` page (blueprint §4)
 - ✅ Wallet + Transaction schema + service skeleton (blueprint §3.5)
 - ✅ Outbound webhooks: signed delivery + retry worker + 7 event types (blueprint §6.4)

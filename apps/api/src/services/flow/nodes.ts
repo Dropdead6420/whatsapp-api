@@ -2,6 +2,7 @@ import { prisma } from "@nexaflow/db";
 import { ApiError, MessageDirection, MessageStatus } from "@nexaflow/shared";
 import { sendWhatsAppText } from "../whatsapp.service";
 import { canSendNow, recordSend } from "../sendThrottle.service";
+import { assertCanAffordMessage, debitMessage } from "../billing.service";
 import { pickNextAgent } from "../routing.service";
 import { suggestReplies } from "../ai.service";
 import {
@@ -108,6 +109,19 @@ const messageHandler: NodeHandler = {
       };
     }
 
+    // Wallet pre-check — soft skip when unfunded so the flow can keep walking.
+    try {
+      await assertCanAffordMessage(ctx.tenantId);
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 402) {
+        return {
+          nextNodeId: node.next ?? null,
+          trail: { skipped: `unfunded: ${err.message}` },
+        };
+      }
+      throw err;
+    }
+
     try {
       const metaMessageId = await sendWhatsAppText({
         phoneNumberId: tenant.wabaPhoneNumber,
@@ -116,6 +130,9 @@ const messageHandler: NodeHandler = {
         body: text,
       });
       await recordSend(ctx.tenantId);
+      await debitMessage(ctx.tenantId, metaMessageId, {
+        reason: `Flow MESSAGE node ${node.id}`,
+      });
 
       const convo =
         ctx.conversationId ??

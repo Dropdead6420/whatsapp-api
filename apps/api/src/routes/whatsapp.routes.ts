@@ -23,6 +23,7 @@ import {
 import { pickNextAgent } from "../services/routing.service";
 import { scoreLead } from "../services/ai.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
+import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
 import { findFlowForInbound, startFlowRun } from "../services/flow/engine";
 import { emitWebhookEvent } from "../services/webhook.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
@@ -452,6 +453,7 @@ router.post(
         );
       }
 
+      await assertCanAffordMessage(req.tenantId!);
       await assertCanSend(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
       const metaMessageId = await sendWhatsAppText({
@@ -461,6 +463,10 @@ router.post(
         body: body.body,
       });
       await recordSend(req.tenantId!);
+      await debitMessage(req.tenantId!, metaMessageId, {
+        actorUserId: req.userId,
+        reason: "WhatsApp send-text",
+      });
 
       const conversation = await prisma.conversation.upsert({
         where: {
@@ -517,6 +523,7 @@ router.post(
           "Contact not found or has opted out.",
         );
       }
+      await assertCanAffordMessage(req.tenantId!);
       await assertCanSend(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
       const metaMessageId = await sendWhatsAppTemplate({
@@ -528,6 +535,10 @@ router.post(
         bodyParams: body.bodyParams,
       });
       await recordSend(req.tenantId!);
+      await debitMessage(req.tenantId!, metaMessageId, {
+        actorUserId: req.userId,
+        reason: "WhatsApp send-template",
+      });
 
       const conversation = await prisma.conversation.upsert({
         where: {

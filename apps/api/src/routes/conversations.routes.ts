@@ -17,6 +17,7 @@ import { requirePermission } from "../middleware/rbac";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
+import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
 import { emitWebhookEvent } from "../services/webhook.service";
 
 const router = Router();
@@ -316,6 +317,7 @@ router.post(
         );
       }
 
+      await assertCanAffordMessage(req.tenantId!);
       await assertCanSend(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
       const metaMessageId = await sendWhatsAppText({
@@ -325,6 +327,10 @@ router.post(
         body: body.body,
       });
       await recordSend(req.tenantId!);
+      await debitMessage(req.tenantId!, metaMessageId, {
+        actorUserId: req.userId,
+        reason: "Inbox reply",
+      });
 
       const message = await prisma.message.create({
         data: {

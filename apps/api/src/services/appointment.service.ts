@@ -1,6 +1,8 @@
 import { prisma } from "@nexaflow/db";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { canSendNow, recordSend } from "./sendThrottle.service";
+import { assertCanAffordMessage, debitMessage } from "./billing.service";
+import { ApiError } from "@nexaflow/shared";
 
 /**
  * Background worker for appointment confirmations + reminders.
@@ -64,13 +66,27 @@ async function sendAppointmentMessage(
       console.warn(`[appointments] ${kind} throttled for ${appt.id}: ${gate.reason}`);
       return false; // Don't stamp confirmationSentAt/reminderSentAt; retry next tick.
     }
-    await sendWhatsAppText({
+    // Wallet pre-check — if the tenant can't afford, leave the appt timer
+    // alone so it retries after a top-up.
+    try {
+      await assertCanAffordMessage(appt.tenantId);
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 402) {
+        console.warn(`[appointments] ${kind} unfunded for ${appt.id}: ${err.message}`);
+        return false;
+      }
+      throw err;
+    }
+    const metaMessageId = await sendWhatsAppText({
       phoneNumberId: appt.tenant.wabaPhoneNumber,
       accessToken: appt.tenant.wabaAccessToken,
       to: appt.contact.phoneNumber.replace(/^\+/, ""),
       body,
     });
     await recordSend(appt.tenantId);
+    await debitMessage(appt.tenantId, metaMessageId, {
+      reason: `Appointment ${kind} for ${appt.id}`,
+    });
     return true;
   } catch (err) {
     console.error(`[appointments] ${kind} send failed`, appt.id, err);

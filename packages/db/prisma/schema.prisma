@@ -819,6 +819,11 @@ model WalletTransaction {
   @@index([actorUserId])
   @@index([type])
   @@index([referenceType, referenceId])
+
+  // Idempotency: a given (wallet, referenceType, referenceId) can only have one
+  // ledger entry. Postgres unique constraints treat NULL as distinct by default,
+  // so admin/manual entries (no referenceId) are unaffected.
+  @@unique([walletId, referenceType, referenceId])
 }
 
 model Subscription {

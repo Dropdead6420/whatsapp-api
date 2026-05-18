@@ -165,3 +165,21 @@ Format:
 - **Consequences**:
   - Editor and runtime evolve independently.
   - If we add a different visual editor, it claims its own subkey under `_editor` or migrates.
+
+---
+
+## ADR-013 — Wallet billing is feature-flagged; cost unit is credits; debits are idempotent
+
+- **Date**: 2026-05-18
+- **Status**: Accepted
+- **Context**: Per blueprint §3.5, every WhatsApp send and AI call must deduct from the tenant wallet. But forcibly enabling that on existing un-funded tenants would block production sends overnight.
+- **Decision**:
+  - **Feature flag** `WALLET_BILLING_ENABLED` (default `false`). When off, `assertCanAffordMessage` and `debitMessage` are no-ops. When on, full enforcement.
+  - **Unit**: integer **credits**, not paisa. Cost env vars: `WHATSAPP_MESSAGE_COST_CREDITS` (default 1), `AI_CALL_COST_CREDITS` (default 1). This matches `WalletTransaction.amountCredits Int`.
+  - **Idempotency**: unique index on `WalletTransaction(walletId, referenceType, referenceId)`. Send debits reference the Meta message id; AI debits reference the `AiUsage` row id. A replay never double-debits.
+  - **Failure mode**: debits never fail the send. If the post-send debit errors (e.g. Postgres outage), we log and continue — the message is already on the wire. Reconciliation will catch drift.
+  - **Pre-check before send**: refuses the send (402 `INSUFFICIENT_CREDITS`) when wallet can't afford it. Campaign worker treats 402 as `halt + PAUSED` so the rest of the campaign survives a top-up.
+- **Consequences**:
+  - Safe rollout: flip the flag per tenant via env once their wallet is funded.
+  - Slight balance overshoot possible under race; ledger truth captured.
+  - Pre-check and debit are wrapped at the **call site**, not the throttle service — keeps `sendThrottle` provider-agnostic and lets billing live with the wallet domain.

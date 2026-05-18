@@ -8,6 +8,7 @@ import {
 import { assertCanSend, recordSend } from "./sendThrottle.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { emitWebhookEvent } from "./webhook.service";
+import { assertCanAffordMessage, debitMessage } from "./billing.service";
 
 let workerStarted = false;
 let workerHandle: ReturnType<typeof setInterval> | null = null;
@@ -77,6 +78,7 @@ export async function sendLeadFollowUp(
     );
   }
 
+  await assertCanAffordMessage(tenantId);
   await assertCanSend(tenantId);
   const config = await getTenantWabaConfig(tenantId);
   const conversation = await getOrCreateConversation(tenantId, lead.contactId);
@@ -87,6 +89,9 @@ export async function sendLeadFollowUp(
     body: lead.followUpMessage,
   });
   await recordSend(tenantId);
+  await debitMessage(tenantId, metaMessageId, {
+    reason: `Lead follow-up ${leadId}`,
+  });
 
   const now = new Date();
   const message = await prisma.message.create({

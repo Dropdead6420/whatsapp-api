@@ -120,6 +120,69 @@ export async function adjustWallet(input: WalletEntryInput) {
   });
 }
 
+/**
+ * Idempotent variant: if a transaction with the same
+ * (walletId, referenceType, referenceId) already exists, returns the
+ * existing record without re-applying the ledger entry.
+ *
+ * Use this for system-driven debits (message sends, AI calls) where Meta
+ * or our own retry layer can replay the same event.
+ *
+ * Requires `referenceType` and `referenceId` to be set; otherwise the
+ * unique index doesn't apply and we fall back to a normal `adjustWallet`.
+ */
+export async function adjustWalletIdempotent(input: WalletEntryInput) {
+  if (!input.referenceType || !input.referenceId) {
+    return adjustWallet(input);
+  }
+
+  // Look up first to avoid wasting a serializable transaction on a replay.
+  const existing = await prisma.walletTransaction.findFirst({
+    where: {
+      walletId: undefined, // walletId is derived inside the tx; match by tenant + ref
+      tenantId: input.tenantId,
+      referenceType: input.referenceType,
+      referenceId: input.referenceId,
+    },
+  });
+  if (existing) {
+    const wallet = await prisma.wallet.findUnique({
+      where: { tenantId: input.tenantId },
+    });
+    return { wallet, transaction: existing, idempotent: true as const };
+  }
+
+  try {
+    const result = await prisma.$transaction(
+      (tx) => applyWalletEntryTx(tx, input),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return { ...result, idempotent: false as const };
+  } catch (err) {
+    // P2002 = unique constraint violation. A concurrent debit beat us; treat as
+    // idempotent success.
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const existing2 = await prisma.walletTransaction.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          referenceType: input.referenceType!,
+          referenceId: input.referenceId!,
+        },
+      });
+      const wallet = await prisma.wallet.findUnique({
+        where: { tenantId: input.tenantId },
+      });
+      if (existing2) {
+        return { wallet, transaction: existing2, idempotent: true as const };
+      }
+    }
+    throw err;
+  }
+}
+
 export async function transferWalletCredits(input: {
   fromTenantId: string;
   toTenantId: string;

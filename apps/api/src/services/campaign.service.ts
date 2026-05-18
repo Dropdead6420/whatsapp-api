@@ -7,6 +7,8 @@ import {
 import { sendWhatsAppTemplate } from "./whatsapp.service";
 import { specToWhere, type SegmentFilterSpec } from "./segment.service";
 import { canSendNow, recordSend } from "./sendThrottle.service";
+import { assertCanAffordMessage, debitMessage } from "./billing.service";
+import { ApiError } from "@nexaflow/shared";
 
 interface CampaignAudience {
   contactIds?: string[];
@@ -98,6 +100,22 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
         break;
       }
 
+      // Wallet pre-check. If the tenant can't afford this send, halt the
+      // campaign (don't fail individual messages) so the remaining contacts
+      // can be picked up after a top-up.
+      try {
+        await assertCanAffordMessage(campaign.tenantId);
+      } catch (err) {
+        if (err instanceof ApiError && err.statusCode === 402) {
+          throttled = contacts.length - (sent + failed);
+          console.warn(
+            `[campaign:${campaign.id}] halted: ${err.message}`,
+          );
+          break;
+        }
+        throw err;
+      }
+
       const metaMessageId = await sendWhatsAppTemplate({
         phoneNumberId: campaign.tenant.wabaPhoneNumber,
         accessToken: campaign.tenant.wabaAccessToken,
@@ -106,6 +124,9 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
         languageCode: campaign.template.language ?? "en_US",
       });
       await recordSend(campaign.tenantId);
+      await debitMessage(campaign.tenantId, metaMessageId, {
+        reason: `Campaign ${campaign.id}`,
+      });
       const convo = await prisma.conversation.upsert({
         where: {
           id: (
