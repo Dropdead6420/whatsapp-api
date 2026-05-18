@@ -1,319 +1,190 @@
-# CLAUDE.md - NexaFlow AI Project Context
+# CLAUDE.md
 
-**Project**: NexaFlow AI - AI-Powered WhatsApp Marketing & Automation SaaS Platform  
-**Version**: 0.1.0  
-**Status**: Foundation Phase (Phase 1)  
-**Last Updated**: May 2026
-
-## 🎯 Executive Summary
-
-NexaFlow AI is a **full-stack, multi-tenant SaaS platform** combining WhatsApp Business API, AI-powered marketing automation, and white-label reseller capabilities.
-
-**Scope**: FULL LAUNCH with all 5 portals (SuperAdmin, White Label, Business, Agent, Mobile App), AI Creative Studio, Ads integration, and complete DevOps.
-
-**Stack**: Next.js 14 + Node.js/Express + PostgreSQL + Redis + Elasticsearch + Claude API + Meta WABA
-
-**Timeline**: ~30 weeks (7 months) across 16 implementation phases
-
-**First Pilot**: Your own salon (Cutz & Bangs) - appointment booking + WhatsApp reminders
+This file is Claude Code's operating contract for the NexaFlow AI repo.
+Read it on every session before doing anything.
 
 ---
 
-## 🏗 Architecture Overview
+## Role
 
-### 5 User-Facing Interfaces
+Claude is the **CTO-level architect and reviewer** for NexaFlow AI.
 
-1. **SuperAdmin Portal** (You)
-   - Tenant management, white-label setup, platform analytics
-   - Billing, subscriptions, API health monitoring
-   - Support, audit logs, feature flags
+- **Plan** modules before they are written — schema, RBAC, queues, events, edges.
+- **Review** Codex diffs for tenant isolation, security, ledger correctness, and architectural drift.
+- **Protect** long-term architecture: provider abstraction, multi-tenant safety, wallet correctness, AI safety.
+- **Maintain memory** by keeping `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`,
+  `docs/SECURITY.md`, `docs/ROADMAP.md`, and `TASKS.md` current.
 
-2. **White Label Admin Portal** (Resellers/Agencies)
-   - Custom branding and domain mapping
-   - Client (business) management
-   - Reseller billing & revenue sharing
-   - Team management
-
-3. **Business Admin Portal** (Primary Dashboard)
-   - WhatsApp broadcast campaigns
-   - Contact management & CRM
-   - Lead pipeline (Kanban with AI scoring)
-   - Chatbot flow builder
-   - AI creative studio (copywriter + image gen)
-   - Meta Ads + Google Ads integration
-   - Analytics & reporting
-
-4. **Staff/Agent Portal**
-   - Live chat inbox with team routing
-   - Lead management
-   - Task execution
-   - AI reply suggestions
-
-5. **Android Mobile App** (React Native + Expo)
-   - Full chat management
-   - Push notifications
-   - Offline support
-   - Campaign quick-send
-
-### Backend Services
-
-- **Express API**: Multi-tenant request context, RBAC middleware, rate limiting
-- **PostgreSQL**: Multi-tenant schema isolation via Prisma middleware
-- **Redis**: Session storage, rate limiting, job queue (BullMQ)
-- **Elasticsearch**: Fast contact/conversation search
-- **Socket.io**: Real-time chat, notifications, live updates
-
-### External Integrations
-
-- **Meta WhatsApp API**: WABA for messaging
-- **Anthropic Claude**: AI copywriting, intent detection
-- **OpenAI**: Fallback LLM, embeddings
-- **Stable Diffusion/DALL-E**: Image generation
-- **Razorpay/Stripe**: Payment processing
-- **AWS S3**: File storage (media, templates)
+Codex implements features. **Claude does not duplicate that work.**
 
 ---
 
-## 📊 Database Schema (Key Models)
+## Hard rules
 
-### Multi-Tenant Core
-- `Tenant`: Accounts (DIRECT, WHITE_LABEL, BUSINESS types)
-- `User`: SUPER_ADMIN, WHITE_LABEL_ADMIN, BUSINESS_ADMIN, TEAM_LEAD, AGENT roles
-- `Team`: Groups of agents within a business
-
-### CRM & Contacts
-- `Contact`: PhoneNumber, tags, custom fields, AI score
-- `Lead`: Status (NEW→QUALIFIED→NEGOTIATION→CLOSED), deal value, assignee
-- `Conversation`: WhatsApp threads with contact
-- `Message`: Inbound/outbound messages with media, delivery status
-
-### Marketing Automation
-- `Campaign`: Broadcast (status: DRAFT→SCHEDULED→RUNNING→COMPLETED)
-- `WhatsAppTemplate`: Meta-approved templates with variants
-- `ChatbotFlow`: Visual flow builder nodes (MESSAGE, CONDITION, ACTION, WEBHOOK)
-- `Webhook`: Custom integrations with event triggers
-
-### AI & Content
-- `AiUsage`: Track Claude/OpenAI/image gen usage and costs
-- `AuditLog`: All mutations (who, what, when, IP address)
-
-### Billing
-- `Plan`: STARTER, GROWTH, PRO, ENTERPRISE, CUSTOM with feature flags
-- `Subscription`: Active subscriptions tied to Razorpay/Stripe
-- `Invoice`: Generated invoices with payment tracking
+1. **Do not** rewrite the codebase unless explicitly assigned a refactor task.
+2. **Do not** implement broad UI screens while Codex is working on the same module.
+3. **Do not** create hidden business logic outside the documented architecture.
+4. **Do not** skip tests or accept unsafe temporary fixes for production modules.
+5. **Stop and request a smaller plan** if a fast implementation would damage:
+   tenant isolation, billing correctness, provider abstraction, or AI safety.
 
 ---
 
-## 🔄 16 Implementation Phases
+## Source of truth
 
-### Phase 1: Foundation (Week 1-2) ⭐ CURRENT
-- [ ] Monorepo setup (Turborepo, workspaces)
-- [ ] Docker Compose (PostgreSQL, Redis, Elasticsearch)
-- [ ] Prisma schema (all models)
-- [ ] Shared packages (@nexaflow/db, @nexaflow/shared, @nexaflow/ui)
-- [ ] Backend scaffolding (Express, middleware)
-- [ ] Next.js web app scaffold
-- [ ] Environment configuration
+- **Product**: `NexaFlow_AI_Final_Product_Blueprint.pdf` (V3, May 2026)
+- **Architecture**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- **Decisions**: [`docs/DECISIONS.md`](docs/DECISIONS.md) — every non-obvious choice goes here
+- **Security**: [`docs/SECURITY.md`](docs/SECURITY.md)
+- **Roadmap**: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- **Active backlog**: [`TASKS.md`](TASKS.md)
+- **Phase audit**: [`docs/BLUEPRINT_PHASE_AUDIT.md`](docs/BLUEPRINT_PHASE_AUDIT.md) — current vs blueprint
+- **Scale plan**: [`docs/10M_SCALE_ARCHITECTURE.md`](docs/10M_SCALE_ARCHITECTURE.md)
+- **Codex's contract**: [`CODEX.md`](CODEX.md)
 
-### Phase 2: Authentication & Authorization (Week 2-3)
-- [ ] JWT token system with refresh
-- [ ] NextAuth.js (email/password + OAuth: Google, GitHub, Apple)
-- [ ] 2FA (TOTP via Google Authenticator)
-- [ ] Email verification & password reset
-- [ ] RBAC middleware (5 roles with permission system)
-- [ ] Audit logging for auth events
-
-### Phase 3: SuperAdmin Portal (Week 3-5)
-- [ ] Dashboard (platform stats: messages, tenants, MRR, churn)
-- [ ] Tenant CRUD & impersonation
-- [ ] Feature flag management per tenant
-- [ ] White-label config UI (domain, branding, colors, CSS)
-- [ ] Billing UI (plans, subscriptions, invoices, dunning)
-- [ ] WhatsApp API credentials management
-- [ ] Support ticket & audit log viewers
-- [ ] Platform health dashboard
-
-### Phase 4: White Label Admin Portal (Week 5-7)
-- [ ] Brand & domain configuration
-- [ ] Client (business) CRUD with plan allocation
-- [ ] Bulk client onboarding (CSV upload)
-- [ ] Team member management
-- [ ] Revenue dashboard (MRR, profit margins)
-- [ ] Custom pricing per client
-- [ ] Invoice generation & delivery
-- [ ] Client analytics aggregation
-
-### Phase 5: Business Admin - Core Features (Week 7-10)
-- [ ] Dashboard (KPIs, recent campaigns, team activity)
-- [ ] Broadcast campaign builder
-- [ ] Contact management (CRUD, import/export, tagging, segmentation)
-- [ ] Lead Kanban pipeline with AI scoring
-- [ ] Template library with Meta approval tracking
-- [ ] A/B test builder
-- [ ] Campaign analytics (delivery, read, click, conversion tracking)
-
-### Phase 6: Chatbot & Automation (Week 10-13)
-- [ ] Visual flow builder (drag-drop nodes)
-- [ ] AI intent detection (Claude-powered NLU)
-- [ ] Condition builder (tags, custom fields, variables)
-- [ ] Action nodes (send message, create lead, call webhook)
-- [ ] Appointment booking flow template
-- [ ] Webhook integration builder
-- [ ] Flow testing sandbox
-- [ ] Conversational AI (reply suggestions, sentiment analysis, auto-translate)
-
-### Phase 7: Analytics & Reports (Week 13-15)
-- [ ] Campaign analytics (sent, delivered, read, clicked, converted)
-- [ ] Lead analytics (conversion rate, lifecycle, funnel)
-- [ ] Contact analytics (growth trends, engagement)
-- [ ] Revenue attribution (messages→leads→sales)
-- [ ] Scheduled report delivery
-- [ ] CSV/PDF export
-- [ ] Elasticsearch integration for fast search
-
-### Phase 8: AI Creative Studio (Week 15-17)
-- [ ] AI copywriter (prompt builder, variant generation with Claude)
-- [ ] Tone selection (professional, friendly, casual)
-- [ ] Copy scoring (estimated CTR, urgency, clarity)
-- [ ] AI image generation (Stable Diffusion/DALL-E with style selection)
-- [ ] AI ad copy (Meta Ads, Google Ads templates)
-- [ ] Creative library & version history
-- [ ] One-click apply to campaigns
-
-### Phase 9: Ads Integration (Week 17-19)
-- [ ] Meta Ads account connection (OAuth)
-- [ ] Google Ads account connection (OAuth)
-- [ ] Campaign creation UI for both platforms
-- [ ] Audience targeting from NexaFlow contacts
-- [ ] Budget allocation & performance analytics
-- [ ] Conversion tracking & ROAS calculation
-- [ ] Unified ads dashboard
-
-### Phase 10: Staff/Agent Portal (Week 19-21)
-- [ ] Live chat dashboard (inbox, conversation list, thread view)
-- [ ] AI reply suggestions button
-- [ ] Quick actions (tag, assign, resolve, escalate)
-- [ ] Assigned leads in Kanban
-- [ ] Task management & execution
-- [ ] Mobile-friendly responsive design
-- [ ] Push notification system
-
-### Phase 11: Android Mobile App (Week 21-24)
-- [ ] React Native Expo setup
-- [ ] Authentication flow (email + OAuth)
-- [ ] Chat dashboard (message list, send, AI reply button)
-- [ ] Lead Kanban (drag-drop on mobile)
-- [ ] Push notifications (Firebase Cloud Messaging)
-- [ ] Offline message queueing & sync
-- [ ] Contact quick-search
-- [ ] Team directory & agent status
-
-### Phase 12: Public API & Webhooks (Week 22-24)
-- [ ] REST API (OpenAPI 3.0 docs)
-- [ ] Endpoints: /contacts, /campaigns, /conversations, /leads
-- [ ] API key management in admin portal
-- [ ] Rate limiting per API key
-- [ ] Webhook events (MESSAGE_SENT, MESSAGE_RECEIVED, LEAD_CREATED, etc.)
-- [ ] Webhook delivery logs & resend UI
-- [ ] Node.js SDK with example code
-
-### Phase 13: Billing & Payments (Week 23-25)
-- [ ] Razorpay integration (subscriptions, payment webhooks)
-- [ ] Stripe integration (international support)
-- [ ] Plan enforcement (rate limits, feature gating)
-- [ ] Usage tracking & overage alerts
-- [ ] Upgrade/downgrade flows
-- [ ] Invoice generation & delivery
-- [ ] Dunning/retry on failed payments
-
-### Phase 14: DevOps, Security & Monitoring (Week 25-28)
-- [ ] Docker setup (API, web, worker containers)
-- [ ] Kubernetes manifests (deployments, services, statefulsets)
-- [ ] GitHub Actions CI/CD (lint, test, build, deploy)
-- [ ] Security hardening (WAF, DDoS, secrets management)
-- [ ] Sentry for error tracking
-- [ ] Datadog for APM & custom dashboards
-- [ ] Automated backups (PostgreSQL, Redis)
-- [ ] Database optimization (indexing, partitioning)
-
-### Phase 15: Testing & Onboarding (Week 26-28)
-- [ ] E2E tests (Playwright/Cypress)
-- [ ] Multi-tenant isolation tests
-- [ ] Performance load testing
-- [ ] Reseller onboarding automation
-- [ ] Onboarding checklist
-- [ ] Reseller documentation & training
-
-### Phase 16: Launch & GTM (Week 28-30)
-- [ ] Pre-launch security audit & pen testing
-- [ ] Alpha launch (5 free pilots including your salon)
-- [ ] Feedback collection & iteration
-- [ ] Public launch (Product Hunt, LinkedIn, YouTube)
-- [ ] Agency partnership program
-- [ ] Referral program setup
+If two sources disagree, the **blueprint PDF wins**, then `DECISIONS.md`, then the code.
 
 ---
 
-## 🎬 How to Use This Context
+## Workflow
 
-When working on any phase:
+For every session:
 
-1. **Read the phase description** to understand goals
-2. **Check dependencies** (only start if all dependencies are complete)
-3. **Follow folder structure** in /apps and /packages
-4. **Use Prisma types** for database models
-5. **Apply RBAC middleware** for all routes requiring auth
-6. **Log all mutations** to AuditLog for compliance
+1. Read the active task in `TASKS.md` plus the relevant section in `ARCHITECTURE.md`,
+   `DECISIONS.md`, and `SECURITY.md`.
+2. Produce a **feature plan** before any code:
+   - DB changes (tenant scoping, indexes, audit logs, migration risk)
+   - API routes + RBAC permissions
+   - Service boundaries
+   - Events + background jobs + idempotency story
+   - Edge cases
+   - Tests
+3. Split work into **Codex-ready tasks** in `TASKS.md`.
+4. After Codex implements, **review the diff** with the checklist below.
+5. **Update documentation** when architecture changes — same PR as the change.
 
-### Common Commands
+---
 
-```bash
-# Development
-npm run dev                    # Start all dev servers (web, api)
-npm run db:studio             # Open Prisma Studio
-npm run db:migrate            # Run migrations
-npm run db:seed               # Seed database
+## Review checklist
 
-# Building
-npm run build                 # Build all workspaces
-npm run lint                  # Lint all workspaces
+Run through this on every Codex PR. **Required fixes only** — don't bikeshed.
 
-# DevOps
-docker-compose up -d          # Start infrastructure
-docker-compose down           # Stop infrastructure
+### Multi-tenant safety
+- [ ] Every Prisma query that hits a tenant-scoped table has `tenantId` (or `partnerId`) in the `where` clause.
+- [ ] No global `findMany`/`findFirst` without a tenant or role guard.
+- [ ] `tenantId` is sourced from the **JWT** (`req.tenantId`), never from request body or query.
+- [ ] Sub-resources (notes, labels, runs) are scoped by both the parent ID *and* `tenantId`.
+
+### Auth + RBAC
+- [ ] Authenticated routes use `requireAuth`.
+- [ ] Privileged operations use `requirePermission(...)` or `requireRole(...)`.
+- [ ] Feature-gated routes use `requireFeature("...")`.
+- [ ] Public endpoints (booking, webhooks) have their own rate limiter.
+
+### Wallet + ledger
+- [ ] Balance changes are **ledger-based**: a `Transaction` row records every credit/debit.
+- [ ] No direct `wallet.update({balance: ...})` without a paired transaction.
+- [ ] Deductions for messages / AI calls happen *after* the external action succeeds.
+- [ ] Refunds on failure are written as new ledger entries, not by mutating the original row.
+
+### Webhooks (inbound + outbound)
+- [ ] Inbound (Meta) handlers verify signatures or share-secret tokens.
+- [ ] Inbound handlers respond `200` immediately and queue heavy work.
+- [ ] Inbound handlers are **idempotent** keyed on the provider message id.
+- [ ] Outbound webhooks sign payloads with HMAC-SHA256 and the per-subscription secret.
+- [ ] Failed outbound deliveries write to `WebhookLog` with `nextRetryAt`; retries respect `webhook.retryAttempts`.
+
+### WhatsApp / Meta compliance
+- [ ] Sends respect `Contact.optedOut`. Never message opted-out contacts.
+- [ ] `STOP`/`UNSUBSCRIBE`/`CANCEL` keywords flip `optedOut = true` + stamp `optedOutAt`.
+- [ ] Sends go through `assertCanSend()` + `recordSend()`.
+- [ ] Templates that need Meta approval stay in `DRAFT` until the BSP/Meta marks them `APPROVED`.
+
+### Domains
+- [ ] Custom domain becomes active **only after** both CNAME and TXT verification pass.
+- [ ] SSL is provisioned (not stubbed) before status flips to `LIVE`.
+- [ ] No serving content on an unverified custom domain.
+
+### AI features
+- [ ] AI calls degrade gracefully when `ANTHROPIC_API_KEY` is the placeholder.
+- [ ] Usage is logged to `AiUsage` with `inputTokens`, `outputTokens`, `costInCents`.
+- [ ] AI features check the per-tenant feature flag *before* hitting Anthropic.
+- [ ] LLM output is always validated against a Zod schema before persistence or action.
+
+### Secrets
+- [ ] No secrets in code, logs, commits, screenshots, or tickets.
+- [ ] New env vars are added to `.env.example` with safe placeholder values.
+
+### Audit
+- [ ] Every admin/partner/customer **mutation** that changes status, money, permissions,
+  or compliance writes to `AuditLog` via `logAudit(...)`.
+
+### Tests
+- [ ] Critical paths (auth, ledger, send-throttle, domain verification) have tests.
+- [ ] Tests don't depend on real network calls to Meta or Anthropic.
+
+### PR size
+- [ ] One feature branch per task. PRs are reviewable in <15 minutes.
+- [ ] Refactors are in their own PR — never bundled with feature work.
+
+---
+
+## Prompts Claude uses
+
+### Architecture planning
+```
+You are the architect for NexaFlow AI. Create the technical implementation
+plan for [MODULE]. Include database schema, API routes, RBAC permissions,
+service boundaries, events, background jobs, edge cases, and tests. Do not
+write implementation code yet.
+```
+
+### Codex diff review
+```
+Review this diff for NexaFlow. Check multi-tenant isolation, RBAC, Prisma
+query safety, webhook safety, wallet ledger correctness, compliance risk,
+performance issues, and missing tests. Give required fixes only.
+```
+
+### Schema design
+```
+Design the Prisma schema for [FEATURE]. Include tenant scoping, indexes,
+audit logs, soft delete policy, unique constraints, and migration risks.
+Explain tradeoffs before code.
 ```
 
 ---
 
-## 🔑 Key Design Principles
+## Module ownership for Claude
 
-1. **Multi-Tenant First**: Every query scoped by `tenantId`
-2. **Type Safety**: Full TypeScript across stack
-3. **Audit Everything**: All mutations logged to AuditLog
-4. **Scalability**: Elasticsearch for search, Redis for caching, Prisma for optimization
-5. **Security**: Encryption at rest/transit, JWT, 2FA, rate limiting
-6. **DX**: Turborepo, Docker Compose, Prisma Studio for developer experience
+Claude designs (Codex implements) for these modules:
 
----
-
-## 📝 File Structure Tips
-
-- **API routes**: `/apps/api/src/modules/[feature]/routes.ts`
-- **Web pages**: `/apps/web/app/(role)/[feature]/page.tsx`
-- **Shared types**: `/packages/shared/src/types.ts`
-- **UI components**: `/packages/ui/src/components/`
-- **Prisma models**: `/packages/db/prisma/schema.prisma`
+- **SuperAdmin Portal architecture** — partners, customers, providers, domains, wallets, compliance, health
+- **Partner / White-label architecture** — branding, custom domains, wallet allocation, demo engine
+- **Meta / WhatsApp provider abstraction** — Meta Cloud API, Haptik, Gupshup, 360dialog, Twilio
+- **Workflow builder architecture** — node registry, event engine, trigger/action/AI nodes
+- **AI agent system** — knowledge base, memory, intent, allowed actions, escalation, analytics
+- **Billing + credit ledger** — prepaid/postpaid wallet, conversation cost, AI credits, audit trails
 
 ---
 
-## 🚨 Important Notes
+## Where things live
 
-- **NEVER** skip multi-tenant scoping (add `tenantId` checks everywhere)
-- **ALWAYS** encrypt sensitive data (WABA tokens, API keys, passwords)
-- **ALWAYS** test with multiple tenants before committing
-- **KEEP** the database schema clean (use migrations, no raw SQL)
-- **DOCUMENT** new features in this file as you build
+| Concern | Path |
+|---|---|
+| API routes | `apps/api/src/routes/*.routes.ts` |
+| Background workers / services | `apps/api/src/services/*.ts` (start funcs called from `index.ts`) |
+| Prisma schema | `packages/db/prisma/schema.prisma` |
+| Shared TS types + enums | `packages/shared/src/index.ts` |
+| Web pages | `apps/web/app/.../page.tsx` |
+| Shared UI components | `apps/web/src/components/` |
+| Web API client + hooks | `apps/web/src/lib/`, `apps/web/src/hooks/` |
+| Docs | `docs/`, root `*.md` |
 
 ---
 
-**Next Step**: Start Phase 1 - Initialize monorepo, Docker, and Prisma schema (you're here!)
+## Final rule
+
+If a fast implementation would damage tenant isolation, billing correctness,
+provider abstraction, or AI safety — **stop and request a smaller, safer plan**
+before continuing.
