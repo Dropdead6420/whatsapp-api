@@ -42,7 +42,7 @@ RUN cd packages/shared && npx tsc
 # `output: 'standalone'` writes a self-contained bundle to
 # apps/web/.next/standalone with its own minimal node_modules and server.js
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN cd apps/web && npx next build
+RUN cd apps/web && npm run build
 
 # -----------------------------------------------------------------------------
 # runtime — copy only the standalone output + static + public

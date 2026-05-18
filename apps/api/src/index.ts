@@ -29,6 +29,8 @@ import flowsRoutes from "./routes/flows.routes";
 import webhooksRoutes from "./routes/webhooks.routes";
 import domainsRoutes from "./routes/domains.routes";
 import walletsRoutes from "./routes/wallets.routes";
+import apiKeysRoutes from "./routes/api-keys.routes";
+import publicApiRoutes from "./routes/public-api.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -163,6 +165,8 @@ app.use("/api/v1/flows", flowsRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);
 app.use("/api/v1/domains", domainsRoutes);
 app.use("/api/v1/wallets", walletsRoutes);
+app.use("/api/v1/api-keys", apiKeysRoutes);
+app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({

@@ -1,6 +1,6 @@
 # NexaFlow AI Blueprint Phase Audit
 
-Source of truth: `/Users/sidharthkumar/Downloads/NexaFlow_AI_Final_Product_Blueprint.pdf`
+Source of truth: `/Users/sidharthkumar/Downloads/NexaFlow_Codex_FINAL_Full_Implementation_Blueprint_and_Features.pdf`
 
 Last checked: 2026-05-18
 
@@ -22,7 +22,7 @@ They are not identical in priority:
 | Phase 3 | Partner portal: partner dashboard, customer management, wallet, transactions, team, demo system | Early partial. Tenant hierarchy, white-label admin role, customer tenants, feature flags, and tenant CRUD exist. | Dedicated partner dashboard, wallet/ledger, customer onboarding wizard, demo workspace, commissions |
 | Phase 4 | White label portal: custom domains, logo/colors, email branding, module control, preview mode | Partial. Tenant branding fields, feature flags, and custom-domain connection flow are present. | Branding UI, email sender/domain setup, preview mode, SSL provider automation |
 | Phase 5 | AI automation: AI workflow builder, AI agents, AI compliance, AI partner assistant, AI onboarding assistant | Partial. AI copy, smart segmenting, reply suggestions, sentiment, lead scoring, autopilot, flow runtime, visual editor, and AI nodes exist. | AI Agent Builder, AI Knowledge Base, compliance auditor, partner assistant, onboarding assistant |
-| Phase 6 | Enterprise scale: provider routing, marketplace, advanced analytics, omnichannel expansion | Early. Platform health, webhooks, API-key model, analytics summary, and rate throttling exist. | Provider abstraction/BSP routing, marketplace, advanced exports/reports, omnichannel, CI/CD hardening |
+| Phase 6 | Enterprise scale: provider routing, developer/API portal, marketplace, advanced analytics, omnichannel expansion | Early. Platform health, webhooks, API-key model, API-key management UI, analytics summary, and rate throttling exist. | Provider abstraction/BSP routing, API logs/docs/sandbox, marketplace, advanced exports/reports, omnichannel, CI/CD hardening |
 
 ## Old PRD To Final Blueprint Mapping
 
@@ -39,7 +39,7 @@ They are not identical in priority:
 | Phase 9 Ads Integration | Not front-loaded in final blueprint | Not implemented; keep as later marketplace/enterprise expansion |
 | Phase 10 Agent Portal | Agent Portal | Partial: inbox, assignment, notes, labels, SLA, canned replies, AI reply tools |
 | Phase 11 Android Mobile App | Not front-loaded in final blueprint | Not started; keep as post-web scale phase |
-| Phase 12 Public API & Webhooks | Webhooks/API Layer | Partial: outbound webhooks and API-key model exist; OpenAPI docs, SDK, API-key management UI pending |
+| Phase 12 Public API & Webhooks | Webhooks/API Layer | Partial: outbound webhooks, API-key model, and API-key management UI exist; OpenAPI docs, SDK, API logs, and sandbox pending |
 | Phase 13 Billing & Payments | Wallet, Transactions & Credit Line System + Billing | Partial: plan/subscription/invoice models and billing UI; Razorpay/Stripe/wallet/credits pending |
 | Phase 14 DevOps/Security | Enterprise scale | Partial: Docker Compose; CI/CD, Sentry/APM, backups, Kubernetes pending |
 | Phase 15 Testing/Onboarding | Enterprise quality | Early: smoke tests manual; Playwright/E2E and isolation tests pending |
@@ -59,6 +59,8 @@ They are not identical in priority:
 - Per-feature AI credit pricing through env vars such as `AI_CALL_COST_CREDITS_CAMPAIGN_AUTOPILOT`.
 - Inbound WhatsApp webhook idempotency and Meta signature verification.
 - Codex implementation workflow captured from `/Users/sidharthkumar/Downloads/NexaFlow_Codex_Playbook.pdf` in `CODEX.md`.
+- Developer/API Portal first slice: tenant-scoped API key create/list/update/revoke API and `/developer` UI. Secrets are returned only once; only SHA-256 hashes are stored.
+- Developer/API Portal second slice: key-authenticated `/api/public/v1/status`, `ApiRequestLog`, last-used tracking, and recent-call viewer.
 
 ## Rules For Future Work
 

@@ -512,6 +512,7 @@ export const Permissions = {
   WALLET_VIEW: "wallet:view",
   WALLET_MANAGE: "wallet:manage",
   WABA_CONFIGURE: "waba:configure",
+  API_KEYS_MANAGE: "api_keys:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
@@ -549,6 +550,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.BILLING_VIEW,
     Permissions.WALLET_VIEW,
     Permissions.WABA_CONFIGURE,
+    Permissions.API_KEYS_MANAGE,
     Permissions.CONVERSATION_READ,
     Permissions.CONVERSATION_REPLY,
     Permissions.LEAD_UPDATE,

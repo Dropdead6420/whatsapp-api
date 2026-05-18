@@ -60,6 +60,12 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "Developer",
+    items: [
+      { href: "/developer", label: "API Keys", roles: ["BUSINESS_ADMIN"], feature: "developerPortal" },
+    ],
+  },
+  {
     label: "White Label",
     items: [
       { href: "/domains", label: "Domains", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN"] },

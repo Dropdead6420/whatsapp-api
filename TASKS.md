@@ -44,7 +44,7 @@ _(none — open this column when a slice is in flight)_
 The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None are blocking the current scale plan; they queue behind T-004 / T-005.
 
 - T-140 **Agent Portal** — simplified inbox-only view for `UserRole.AGENT`. Routes group `/agent/*`. Only assigned conversations, AI reply suggestions, internal notes, follow-up tasks, lead updates. No campaign/template/admin surfaces. Reuses existing inbox components.
-- T-141 **Developer / API Portal** — `/developer/*` route group: API key CRUD UI (model already exists), webhook subscriptions UI (`/webhooks` page exists; extend with logs), API logs viewer, sandbox testing, usage metering chart. Supersedes T-063.
+- T-141 **Developer / API Portal** — `/developer/*` route group: webhook subscriptions/logs consolidation, SDK/docs, richer sandbox testing, usage metering chart. API key management is shipped in T-141A; per-key usage logs + basic sandbox status endpoint are shipped in T-141B.
 - T-142 **Marketplace templates** — installable flow templates (salon booking, clinic reminders, e-commerce order tracking, real-estate lead qualification, coaching inquiry, payment follow-up). `FlowTemplate` model + clone-to-tenant action. Pairs with the Workflow Builder.
 - T-143 **Android mobile app** — Phase 7 of the FINAL PDF. Inbox, notifications (FCM), replies, lead pipeline, quick campaigns, booking calendar, AI reply button. Read-only on the API side; no new backend surface beyond push token registration.
 
@@ -115,7 +115,6 @@ A live WS load run at 100k concurrent and an inbox-poll k6 scenario against a re
 
 **Non-scale enterprise**
 - T-062 Scheduled report exports (PDF / CSV)
-- T-063 API-key management UI
 
 ### Tests
 - T-070 E2E test for auth flow (signup → verify → login → refresh → logout)
@@ -129,6 +128,8 @@ A live WS load run at 100k concurrent and an inbox-poll k6 scenario against a re
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-141B Developer/API Portal API usage logs + sandbox endpoint**. Added `ApiRequestLog`, API-key auth middleware using stored hashes, `/api/public/v1/status` key-authenticated sandbox endpoint, last-used updates, per-request logging, and recent-call viewer in `/developer`.
+- ✅ **T-141A Developer/API Portal API key management**. Added tenant-scoped `/api/v1/api-keys` create/list/update/revoke routes behind `developerPortal` + `api_keys:manage`, a `/developer` Business Admin UI, one-time plaintext secret reveal, SHA-256 stored hashes only, audit logs for create/update/delete, and unit tests for key generation/hash/list/revoke behavior.
 - ✅ **T-103 `useInbox` hook: WS subscribe + polling fallback**. New `apps/web/src/hooks/useInbox.ts` owns fetch + Socket.io subscription + 15s polling fallback when WS is offline. The inbox page exposes a "Live"/"Polling" pill so operators can see realtime state at a glance. Re-fetches on `message:received`, `message:sent`, `conversation:updated`, `conversation:assigned`.
 - ✅ **T-102 Cursor pagination on /conversations**. Base64-url `{lastMessageAt, id}` composite cursor; `?cursor=...` skips the O(N) `skip/take` + `COUNT()` path. Legacy `?page=X` still works, response includes both forms during the transition. Bad cursors → 400. Verified live.
 - ✅ **T-101 Read-replica routing via `prismaRead`**. New client in `@nexaflow/db` reads from `DATABASE_URL_READ` when set, aliases to the primary otherwise. `/conversations` list, `/analytics`, and `/admin/audit-logs` route through the replica.

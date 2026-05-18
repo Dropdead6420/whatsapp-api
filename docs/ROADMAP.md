@@ -1,6 +1,6 @@
 # ROADMAP.md
 
-Phased plan tied to the **NexaFlow_Claude_FINAL_Full_Project_Architecture_and_Features.pdf** (2026-05-18, canonical) and the prior **Final Product Blueprint V3** (`NexaFlow_AI_Final_Product_Blueprint.pdf`).
+Phased plan tied to **`/Users/sidharthkumar/Downloads/NexaFlow_Codex_FINAL_Full_Implementation_Blueprint_and_Features.pdf`** (2026-05-18, canonical) and the prior **Final Product Blueprint V3** (`NexaFlow_AI_Final_Product_Blueprint.pdf`).
 
 The FINAL Architecture PDF is the single product-scope reference for both Claude and Codex. Where it conflicts with the older blueprint, FINAL wins. The two are mostly identical; FINAL adds the **Agent Portal**, **Developer/API Portal**, **Marketplace Templates**, and the **Android Mobile App** as explicit surfaces — all captured in [`TASKS.md`](../TASKS.md).
 
@@ -116,14 +116,17 @@ separate `Partner` model, no partner dashboard, no commission engine.
 - ✅ Platform health endpoint
 - ✅ Outbound webhooks with HMAC + retries
 - ✅ Analytics summary endpoint
-- ✅ API-key model (CRUD UI not yet built)
+- ✅ API-key model
+- ✅ `/api/v1/api-keys` management API + `/developer` API keys UI
+- ✅ `ApiRequestLog`, API-key authentication middleware, and `/api/public/v1/status` sandbox endpoint
 
 **Missing — ordered by importance**:
 1. **Provider routing** — same as Phase 2 item #2; allows BSP failover per tenant
 2. **Advanced analytics** — revenue attribution per campaign / agent / flow, scheduled PDF exports
 3. **Omnichannel expansion** — beyond WhatsApp; SMS via Twilio, web chat, future Instagram DM
-4. **Marketplace** — third-party flow templates / AI agents / canned replies
-5. **CI/CD hardening** — load tests, blue/green deploys, leader election for workers (ADR-010)
+4. **Developer/API Portal polish** — SDK/docs, richer sandbox testing, usage metering
+5. **Marketplace** — third-party flow templates / AI agents / canned replies
+6. **CI/CD hardening** — load tests, blue/green deploys, leader election for workers (ADR-010)
 
 ---
 
