@@ -84,8 +84,8 @@ export async function sendLeadFollowUp(
   }
 
   await assertCanAffordMessage(tenantId);
-  await assertCanSend(tenantId);
   const config = await getTenantWabaConfig(tenantId);
+  await assertCanSend(tenantId, { phoneNumberId: config.phoneNumberId });
   const conversation = await getOrCreateConversation(tenantId, lead.contactId);
   const metaMessageId = await sendWhatsAppText({
     phoneNumberId: config.phoneNumberId,
@@ -93,7 +93,7 @@ export async function sendLeadFollowUp(
     to: lead.contact.phoneNumber.replace(/^\+/, ""),
     body: lead.followUpMessage,
   });
-  await recordSend(tenantId);
+  await recordSend(tenantId, { phoneNumberId: config.phoneNumberId });
   await debitMessage(tenantId, metaMessageId, {
     reason: `Lead follow-up ${leadId}`,
   });

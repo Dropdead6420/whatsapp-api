@@ -69,7 +69,9 @@ async function sendAppointmentMessage(
 
   try {
     // Respect tenant quota — appointment messages count too.
-    const gate = await canSendNow(appt.tenantId);
+    const gate = await canSendNow(appt.tenantId, {
+      phoneNumberId: appt.tenant.wabaPhoneNumber,
+    });
     if (!gate.allowed) {
       console.warn(`[appointments] ${kind} throttled for ${appt.id}: ${gate.reason}`);
       return false; // Don't stamp confirmationSentAt/reminderSentAt; retry next tick.
@@ -91,7 +93,9 @@ async function sendAppointmentMessage(
       to: appt.contact.phoneNumber.replace(/^\+/, ""),
       body,
     });
-    await recordSend(appt.tenantId);
+    await recordSend(appt.tenantId, {
+      phoneNumberId: appt.tenant.wabaPhoneNumber,
+    });
     await debitMessage(appt.tenantId, metaMessageId, {
       reason: `Appointment ${kind} for ${appt.id}`,
     });

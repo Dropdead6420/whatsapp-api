@@ -480,15 +480,15 @@ router.post(
       }
 
       await assertCanAffordMessage(req.tenantId!);
-      await assertCanSend(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
+      await assertCanSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });
       const metaMessageId = await sendWhatsAppText({
         phoneNumberId: config.phoneNumberId,
         accessToken: config.accessToken,
         to: contact.phoneNumber.replace(/^\+/, ""),
         body: body.body,
       });
-      await recordSend(req.tenantId!);
+      await recordSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });
       await debitMessage(req.tenantId!, metaMessageId, {
         actorUserId: req.userId,
         reason: "WhatsApp send-text",
@@ -550,8 +550,8 @@ router.post(
         );
       }
       await assertCanAffordMessage(req.tenantId!);
-      await assertCanSend(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
+      await assertCanSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });
       const metaMessageId = await sendWhatsAppTemplate({
         phoneNumberId: config.phoneNumberId,
         accessToken: config.accessToken,
@@ -560,7 +560,7 @@ router.post(
         languageCode: body.languageCode,
         bodyParams: body.bodyParams,
       });
-      await recordSend(req.tenantId!);
+      await recordSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });
       await debitMessage(req.tenantId!, metaMessageId, {
         actorUserId: req.userId,
         reason: "WhatsApp send-template",

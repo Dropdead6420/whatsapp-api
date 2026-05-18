@@ -318,15 +318,15 @@ router.post(
       }
 
       await assertCanAffordMessage(req.tenantId!);
-      await assertCanSend(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
+      await assertCanSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });
       const metaMessageId = await sendWhatsAppText({
         phoneNumberId: config.phoneNumberId,
         accessToken: config.accessToken,
         to: conversation.contact.phoneNumber.replace(/^\+/, ""),
         body: body.body,
       });
-      await recordSend(req.tenantId!);
+      await recordSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });
       await debitMessage(req.tenantId!, metaMessageId, {
         actorUserId: req.userId,
         reason: "Inbox reply",

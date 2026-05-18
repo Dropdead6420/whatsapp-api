@@ -94,10 +94,11 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
       // Throttle gate: respects monthly quota + per-second smoothing. If the
       // per-second window is full, wait briefly and re-check (campaigns are
       // background work — we can absorb the smoothing delay).
-      let gate = await canSendNow(campaign.tenantId);
+      const throttleOpts = { phoneNumberId: campaign.tenant.wabaPhoneNumber };
+      let gate = await canSendNow(campaign.tenantId, throttleOpts);
       if (!gate.allowed && gate.retryAfterMs) {
         await new Promise((r) => setTimeout(r, gate.retryAfterMs));
-        gate = await canSendNow(campaign.tenantId);
+        gate = await canSendNow(campaign.tenantId, throttleOpts);
       }
       if (!gate.allowed) {
         // Monthly quota exhausted — stop the campaign so the rest doesn't fail.
@@ -131,7 +132,7 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
         templateName: campaign.template.name,
         languageCode: campaign.template.language ?? "en_US",
       });
-      await recordSend(campaign.tenantId);
+      await recordSend(campaign.tenantId, throttleOpts);
       await debitMessage(campaign.tenantId, metaMessageId, {
         reason: `Campaign ${campaign.id}`,
       });

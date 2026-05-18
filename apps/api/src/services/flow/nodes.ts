@@ -101,7 +101,9 @@ const messageHandler: NodeHandler = {
       };
     }
 
-    const gate = await canSendNow(ctx.tenantId);
+    const gate = await canSendNow(ctx.tenantId, {
+      phoneNumberId: tenant.wabaPhoneNumber,
+    });
     if (!gate.allowed) {
       return {
         nextNodeId: node.next ?? null,
@@ -129,7 +131,7 @@ const messageHandler: NodeHandler = {
         to: contact.phoneNumber.replace(/^\+/, ""),
         body: text,
       });
-      await recordSend(ctx.tenantId);
+      await recordSend(ctx.tenantId, { phoneNumberId: tenant.wabaPhoneNumber });
       await debitMessage(ctx.tenantId, metaMessageId, {
         reason: `Flow MESSAGE node ${node.id}`,
       });
