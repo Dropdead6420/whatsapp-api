@@ -5,6 +5,7 @@ import helmet from "helmet";
 import { prisma } from "@nexaflow/db";
 import { closeRedis, pingRedis } from "./lib/redis";
 import { closeQueues } from "./lib/queue";
+import { attachRealtime, closeRealtime } from "./lib/realtime";
 import { errorHandler } from "./middleware/errorHandler";
 import { redisRateLimit } from "./middleware/redisRateLimit";
 import { authMiddleware } from "./middleware/auth";
@@ -208,7 +209,11 @@ if (START_HTTP) {
     console.log(`   Contacts:      /api/v1/contacts`);
     console.log(`   Campaigns:     /api/v1/campaigns`);
     console.log(`   AI Copy:       /api/v1/ai/copy`);
+    console.log(`   Realtime:      ws://localhost:${PORT}/realtime`);
   });
+  // Attach Socket.io once the HTTP server is bound. attachRealtime is
+  // idempotent — calling it again is a no-op.
+  void attachRealtime(server!);
 }
 
 if (START_WORKERS) {
@@ -230,6 +235,7 @@ async function shutdown(signal: string): Promise<void> {
     server.close(() => resolve());
   });
 
+  await closeRealtime();
   await closeQueues();
   await Promise.allSettled([prisma.$disconnect(), closeRedis()]);
   process.exit(0);

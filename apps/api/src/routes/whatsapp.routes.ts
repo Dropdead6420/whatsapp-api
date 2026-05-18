@@ -38,6 +38,7 @@ import {
   verifyMetaSignature,
 } from "../services/whatsappWebhook.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
+import { emitToConversation, emitToTenant } from "../lib/realtime";
 
 const router = Router();
 
@@ -180,14 +181,32 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
             continue;
           }
 
-          // Emit MESSAGE_RECEIVED to subscribed webhooks (fire-and-forget).
-          void emitWebhookEvent(tenant.id, "MESSAGE_RECEIVED", {
+          const realtimePayload = {
             conversationId: conversation.id,
             contactId: contact.id,
             messageId: inboundMessage.id,
             phoneNumber: contact.phoneNumber,
             content: inboundBody,
+            createdAt: inboundMessage.createdAt.toISOString(),
+          };
+          // Realtime fan-out so any agent watching the inbox sees the new
+          // message immediately. Tenant room covers list views;
+          // conversation room covers open thread views.
+          emitToConversation(
+            tenant.id,
+            conversation.id,
+            "message:received",
+            realtimePayload,
+          );
+          emitToTenant(tenant.id, "conversation:updated", {
+            conversationId: conversation.id,
+            lastMessageAt: now.toISOString(),
+            lastInboundAt: now.toISOString(),
+            agentId: assignedAgentId,
           });
+
+          // Emit MESSAGE_RECEIVED to subscribed webhooks (fire-and-forget).
+          void emitWebhookEvent(tenant.id, "MESSAGE_RECEIVED", realtimePayload);
 
           // Meta-compliance: respect STOP/UNSUBSCRIBE/CANCEL keywords instantly.
           // Per WhatsApp Business Policy, ignoring opt-outs is a quality-rating

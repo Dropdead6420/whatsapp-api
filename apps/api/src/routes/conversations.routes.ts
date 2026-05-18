@@ -19,6 +19,7 @@ import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
+import { emitToConversation, emitToTenant } from "../lib/realtime";
 import { emitWebhookEvent } from "../services/webhook.service";
 
 const router = Router();
@@ -390,13 +391,27 @@ router.post(
         ...extractRequestMeta(req),
       });
 
-      void emitWebhookEvent(req.tenantId!, "MESSAGE_SENT", {
+      const messageEnvelope = {
         conversationId: conversation.id,
         messageId: message.id,
         contactId: conversation.contactId,
         content: body.body,
         agentId: req.userId,
+        createdAt: message.createdAt.toISOString(),
+      };
+      emitToConversation(
+        req.tenantId!,
+        conversation.id,
+        "message:sent",
+        messageEnvelope,
+      );
+      emitToTenant(req.tenantId!, "conversation:updated", {
+        conversationId: conversation.id,
+        lastMessageAt: now.toISOString(),
+        lastOutboundAt: now.toISOString(),
+        agentId: updated.agentId,
       });
+      void emitWebhookEvent(req.tenantId!, "MESSAGE_SENT", messageEnvelope);
 
       res.json({
         success: true,
