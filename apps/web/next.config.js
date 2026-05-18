@@ -10,7 +10,9 @@ const nextConfig = {
   output: "standalone",
   // The Dockerfile copies the build context relative to the monorepo root;
   // tell Next where the workspace root lives so it traces correctly.
-  outputFileTracingRoot: path.join(__dirname, "../../"),
+  experimental: {
+    outputFileTracingRoot: path.join(__dirname, "../../"),
+  },
   transpilePackages: ["@nexaflow/shared", "@nexaflow/ui"],
   webpack: (config) => {
     config.resolve = config.resolve || {};

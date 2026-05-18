@@ -126,20 +126,22 @@ separate `Partner` model, no partner dashboard, no commission engine.
 
 ## Wallet / Credit Ledger (blueprint §3.5 + §9)
 
-**Status: 🟡 schema + service shipping; deduction hooks NOT wired yet**
+**Status: 🟡 ledger + first deduction hooks shipped; lifecycle automation pending**
 
 This is cross-cutting — listed separately because it touches every phase.
 
 - ✅ `Wallet` + `Transaction` schema
 - ✅ `wallet.service.ts` for credit/debit/transfer (append-only ledger per ADR-008)
 - ✅ `/wallets` admin page
+- ✅ WhatsApp send debits wired into 7 outbound paths
+- ✅ AI call debits wired into shared `callLlmJson()` with `AiUsage` idempotency
+- ✅ Global + per-feature AI credit pricing via env vars
 
 **Missing — ordered by importance**:
-1. **Hook deductions into the send path** — every successful Meta send debits the customer wallet; failures issue a compensating credit
-2. **Hook deductions into AI calls** — debit per Anthropic call against `aiCreditsPerMonth`
-3. **Low-balance alerts** + auto-suspend on quota = 0 + auto-recharge config
-4. **Postpaid credit line** with billing cycle + auto-invoice
-5. **Daily reconciliation worker** — recompute `balance` from ledger sum, alert on drift
+1. **Low-balance alerts** + auto-suspend on quota = 0 + auto-recharge config
+2. **Postpaid credit line** with billing cycle + auto-invoice
+3. **Daily reconciliation worker** — recompute `balance` from ledger sum, alert on drift
+4. **Compensating credits** for accepted sends that later hard-fail at the provider
 
 ---
 

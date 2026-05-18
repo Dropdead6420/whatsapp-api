@@ -4,6 +4,11 @@ Codex's operating contract for the NexaFlow AI repo. Companion to [`CLAUDE.md`](
 
 `AGENTS.md` remains the long-form Codex project briefing. This file is the **short rules of engagement**.
 
+Source documents:
+
+- `/Users/sidharthkumar/Downloads/NexaFlow_AI_Final_Product_Blueprint.pdf` — product source of truth.
+- `/Users/sidharthkumar/Downloads/NexaFlow_Codex_Playbook.pdf` — Codex implementation workflow source of truth.
+
 ---
 
 ## Role
@@ -12,6 +17,8 @@ Codex is the **implementer**: it builds features, writes tests, and ships PRs.
 
 - Claude designs; Codex implements.
 - Codex stays inside the plan in `TASKS.md`. If a task is missing, Codex asks Claude to plan it first.
+- Codex works on one issue, one module, and one branch at a time.
+- Codex implements the smallest working slice first, then tests it.
 - Codex never changes core architecture (provider abstraction, multi-tenant scoping, wallet ledger shape, AI safety) without a matching update to `docs/DECISIONS.md`.
 
 ---
@@ -64,6 +71,14 @@ Before requesting review:
 - [ ] New env vars added to `.env.example`.
 - [ ] Audit log + RBAC guard added where applicable.
 - [ ] `TASKS.md` updated (mark in-progress → done, add follow-ups).
+
+## Output format
+
+Every handoff should include:
+
+- **Summary**: what changed and why.
+- **Tests run**: exact commands.
+- **Risks / follow-ups**: anything still mocked, deferred, or needing Claude review.
 
 ---
 

@@ -20,7 +20,9 @@ import { adjustWalletIdempotent } from "./wallet.service";
  *
  * Costs are in **credits** (integers). Defaults:
  *   - WhatsApp message: 1 credit per send
- *   - AI call: 1 credit per call (overrideable per feature via opts)
+ *   - AI call: 1 credit per call
+ *     - Global override: `AI_CALL_COST_CREDITS`
+ *     - Per-feature override: `AI_CALL_COST_CREDITS_CAMPAIGN_AUTOPILOT`
  *
  * Idempotency: every debit carries `referenceType` + `referenceId`. A replay
  * (Meta retry, our own webhook re-delivery) writes no second debit thanks to
@@ -36,10 +38,22 @@ export function getMessageCostCredits(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.ceil(raw) : 1;
 }
 
+function aiFeatureCostEnvKey(feature?: string): string | null {
+  const suffix = feature
+    ?.trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return suffix ? `AI_CALL_COST_CREDITS_${suffix}` : null;
+}
+
 export function getAiCostCredits(feature?: string): number {
-  // Per-feature overrides land here later (e.g. autopilot costs more than copy).
-  void feature;
-  const raw = Number(process.env.AI_CALL_COST_CREDITS ?? "1");
+  const featureEnvKey = aiFeatureCostEnvKey(feature);
+  const configured =
+    featureEnvKey && process.env[featureEnvKey]
+      ? process.env[featureEnvKey]
+      : process.env.AI_CALL_COST_CREDITS;
+  const raw = Number(configured ?? "1");
   return Number.isFinite(raw) && raw > 0 ? Math.ceil(raw) : 1;
 }
 

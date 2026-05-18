@@ -14,16 +14,7 @@ blueprint reference, scope (S/M/L), and acceptance criteria.
 
 ## Active
 
-### T-002 — Wire wallet deductions into AI calls
-- **Priority**: P0
-- **Blueprint**: §3.5, §6
-- **Scope**: S (helpers already exist from T-001)
-- **Why**: AI credits are listed on `Tenant.aiCreditsPerMonth` but never decremented.
-- **Plan**:
-  - Use the `assertCanAffordAi` + `debitAi` helpers already in `billing.service.ts`.
-  - In `ai.service.ts callLlmJson()`: pre-check before Anthropic call, debit after on the returned `AiUsage.id`.
-  - Per-feature cost mapping via `AI_CALL_COST_CREDITS_AUTOPILOT` etc. env vars, or a `Plan.aiCostPerCall` column (defer to a follow-up).
-- **Tests**: success debits; failure doesn't; per-feature cost differs.
+_(none — open this column when a slice is in flight)_
 
 ---
 
@@ -150,6 +141,7 @@ Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-002 Wallet debits wired into AI calls** (shared `callLlmJson()` pre-checks via `assertCanAffordAi`, logs `AiUsage`, then debits idempotently via `debitAi(AiUsage.id)`). Supports global `AI_CALL_COST_CREDITS` and per-feature overrides like `AI_CALL_COST_CREDITS_CAMPAIGN_AUTOPILOT`. Tests cover success debit, provider failure no-debit, and feature override pricing.
 - ✅ **T-001 Wallet debits wired into 7 WhatsApp send paths** (whatsapp routes ×2, conversation reply, campaign worker, appointment worker, lead follow-up, flow MESSAGE node). Feature-flagged via `WALLET_BILLING_ENABLED` (default off). Idempotent via unique index on `WalletTransaction(walletId, referenceType, referenceId)`. Pre-check returns 402; campaign worker treats 402 as PAUSED. See ADR-013.
 - ✅ Domain Connection: schema, API, DNS verification, `/domains` page (blueprint §4)
 - ✅ Wallet + Transaction schema + service skeleton (blueprint §3.5)

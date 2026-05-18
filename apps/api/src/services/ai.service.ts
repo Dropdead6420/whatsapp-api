@@ -7,6 +7,7 @@ import {
   GeneratedCopyVariant,
 } from "@nexaflow/shared";
 import { prisma } from "@nexaflow/db";
+import { assertCanAffordAi, debitAi } from "./billing.service";
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-20241022";
 
@@ -70,6 +71,8 @@ interface CallLlmOpts {
 
 async function callLlmJson<T>(opts: CallLlmOpts): Promise<T> {
   const anthropic = getClient();
+  await assertCanAffordAi(opts.tenantId, opts.feature);
+
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: opts.maxTokens ?? 800,
@@ -82,15 +85,15 @@ async function callLlmJson<T>(opts: CallLlmOpts): Promise<T> {
   const raw = textBlock?.type === "text" ? textBlock.text : "";
   const parsed = extractJson(raw) as T;
 
-  // Track usage non-blockingly.
   const inputTokens = response.usage.input_tokens;
   const outputTokens = response.usage.output_tokens;
   const costInCents = Math.ceil(
     (inputTokens * INPUT_USD_PER_TOKEN + outputTokens * OUTPUT_USD_PER_TOKEN) *
       100,
   );
-  void prisma.aiUsage
-    .create({
+
+  try {
+    const usage = await prisma.aiUsage.create({
       data: {
         tenantId: opts.tenantId,
         model: MODEL,
@@ -99,8 +102,15 @@ async function callLlmJson<T>(opts: CallLlmOpts): Promise<T> {
         outputTokens,
         costInCents,
       },
-    })
-    .catch((err) => console.error("[ai] failed to log usage", err));
+    });
+    await debitAi(opts.tenantId, {
+      aiUsageId: usage.id,
+      feature: opts.feature,
+      reason: `AI call (${opts.feature})`,
+    });
+  } catch (err) {
+    console.error("[ai] failed to log usage/debit", err);
+  }
 
   return parsed;
 }

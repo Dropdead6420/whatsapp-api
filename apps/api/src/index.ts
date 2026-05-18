@@ -77,7 +77,18 @@ app.use(
 
 // Meta webhook must accept raw JSON with no rate limiting; mount before
 // the global rate limiter and before auth.
-app.use(express.json({ limit: "1mb" }));
+// The `verify` hook stashes the raw request body on req.rawBody so the
+// Meta signature handler can recompute HMAC-SHA256 over the exact bytes
+// Meta signed. This is the ONLY safe way to verify a signature behind
+// express.json().
+app.use(
+  express.json({
+    limit: "1mb",
+    verify: (req, _res, buf) => {
+      (req as Request & { rawBody?: Buffer }).rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true }));
 app.use("/webhooks/whatsapp", webhookRouter);
 

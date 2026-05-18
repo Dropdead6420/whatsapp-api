@@ -1,6 +1,7 @@
+import crypto from "node:crypto";
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { prisma } from "@nexaflow/db";
+import { Prisma, prisma } from "@nexaflow/db";
 import {
   ApiError,
   ErrorCodes,
@@ -55,7 +56,49 @@ webhookRouter.get("/", (req: Request, res: Response) => {
   res.status(403).send("Forbidden");
 });
 
+/**
+ * Verify Meta's X-Hub-Signature-256 header against the raw request body.
+ *
+ * - When `META_APP_SECRET` is not set we **skip verification** so local /
+ *   dev / smoke environments still work without configuration. A warning is
+ *   logged once at boot. In production set the secret; missing it is a
+ *   security debt item.
+ * - Constant-time compare via `crypto.timingSafeEqual` to avoid timing leaks.
+ */
+function verifyMetaSignature(
+  rawBody: Buffer | undefined,
+  signatureHeader: string | undefined,
+): boolean {
+  const secret = process.env.META_APP_SECRET;
+  if (!secret) return true; // not configured: dev / smoke mode
+  if (!rawBody || rawBody.length === 0) return false;
+  if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
+
+  const expected =
+    "sha256=" +
+    crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const sigBuf = Buffer.from(signatureHeader, "utf8");
+  const expectedBuf = Buffer.from(expected, "utf8");
+  if (sigBuf.length !== expectedBuf.length) return false;
+  try {
+    return crypto.timingSafeEqual(sigBuf, expectedBuf);
+  } catch {
+    return false;
+  }
+}
+
 webhookRouter.post("/", async (req: Request, res: Response) => {
+  // Meta signs the raw JSON body with our app secret. Reject any payload that
+  // doesn't match — Meta retries on 4xx, so legitimate retries with a stale
+  // secret will recover after rotation. Spoofed payloads die here.
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  const sig = req.headers["x-hub-signature-256"] as string | undefined;
+  if (!verifyMetaSignature(rawBody, sig)) {
+    console.warn("[whatsapp:webhook] signature mismatch — rejecting");
+    res.status(403).send("Forbidden");
+    return;
+  }
+
   // Always 200 to Meta first so they stop retrying; process async.
   res.status(200).send("EVENT_RECEIVED");
 
@@ -75,6 +118,21 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
 
         // Inbound messages
         for (const msg of change.value.messages ?? []) {
+          // Idempotency: Meta retries any 5xx for up to 7 days. If we've
+          // already persisted this provider message id, skip every downstream
+          // side-effect (contact upsert is OK to repeat, but outbound webhook
+          // emit, flow trigger, opt-out handling, and auto-score must not
+          // double-fire).
+          if (msg.id) {
+            const already = await prisma.message.findUnique({
+              where: { metaMessageId: msg.id },
+              select: { id: true },
+            });
+            if (already) {
+              continue;
+            }
+          }
+
           const profileName =
             change.value.contacts?.find((c) => c.wa_id === msg.from)?.profile.name ??
             msg.from;
@@ -143,15 +201,32 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
           });
 
           const inboundBody = msg.text?.body ?? `[${msg.type}]`;
-          const inboundMessage = await prisma.message.create({
-            data: {
-              conversationId: conversation.id,
-              direction: MessageDirection.INBOUND,
-              status: MessageStatus.DELIVERED,
-              content: inboundBody,
-              deliveredAt: new Date(),
-            },
-          });
+          let inboundMessage;
+          try {
+            inboundMessage = await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                direction: MessageDirection.INBOUND,
+                status: MessageStatus.DELIVERED,
+                content: inboundBody,
+                deliveredAt: new Date(),
+                // Persist Meta's provider id so the @unique index dedupes
+                // any future replay of this exact message.
+                metaMessageId: msg.id ?? null,
+              },
+            });
+          } catch (err) {
+            // P2002 = unique constraint on metaMessageId. A concurrent retry
+            // beat us between the findUnique check and this create. Skip the
+            // rest of this message's side-effects; Meta will accept our 200.
+            if (
+              err instanceof Prisma.PrismaClientKnownRequestError &&
+              err.code === "P2002"
+            ) {
+              continue;
+            }
+            throw err;
+          }
 
           // Emit MESSAGE_RECEIVED to subscribed webhooks (fire-and-forget).
           void emitWebhookEvent(tenant.id, "MESSAGE_RECEIVED", {
