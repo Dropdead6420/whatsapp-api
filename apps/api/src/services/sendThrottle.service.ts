@@ -47,7 +47,7 @@ export async function canSendNow(tenantId: string): Promise<ThrottleResult> {
     monthlyQuota = tenant?.messageQuotaPerMonth ?? 10_000;
 
     const r = await getRedis();
-    const monthKey = `send:${tenantId}:month:${monthStartIso()}`;
+    const monthKey = `send:{${tenantId}}:month:${monthStartIso()}`;
     const usedRaw = await r.get(monthKey);
     monthlyUsed = usedRaw ? Number(usedRaw) : 0;
 
@@ -61,7 +61,7 @@ export async function canSendNow(tenantId: string): Promise<ThrottleResult> {
     }
 
     // 2. Per-second smoothing using a sliding window of timestamps.
-    const secKey = `send:${tenantId}:sec`;
+    const secKey = `send:{${tenantId}}:sec`;
     const now = Date.now();
     const cutoff = now - ROLLING_WINDOW_MS;
     await r.zRemRangeByScore(secKey, 0, cutoff);
@@ -96,8 +96,8 @@ export async function canSendNow(tenantId: string): Promise<ThrottleResult> {
 export async function recordSend(tenantId: string): Promise<void> {
   try {
     const r = await getRedis();
-    const monthKey = `send:${tenantId}:month:${monthStartIso()}`;
-    const secKey = `send:${tenantId}:sec`;
+    const monthKey = `send:{${tenantId}}:month:${monthStartIso()}`;
+    const secKey = `send:{${tenantId}}:sec`;
     const now = Date.now();
     const monthExpirySec = 60 * 60 * 24 * 40; // 40 days — survives month boundaries
 
@@ -141,7 +141,7 @@ export async function getTenantSendStats(
     });
     monthlyQuota = tenant?.messageQuotaPerMonth ?? 10_000;
     const r = await getRedis();
-    const usedRaw = await r.get(`send:${tenantId}:month:${monthStartIso()}`);
+    const usedRaw = await r.get(`send:{${tenantId}}:month:${monthStartIso()}`);
     monthlyUsed = usedRaw ? Number(usedRaw) : 0;
   } catch {
     // ignore

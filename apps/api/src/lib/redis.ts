@@ -1,32 +1,91 @@
-import { createClient, RedisClientType } from "redis";
+import {
+  createClient,
+  createCluster,
+  RedisClientType,
+  RedisClusterType,
+} from "redis";
 import { createHash } from "node:crypto";
 
-let client: RedisClientType | null = null;
-let connecting: Promise<RedisClientType> | null = null;
+// One of two clients depending on env. Both share the same shape for the
+// commands we use (get/set/del/incr/expire/zAdd/zRange/multi).
+type RedisLike = RedisClientType | RedisClusterType;
+
+let client: RedisLike | null = null;
+let connecting: Promise<RedisLike> | null = null;
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
+const REDIS_CLUSTER_URLS = process.env.REDIS_CLUSTER_URLS;
 
-export async function getRedis(): Promise<RedisClientType> {
-  if (client && client.isOpen) return client;
+function isOpenClient(c: RedisLike | null): c is RedisLike {
+  if (!c) return false;
+  // node-redis v4: RedisClientType has `isOpen`; RedisClusterType lacks it
+  // but its `connect()` is idempotent. Treat presence-of-client as open
+  // when `isOpen` is undefined.
+  const open = (c as unknown as { isOpen?: boolean }).isOpen;
+  return open === undefined || open === true;
+}
+
+/**
+ * Returns the singleton Redis client. When REDIS_CLUSTER_URLS is set
+ * (comma-separated list of `host:port` endpoints), this returns a cluster
+ * client; otherwise a single-node client connected to REDIS_URL.
+ *
+ * Tenant-scoped keys use hash tags (`{tenantId}` inside `{}`) so all keys
+ * for one tenant land on the same slot — multi-key operations stay safe
+ * when running on cluster.
+ */
+export async function getRedis(): Promise<RedisLike> {
+  if (isOpenClient(client)) return client!;
   if (connecting) return connecting;
 
   connecting = (async () => {
-    const c: RedisClientType = createClient({ url: REDIS_URL });
+    if (REDIS_CLUSTER_URLS) {
+      const urls = REDIS_CLUSTER_URLS.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const c = createCluster({
+        rootNodes: urls.map((url) =>
+          url.includes("://") ? { url } : { url: `redis://${url}` },
+        ),
+      });
+      c.on("error", (err) => console.error("[redis-cluster]", err));
+      await c.connect();
+      client = c as unknown as RedisLike;
+      return client;
+    }
+    const c = createClient({ url: REDIS_URL });
     c.on("error", (err) => console.error("[redis]", err));
     await c.connect();
-    client = c;
-    return c;
+    client = c as unknown as RedisLike;
+    return client;
   })();
 
   return connecting;
+}
+
+/** Connectivity probe usable on both single-node and cluster clients. */
+export async function pingRedis(): Promise<boolean> {
+  try {
+    const r = await getRedis();
+    // GET on a sentinel key works on both topologies; cluster clients
+    // don't expose top-level PING (no obvious node to send to).
+    await r.get("__health__");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function closeRedis(): Promise<void> {
   const active = client;
   client = null;
   connecting = null;
-  if (active?.isOpen) {
-    await active.quit();
+  if (active && isOpenClient(active)) {
+    try {
+      await (active as { quit: () => Promise<void> }).quit();
+    } catch {
+      // Best-effort during shutdown.
+    }
   }
 }
 

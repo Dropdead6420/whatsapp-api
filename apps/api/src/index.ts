@@ -3,7 +3,7 @@ import express, { Express, Request, Response } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { prisma } from "@nexaflow/db";
-import { closeRedis, getRedis } from "./lib/redis";
+import { closeRedis, pingRedis } from "./lib/redis";
 import { closeQueues } from "./lib/queue";
 import { errorHandler } from "./middleware/errorHandler";
 import { redisRateLimit } from "./middleware/redisRateLimit";
@@ -126,7 +126,9 @@ app.get(["/ready", "/api/v1/ready"], async (_req: Request, res: Response) => {
   const startedAt = Date.now();
   const checks = await Promise.allSettled([
     prisma.$queryRaw`SELECT 1`,
-    getRedis().then((redis) => redis.ping()),
+    pingRedis().then((ok) => {
+      if (!ok) throw new Error("redis ping failed");
+    }),
   ]);
   const services = [
     { name: "postgres", ok: checks[0].status === "fulfilled" },

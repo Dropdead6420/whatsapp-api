@@ -26,7 +26,9 @@ export async function pickNextAgent(
   let cursor = 0;
   try {
     const r = await getRedis();
-    const raw = await r.incr(`routing:${tenantId}:cursor`);
+    // Hash-tag the tenant id so future Redis Cluster keeps all routing
+    // keys for one tenant on the same slot.
+    const raw = await r.incr(`routing:{${tenantId}}:cursor`);
     cursor = (raw - 1) % agents.length;
     if (cursor < 0) cursor += agents.length;
   } catch {

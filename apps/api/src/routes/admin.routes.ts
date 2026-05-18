@@ -9,7 +9,7 @@ import {
 } from "@nexaflow/shared";
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
-import { getRedis } from "../lib/redis";
+import { pingRedis } from "../lib/redis";
 import {
   getAppointmentQueue,
   getCampaignQueue,
@@ -97,8 +97,8 @@ router.get("/health", async (_req: RequestWithAuth, res: Response, next: NextFun
       checkService("api", async () => true),
       checkService("postgres", async () => prisma.$queryRaw`SELECT 1`),
       checkService("redis", async () => {
-        const redis = await getRedis();
-        await redis.ping();
+        const ok = await pingRedis();
+        if (!ok) throw new Error("redis ping failed");
       }),
       checkService("elasticsearch", async () => {
         const response = await fetch(`${elasticsearchUrl}/_cluster/health`);
