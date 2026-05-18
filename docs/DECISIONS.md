@@ -245,3 +245,22 @@ Format:
   - The app can scale to many replicas while the upstream Postgres connection count stays bounded.
   - Transaction mode forbids session-level features (`SET LOCAL` outside a tx, advisory locks across calls, etc). Prisma client doesn't use them; if a future feature needs them, route it through `directUrl`.
   - PgBouncer's `pgbouncer` admin DB requires its own auth and is not exposed via the app user. The compose health check uses `pg_isready` on the upstream behind the pool.
+
+---
+
+## ADR-017 — WhatsApp provider abstraction (Meta-only adapter as the baseline)
+
+- **Date**: 2026-05-19
+- **Status**: Accepted; supersedes the planning entry in ADR-007.
+- **Context**: Every send-path call (`whatsapp.routes.ts`, `conversations.routes.ts`, `campaign.service.ts`, `appointment.service.ts`, `leadFollowUp.service.ts`, `flow/nodes.ts`) used to import Meta-specific code directly. Adding Gupshup / 360dialog / Twilio would mean rewriting every one of those sites.
+- **Decision**:
+  - Define a `WhatsAppProvider` interface in `services/whatsapp/types.ts` with `sendText`, `sendTemplate`, a `key` discriminator (`"meta" | "gupshup" | "360dialog" | "twilio" | "haptik"`), and a `supportsMedia` capability flag.
+  - The Meta Cloud API code moves verbatim into `services/whatsapp/providers/meta.ts` as the first adapter — same wire format, same error mapping, no behavior change.
+  - `services/whatsapp/index.ts` owns the factory: `getWhatsAppProvider()` returns the active adapter. For now it always returns Meta; step 2 (T-005b) adds a `ProviderRoute` table that lets the factory pick by tenant.
+  - The old `services/whatsapp.service.ts` becomes a thin re-exporter so every existing caller keeps working. `verifyMetaWebhookSubscription` stays there because it's provider-agnostic subscription-token policy, not a send-path operation.
+  - Result shape is `{ providerMessageId: string }` to leave room for additional metadata later; back-compat wrappers unwrap to a bare string so old call sites compile unchanged.
+- **Consequences**:
+  - Zero-change refactor — 23/23 tests still pass; the live API boots and shuts down cleanly through the new path.
+  - The factory is the **only** code outside `services/whatsapp/` that may know which provider is in use. Reviewers should reject any new direct import from `providers/*` outside that boundary.
+  - When step 2 lands, the factory will accept a `tenantId` (or `{tenantId, phoneNumberId}`) so multi-provider routing per tenant becomes a one-line change at every call site that already has the tenant in scope.
+  - Webhook inbound is **not** yet provider-aware. Each new BSP will need to normalize its inbound payload to the Meta-shape `MetaWebhookBody` we already parse, OR we'll define a `parseInbound(raw): InboundMessage` method on the interface when the second adapter lands. Deliberately deferred until we have a real second provider to design against.

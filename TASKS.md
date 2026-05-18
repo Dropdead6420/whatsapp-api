@@ -28,10 +28,10 @@ _(none — open this column when a slice is in flight)_
 
 ### T-005 — Provider Abstraction Layer
 - **Priority**: P1
-- **Blueprint**: §5.3 + ADR-007
+- **Blueprint**: §5.3 + ADR-007 (superseded by ADR-017)
 - **Scope**: L — split into:
-  1. Interface + Meta adapter (refactor existing code; no behaviour change)
-  2. `ProviderRoute` table + factory
+  1. ~~Interface + Meta adapter~~ ✅ shipped (T-005a, ADR-017)
+  2. `ProviderRoute` table + factory accepting `tenantId`
   3. Gupshup adapter (first BSP)
 - **Why**: Single biggest architectural lock-in if we keep delaying. Future BSP work is cheap once this lands.
 
@@ -126,6 +126,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-005a Provider abstraction (Meta-only baseline)**. New `services/whatsapp/` with `WhatsAppProvider` interface + `metaProvider` adapter + `getWhatsAppProvider()` factory. Old `services/whatsapp.service.ts` becomes a thin re-exporter — every existing send-path caller keeps working unchanged. ADR-017 documents the contract. 23/23 tests still pass; live API boots + shuts down clean. Unblocks T-005b (`ProviderRoute` table) and T-005c (Gupshup adapter).
 - ✅ **T-124 Chaos drill runbook**. `docs/CHAOS_DRILL_RUNBOOK.md` — 5 scenarios (kill worker, kill replica, kill Redis shard, saturate Anthropic, cold-cache restart) with expected behavior + page-if thresholds. Staging-only; quarterly cadence.
 - ✅ **T-123 Synthetic checks**. `apps/load/scenarios/synthetic-checks.js` — k6 script that probes `/live`, `/api/v1/health`, `/api/v1/ready` (verifies postgres+redis), public booking, and the login pipeline (deliberately bad password → canonical 401). Designed for cron from any external runner (Cloudflare Workers, Datadog, GH Actions). k6 exits non-zero on regression.
 - ✅ **T-122 RED metrics via prom-client**. `nexaflow_http_requests_total`, `nexaflow_http_request_duration_seconds`, `nexaflow_http_request_errors_total` labeled by `{method, route, status_class}`; default Node.js + process metrics also exposed. Route labels use Express's matched-route path with a cardinality-strip fallback that requires BOTH letters and digits so words like "conversations" stay verbatim while CUIDs/UUIDs collapse to `/:id`. Exposed at `GET /api/v1/admin/metrics` (SuperAdmin only). Verified live with 8+ request samples.

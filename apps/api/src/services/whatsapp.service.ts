@@ -1,88 +1,17 @@
-import { ApiError, ErrorCodes } from "@nexaflow/shared";
+// Back-compat shim. The send logic moved behind the provider abstraction
+// in `./whatsapp/` (T-005 step 1, ADR-017). Existing call sites import
+// `sendWhatsAppText` / `sendWhatsAppTemplate` from here; new code should
+// import from `./whatsapp` directly and use `getWhatsAppProvider()`.
 
-const META_GRAPH_BASE = "https://graph.facebook.com/v20.0";
+export {
+  sendWhatsAppText,
+  sendWhatsAppTemplate,
+  getWhatsAppProvider,
+  type WhatsAppProvider,
+} from "./whatsapp";
 
-interface SendTextArgs {
-  phoneNumberId: string;
-  accessToken: string;
-  to: string;
-  body: string;
-}
-
-interface SendTemplateArgs {
-  phoneNumberId: string;
-  accessToken: string;
-  to: string;
-  templateName: string;
-  languageCode?: string;
-  bodyParams?: string[];
-}
-
-interface MetaSendResponse {
-  messages?: Array<{ id: string }>;
-  error?: { message: string; code: number; type?: string };
-}
-
-async function postToMeta(
-  url: string,
-  accessToken: string,
-  body: Record<string, unknown>,
-): Promise<MetaSendResponse> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as MetaSendResponse;
-  if (!res.ok) {
-    const msg = data.error?.message ?? `Meta API error ${res.status}`;
-    throw new ApiError(ErrorCodes.BAD_REQUEST, res.status, msg);
-  }
-  return data;
-}
-
-export async function sendWhatsAppText(args: SendTextArgs): Promise<string> {
-  const url = `${META_GRAPH_BASE}/${args.phoneNumberId}/messages`;
-  const res = await postToMeta(url, args.accessToken, {
-    messaging_product: "whatsapp",
-    to: args.to,
-    type: "text",
-    text: { body: args.body, preview_url: false },
-  });
-  const id = res.messages?.[0]?.id;
-  if (!id) throw new ApiError(ErrorCodes.INTERNAL_SERVER_ERROR, 502, "No message id returned");
-  return id;
-}
-
-export async function sendWhatsAppTemplate(args: SendTemplateArgs): Promise<string> {
-  const url = `${META_GRAPH_BASE}/${args.phoneNumberId}/messages`;
-  const res = await postToMeta(url, args.accessToken, {
-    messaging_product: "whatsapp",
-    to: args.to,
-    type: "template",
-    template: {
-      name: args.templateName,
-      language: { code: args.languageCode ?? "en_US" },
-      ...(args.bodyParams && args.bodyParams.length
-        ? {
-            components: [
-              {
-                type: "body",
-                parameters: args.bodyParams.map((p) => ({ type: "text", text: p })),
-              },
-            ],
-          }
-        : {}),
-    },
-  });
-  const id = res.messages?.[0]?.id;
-  if (!id) throw new ApiError(ErrorCodes.INTERNAL_SERVER_ERROR, 502, "No message id returned");
-  return id;
-}
-
+// Webhook subscription verification is provider-agnostic policy, not a
+// send-path operation, so it stays here.
 export function verifyMetaWebhookSubscription(
   mode: string | undefined,
   token: string | undefined,
