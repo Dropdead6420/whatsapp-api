@@ -95,11 +95,9 @@ remaining gate before Phase B opens. See `apps/load/README.md`.
 
 A live k6 run at 100k concurrent / 400 MPS is the remaining gate before Phase C opens.
 
-**Phase C — Real-time inbox + read replicas (100k concurrent WS)**
-- T-100 WebSocket service (`APP_MODE=realtime`) with Socket.io + Redis adapter (supersedes T-061)
-- T-101 Postgres read replica(s); route read-only queries to replicas via Prisma datasource
-- T-102 Cursor-based pagination for conversation list (replace `skip/take`)
-- T-103 Inbox `useInbox` hook: WS subscribe with polling fallback
+**Phase C — Real-time inbox + read replicas (100k concurrent WS)** ✅ code complete; load test pending
+
+A live WS load run at 100k concurrent and an inbox-poll k6 scenario against a replica setup are the remaining gates before Phase D opens.
 
 **Phase D — Storage partitioning + cold path (sustained 1M)**
 - T-110 Declarative monthly partitioning for `Message`, `AuditLog`, `AiUsage`, `WebhookLog`
@@ -131,6 +129,10 @@ A live k6 run at 100k concurrent / 400 MPS is the remaining gate before Phase C 
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-103 `useInbox` hook: WS subscribe + polling fallback**. New `apps/web/src/hooks/useInbox.ts` owns fetch + Socket.io subscription + 15s polling fallback when WS is offline. The inbox page exposes a "Live"/"Polling" pill so operators can see realtime state at a glance. Re-fetches on `message:received`, `message:sent`, `conversation:updated`, `conversation:assigned`.
+- ✅ **T-102 Cursor pagination on /conversations**. Base64-url `{lastMessageAt, id}` composite cursor; `?cursor=...` skips the O(N) `skip/take` + `COUNT()` path. Legacy `?page=X` still works, response includes both forms during the transition. Bad cursors → 400. Verified live.
+- ✅ **T-101 Read-replica routing via `prismaRead`**. New client in `@nexaflow/db` reads from `DATABASE_URL_READ` when set, aliases to the primary otherwise. `/conversations` list, `/analytics`, and `/admin/audit-logs` route through the replica.
+- ✅ **T-100 Socket.io realtime layer**. `/realtime` endpoint, JWT-authenticated via `authService.verifyAccessToken` + the T-090 auth-context cache. Per-tenant rooms auto-joined; per-conversation rooms opt-in via `conversation:subscribe`. `@socket.io/redis-adapter` for cross-replica fan-out. Inbound webhook + agent reply both emit. Verified live: valid JWT connects in 13ms, missing/invalid rejected explicitly.
 - ✅ **T-094 Envelope-encrypt `Tenant.wabaAccessToken` at rest**. AES-256-GCM with a per-record DEK encrypted under a KEK derived from `TENANT_TOKEN_ENCRYPTION_KEY` via HKDF. On-disk format `v1:<base64>`, version-prefixed for future KMS swap. Backwards compatible — legacy plaintext is passed through and re-encrypted on next write. 4 new unit tests; closes the WABA-token plaintext debt in SECURITY.md.
 - ✅ **T-093 Send throttle per-WABA-phone-number**. Adds a second sliding-window check keyed by phone-number id; `SEND_PER_PHONE_PER_SECOND_LIMIT` default 80. Wired through all 6 send paths.
 - ✅ **T-092 Redis Cluster behind `getRedis()`**. Cluster transport via `REDIS_CLUSTER_URLS`; tenant-scoped keys hash-tagged so multi-key ops stay on one slot. New `pingRedis()` replaces the cluster-incompatible `redis.ping()` in readiness checks.

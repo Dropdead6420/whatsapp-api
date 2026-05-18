@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
 import { useAutoSave } from "../../src/hooks/useAutoSave";
+import { useInbox } from "../../src/hooks/useInbox";
 
 interface Convo {
   id: string;
@@ -56,7 +57,6 @@ export default function InboxPage() {
     required: true,
     roles: ["AGENT", "TEAM_LEAD", "BUSINESS_ADMIN"],
   });
-  const [convos, setConvos] = useState<Convo[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const userScope = `${user?.tenantId ?? "anon"}:${user?.id ?? "anon"}`;
   const [drafts, setDrafts, draftStatus] = useAutoSave<Record<string, string>>(
@@ -87,31 +87,37 @@ export default function InboxPage() {
     },
   );
 
-  async function refresh() {
-    if (!user) return;
-    try {
-      const params = new URLSearchParams({ limit: "50" });
-      if (user.role === "AGENT") params.set("assignedToMe", "true");
-      if (filterLabel) params.set("label", filterLabel);
-      if (filterSlaBreached) params.set("slaBreached", "true");
-      const list = await api.get<Convo[]>(
-        `/api/v1/conversations?${params.toString()}`,
-      );
-      setConvos(list);
-    } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to load");
-    }
-  }
+  // useInbox owns the fetch + realtime subscription + polling fallback.
+  // It re-fetches automatically on message:received / message:sent /
+  // conversation:updated WS events; falls back to 15s polling when the
+  // socket is offline.
+  const inboxEndpoint = useMemo(() => {
+    const params = new URLSearchParams({ limit: "50" });
+    if (user?.role === "AGENT") params.set("assignedToMe", "true");
+    if (filterLabel) params.set("label", filterLabel);
+    if (filterSlaBreached) params.set("slaBreached", "true");
+    return `/api/v1/conversations?${params.toString()}`;
+  }, [user?.role, filterLabel, filterSlaBreached]);
+
+  const {
+    data: convos,
+    error: inboxError,
+    refresh,
+    realtimeConnected,
+  } = useInbox<Convo>({ endpoint: inboxEndpoint, enabled: Boolean(user) });
 
   useEffect(() => {
-    refresh();
+    if (inboxError) setErr(inboxError);
+  }, [inboxError]);
+
+  useEffect(() => {
     if (user) {
       api
         .get<CannedReply[]>("/api/v1/canned-replies")
         .then(setCannedReplies)
         .catch(() => setCannedReplies([]));
     }
-  }, [user, filterLabel, filterSlaBreached]);
+  }, [user]);
 
   function applyCanned(conversationId: string, draft: string): string {
     // Expand "/shortcut" at start of draft into the canned reply body.
@@ -241,7 +247,28 @@ export default function InboxPage() {
               : "All active conversations in your tenant. AI sentiment and reply assistance available."}
           </p>
         </div>
-        <SaveStatus status={draftStatus} />
+        <div className="flex items-center gap-3">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              realtimeConnected
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-slate-100 text-slate-600"
+            }`}
+            title={
+              realtimeConnected
+                ? "Realtime connected — new messages appear instantly."
+                : "Realtime offline — falling back to 15s polling."
+            }
+          >
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full ${
+                realtimeConnected ? "bg-emerald-500" : "bg-slate-400"
+              }`}
+            />
+            {realtimeConnected ? "Live" : "Polling"}
+          </span>
+          <SaveStatus status={draftStatus} />
+        </div>
       </header>
 
       {err && (
