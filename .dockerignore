@@ -1,0 +1,46 @@
+# Keep the build context lean — every byte gets sent to the Docker daemon.
+
+# Heavy / regenerable
+**/node_modules
+**/.next
+**/dist
+**/build
+**/out
+**/.turbo
+**/coverage
+**/.nyc_output
+
+# Local secrets / env (use Docker --env-file or platform secrets instead)
+.env
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+
+# Editor / OS junk
+.DS_Store
+**/.DS_Store
+.vscode
+.idea
+*.swp
+*.swo
+
+# Git history (image doesn't need it)
+.git
+.gitignore
+.github
+
+# Docs that don't ship inside the image
+docs
+*.md
+!CLAUDE.md
+!CODEX.md
+
+# Local infra + manifests
+docker-compose.yml
+infrastructure
+
+# Tests that don't need to run inside the image
+**/__tests__
+**/*.test.ts
+**/*.spec.ts

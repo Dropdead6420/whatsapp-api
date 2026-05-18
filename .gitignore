@@ -58,9 +58,6 @@ prisma/migrations/
 .expo-shared/
 dist/
 
-# Docker
-.dockerignore
-
 # OS
 Thumbs.db
 .DS_Store
