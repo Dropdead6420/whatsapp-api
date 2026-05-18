@@ -45,6 +45,9 @@ export async function requireApiKey(
     const auth = await authenticateApiKey(secret);
     req.apiKeyId = auth.apiKeyId;
     req.apiKeyName = auth.name;
+    // NOTE: per-key rate enforcement is not wired yet — global IP limit at
+    // /api/* still applies. Tracked as a Phase B follow-up: limit per
+    // (apiKeyId) using a Redis token-bucket keyed by req.apiKeyRateLimit.
     req.apiKeyRateLimit = auth.rateLimit;
     req.tenantId = auth.tenantId;
 

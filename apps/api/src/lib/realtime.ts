@@ -107,7 +107,9 @@ export async function attachRealtime(server: HttpServer): Promise<void> {
         role: payload.role,
         tenantId: payload.tenantId ?? null,
       };
-      (socket.data as AuthedSocketData) = data;
+      // socket.data is `any` on the socket.io type; assign directly rather
+      // than via a cast-LHS expression so this stays a normal LHS.
+      socket.data = data;
       next();
     } catch (err) {
       next(new Error((err as Error).message || "Authentication failed"));

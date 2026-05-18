@@ -116,20 +116,18 @@ router.get(
         );
       }
       if (cursor) {
+        // (lastMessageAt, id) strictly less than the cursor. Schema default
+        // for Conversation.lastMessageAt is now(), so the column is never
+        // null in practice — but treat a null cursor defensively as "any
+        // row strictly older than now()" so we can never return identical
+        // rows across pages.
         const lastMessageAt = cursor.lastMessageAt
           ? new Date(cursor.lastMessageAt)
-          : null;
-        // (lastMessageAt, id) strictly less than the cursor. Null
-        // lastMessageAt sorts last in DESC order.
-        if (lastMessageAt) {
-          where.OR = [
-            { lastMessageAt: { lt: lastMessageAt } },
-            { lastMessageAt, id: { lt: cursor.id } },
-          ];
-        } else {
-          where.lastMessageAt = null;
-          where.id = { lt: cursor.id };
-        }
+          : new Date();
+        where.OR = [
+          { lastMessageAt: { lt: lastMessageAt } },
+          { lastMessageAt, id: { lt: cursor.id } },
+        ];
       }
 
       const take = q.limit + 1; // fetch one extra to know if there's a next page
