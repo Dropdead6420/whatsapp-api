@@ -20,17 +20,6 @@ _(none — open this column when a slice is in flight)_
 
 ## Next up
 
-### T-003 — Idempotency on inbound WhatsApp webhooks
-- **Priority**: P0 (security debt)
-- **Blueprint**: §13 + SECURITY.md
-- **Scope**: S
-- **Why**: Meta retries on 5xx. We can produce duplicate `Message` rows on replay.
-- **Plan**:
-  - Add `@unique` on `Message.metaMessageId` (currently optional, no unique index).
-  - In the webhook handler, on duplicate-key error, skip silently and still ack 200.
-  - Verify `X-Hub-Signature-256` header against `META_APP_SECRET`.
-- **Tests**: replaying the same inbound twice produces one row.
-
 ### T-004 — Meta Embedded Signup
 - **Priority**: P1
 - **Blueprint**: §5.1
@@ -49,6 +38,15 @@ _(none — open this column when a slice is in flight)_
 ---
 
 ## Backlog (planned but not Codex-ready)
+
+### New product surfaces (per FINAL Architecture PDF, 2026-05-18)
+
+The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None are blocking the current scale plan; they queue behind T-004 / T-005.
+
+- T-140 **Agent Portal** — simplified inbox-only view for `UserRole.AGENT`. Routes group `/agent/*`. Only assigned conversations, AI reply suggestions, internal notes, follow-up tasks, lead updates. No campaign/template/admin surfaces. Reuses existing inbox components.
+- T-141 **Developer / API Portal** — `/developer/*` route group: API key CRUD UI (model already exists), webhook subscriptions UI (`/webhooks` page exists; extend with logs), API logs viewer, sandbox testing, usage metering chart. Supersedes T-063.
+- T-142 **Marketplace templates** — installable flow templates (salon booking, clinic reminders, e-commerce order tracking, real-estate lead qualification, coaching inquiry, payment follow-up). `FlowTemplate` model + clone-to-tenant action. Pairs with the Workflow Builder.
+- T-143 **Android mobile app** — Phase 7 of the FINAL PDF. Inbox, notifications (FCM), replies, lead pipeline, quick campaigns, booking calendar, AI reply button. Read-only on the API side; no new backend surface beyond push token registration.
 
 ### Compliance + safety
 - T-010 Tenant suspension at request layer — `Tenant.status !== ACTIVE` blocks every authenticated request, not just login
@@ -141,6 +139,7 @@ Tasks below are sequenced; do not jump ahead without finishing the prior phase.
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-003 Inbound WhatsApp webhook idempotency + signature verification**. `Message.metaMessageId` is unique, webhook raw body is preserved, `X-Hub-Signature-256` is verified with constant-time HMAC when `META_APP_SECRET` is configured, production fails closed without a real secret, duplicate provider message ids skip all downstream side-effects, and duplicate-key races return `null` instead of re-processing.
 - ✅ **T-002 Wallet debits wired into AI calls** (shared `callLlmJson()` pre-checks via `assertCanAffordAi`, logs `AiUsage`, then debits idempotently via `debitAi(AiUsage.id)`). Supports global `AI_CALL_COST_CREDITS` and per-feature overrides like `AI_CALL_COST_CREDITS_CAMPAIGN_AUTOPILOT`. Tests cover success debit, provider failure no-debit, and feature override pricing.
 - ✅ **T-001 Wallet debits wired into 7 WhatsApp send paths** (whatsapp routes ×2, conversation reply, campaign worker, appointment worker, lead follow-up, flow MESSAGE node). Feature-flagged via `WALLET_BILLING_ENABLED` (default off). Idempotent via unique index on `WalletTransaction(walletId, referenceType, referenceId)`. Pre-check returns 402; campaign worker treats 402 as PAUSED. See ADR-013.
 - ✅ Domain Connection: schema, API, DNS verification, `/domains` page (blueprint §4)

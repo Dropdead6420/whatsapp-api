@@ -1,7 +1,6 @@
-import crypto from "node:crypto";
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { Prisma, prisma } from "@nexaflow/db";
+import { prisma } from "@nexaflow/db";
 import {
   ApiError,
   ErrorCodes,
@@ -33,6 +32,11 @@ import {
   syncWhatsAppBusinessStatus,
   updateWhatsAppConfig,
 } from "../services/whatsappConfig.service";
+import {
+  createInboundMessageOnce,
+  hasProcessedMetaMessage,
+  verifyMetaSignature,
+} from "../services/whatsappWebhook.service";
 
 const router = Router();
 
@@ -55,37 +59,6 @@ webhookRouter.get("/", (req: Request, res: Response) => {
   }
   res.status(403).send("Forbidden");
 });
-
-/**
- * Verify Meta's X-Hub-Signature-256 header against the raw request body.
- *
- * - When `META_APP_SECRET` is not set we **skip verification** so local /
- *   dev / smoke environments still work without configuration. A warning is
- *   logged once at boot. In production set the secret; missing it is a
- *   security debt item.
- * - Constant-time compare via `crypto.timingSafeEqual` to avoid timing leaks.
- */
-function verifyMetaSignature(
-  rawBody: Buffer | undefined,
-  signatureHeader: string | undefined,
-): boolean {
-  const secret = process.env.META_APP_SECRET;
-  if (!secret) return true; // not configured: dev / smoke mode
-  if (!rawBody || rawBody.length === 0) return false;
-  if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
-
-  const expected =
-    "sha256=" +
-    crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  const sigBuf = Buffer.from(signatureHeader, "utf8");
-  const expectedBuf = Buffer.from(expected, "utf8");
-  if (sigBuf.length !== expectedBuf.length) return false;
-  try {
-    return crypto.timingSafeEqual(sigBuf, expectedBuf);
-  } catch {
-    return false;
-  }
-}
 
 webhookRouter.post("/", async (req: Request, res: Response) => {
   // Meta signs the raw JSON body with our app secret. Reject any payload that
@@ -123,14 +96,8 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
           // side-effect (contact upsert is OK to repeat, but outbound webhook
           // emit, flow trigger, opt-out handling, and auto-score must not
           // double-fire).
-          if (msg.id) {
-            const already = await prisma.message.findUnique({
-              where: { metaMessageId: msg.id },
-              select: { id: true },
-            });
-            if (already) {
-              continue;
-            }
+          if (await hasProcessedMetaMessage(msg.id)) {
+            continue;
           }
 
           const profileName =
@@ -201,31 +168,15 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
           });
 
           const inboundBody = msg.text?.body ?? `[${msg.type}]`;
-          let inboundMessage;
-          try {
-            inboundMessage = await prisma.message.create({
-              data: {
-                conversationId: conversation.id,
-                direction: MessageDirection.INBOUND,
-                status: MessageStatus.DELIVERED,
-                content: inboundBody,
-                deliveredAt: new Date(),
-                // Persist Meta's provider id so the @unique index dedupes
-                // any future replay of this exact message.
-                metaMessageId: msg.id ?? null,
-              },
-            });
-          } catch (err) {
-            // P2002 = unique constraint on metaMessageId. A concurrent retry
-            // beat us between the findUnique check and this create. Skip the
-            // rest of this message's side-effects; Meta will accept our 200.
-            if (
-              err instanceof Prisma.PrismaClientKnownRequestError &&
-              err.code === "P2002"
-            ) {
-              continue;
-            }
-            throw err;
+          const inboundMessage = await createInboundMessageOnce({
+            conversationId: conversation.id,
+            content: inboundBody,
+            // Persist Meta's provider id so the @unique index dedupes
+            // any future replay of this exact message.
+            metaMessageId: msg.id ?? null,
+          });
+          if (!inboundMessage) {
+            continue;
           }
 
           // Emit MESSAGE_RECEIVED to subscribed webhooks (fire-and-forget).

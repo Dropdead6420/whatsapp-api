@@ -183,3 +183,21 @@ Format:
   - Safe rollout: flip the flag per tenant via env once their wallet is funded.
   - Slight balance overshoot possible under race; ledger truth captured.
   - Pre-check and debit are wrapped at the **call site**, not the throttle service — keeps `sendThrottle` provider-agnostic and lets billing live with the wallet domain.
+
+---
+
+## ADR-014 — Meta webhook: signature verified over raw body, idempotency on `Message.metaMessageId`
+
+- **Date**: 2026-05-18
+- **Status**: Accepted
+- **Context**: Two debts closed together. (1) `/webhooks/whatsapp` accepted any POST that passed the GET handshake — a public URL with no authenticity check. (2) Meta retries inbound notifications until we 200, so the same `wamid.*` could legitimately arrive twice and we'd insert it twice, double-trigger flows, and emit duplicate `MESSAGE_RECEIVED` outbound webhooks.
+- **Decision**:
+  - **Signature**: `express.json({ verify })` stashes the raw bytes on `req.rawBody`. The handler computes `sha256=HMAC(META_APP_SECRET, rawBody)` and compares against `X-Hub-Signature-256` with `crypto.timingSafeEqual`. Mismatch → `403 Forbidden` before any processing.
+  - **Fail closed in production**: if `META_APP_SECRET` is unset / placeholder, the verifier returns `false` when `NODE_ENV=production` and `true` in dev. Production simply cannot run without a real secret.
+  - **Idempotency**: unique constraint on `Message.metaMessageId`. Each inbound message is checked with `hasProcessedMetaMessage(msg.id)` before any side effect (contact upsert, conversation upsert, flow trigger, outbound webhook emit). The create itself is wrapped in `createInboundMessageOnce` — a P2002 race returns `null` so a duplicate caller bails cleanly.
+  - **Logic lives in a service**: `services/whatsappWebhook.service.ts` owns `verifyMetaSignature`, `hasProcessedMetaMessage`, `createInboundMessageOnce`. Route file is a transport layer.
+- **Consequences**:
+  - Mounting order matters: `webhookRouter` mounts **before** `express.json()` is reused for /api/* — wait, both mounts use the same `verify` hook, so `rawBody` is available globally. No double-parse.
+  - Tests cover the five cases that matter: valid sig, missing sig, bad sig, dev fallback, prod fail-closed, duplicate replay, P2002 race. Service mocks Prisma; route stays integration-tested via the live API.
+  - We accept that the signature check rejects retries with malformed signatures — Meta itself never sends those, so a 403 is a real attacker, not a flake.
+  - This closes the two oldest items on the SECURITY.md debt list.

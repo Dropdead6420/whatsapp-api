@@ -57,6 +57,7 @@ They are not identical in priority:
 - `/wallets` UI for SuperAdmin, White Label Admin, and Business Admin credit visibility.
 - Wallet billing hooks for successful WhatsApp sends and successful AI calls.
 - Per-feature AI credit pricing through env vars such as `AI_CALL_COST_CREDITS_CAMPAIGN_AUTOPILOT`.
+- Inbound WhatsApp webhook idempotency and Meta signature verification.
 - Codex implementation workflow captured from `/Users/sidharthkumar/Downloads/NexaFlow_Codex_Playbook.pdf` in `CODEX.md`.
 
 ## Rules For Future Work

@@ -15,7 +15,7 @@ enforcement story. Update it the same PR you change behaviour.
 | **WABA token theft** | `Tenant.wabaAccessToken` in plain text in DB | Encrypt at rest (planned); secrets never in logs or audit JSON |
 | **Refresh-token replay** | Stolen refresh JWT | Per-token `jti` in Redis; logout blacklists; rotation on refresh |
 | **Unsigned outbound webhook** | Tenant's external server can't verify origin | HMAC-SHA256 with per-subscription secret, header `X-NexaFlow-Signature` |
-| **Spoofed Meta webhook** | Anyone hitting `/webhooks/whatsapp` | `WHATSAPP_WEBHOOK_TOKEN` verification on subscription handshake; future: signature header |
+| **Spoofed Meta webhook** | Anyone hitting `/webhooks/whatsapp` | `WHATSAPP_WEBHOOK_TOKEN` on GET handshake; HMAC-SHA256 of raw body against `X-Hub-Signature-256` on POST; fails closed in production without a real `META_APP_SECRET` (ADR-014) |
 | **Quota / wallet bypass** | Direct send call paths skipping the throttle gate | All send paths route through `assertCanSend` → adapter → `recordSend`; reviewed PR-by-PR |
 | **Hostile flow** | Tenant configures WEBHOOK node to scan internal network | 15s timeout; future: deny RFC1918 + cloud-metadata IPs; rate-limit per tenant |
 | **Brute force on login** | Public `/auth/login` | Global rate limit; future: per-IP login throttle + Argon2/bcrypt cost tuning |
@@ -90,9 +90,10 @@ When the Partner Portal ships, partner staff get their own role split
 ## Webhook security
 
 ### Inbound (Meta → us)
-- Verification handshake honors `WHATSAPP_WEBHOOK_TOKEN`.
-- Production: also verify the X-Hub-Signature-256 header (not yet wired — see TASKS).
-- Handlers respond 200 immediately, then process async. We MUST be idempotent on the provider message id; today we accept duplicate inserts because there's no unique index on `Message.metaMessageId` — add one when we wire signature verification.
+- GET verification handshake honors `WHATSAPP_WEBHOOK_TOKEN`.
+- POST verification: `X-Hub-Signature-256` is HMAC-SHA256 over the raw request body, compared with `crypto.timingSafeEqual`. Without a real `META_APP_SECRET`, the verifier returns `true` in dev and **fails closed in production** (ADR-014).
+- Idempotent on the provider message id: `Message.metaMessageId` is unique. `services/whatsappWebhook.service.ts:hasProcessedMetaMessage` short-circuits before any side effect (contact upsert, flow trigger, outbound webhook emit). The create itself is wrapped in `createInboundMessageOnce` — a P2002 race returns `null` rather than retrying.
+- Handlers respond `200 EVENT_RECEIVED` immediately and process async. A bad signature returns `403 Forbidden` before any work.
 
 ### Outbound (us → tenant's URL)
 - Every payload is HMAC-SHA256-signed with the per-subscription secret. Header `X-NexaFlow-Signature: sha256=<hex>`.
@@ -172,8 +173,6 @@ at the call site — the audit blob is queryable by SuperAdmin and partner staff
 - **OAuth providers**: `OAuthAccount` exists, providers not wired.
 - **Per-account login throttle**: only global IP-level limiter today.
 - **WABA token encryption at rest**: stored plaintext in DB column.
-- **Meta webhook signature verification (`X-Hub-Signature-256`)**: only the GET handshake is verified.
-- **Idempotency keys on `Message.metaMessageId`**: no unique index; duplicates possible on Meta replay.
 - **Tenant suspension at the route layer**: `Tenant.status` is checked at login but not at every request.
 - **Flow WEBHOOK node SSRF protection**: 15s timeout exists; no blocklist for RFC1918 / metadata IPs.
 - **Rate limiting per account + per tenant** on AI endpoints.

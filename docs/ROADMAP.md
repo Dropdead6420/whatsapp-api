@@ -1,8 +1,10 @@
 # ROADMAP.md
 
-Phased plan tied to the **Final Product Blueprint V3** (`NexaFlow_AI_Final_Product_Blueprint.pdf`, May 2026).
+Phased plan tied to the **NexaFlow_Claude_FINAL_Full_Project_Architecture_and_Features.pdf** (2026-05-18, canonical) and the prior **Final Product Blueprint V3** (`NexaFlow_AI_Final_Product_Blueprint.pdf`).
 
-Each phase lists: blueprint section, code status (✅ shipped / 🟡 partial / ❌ not started), and the missing slices ordered by blast radius.
+The FINAL Architecture PDF is the single product-scope reference for both Claude and Codex. Where it conflicts with the older blueprint, FINAL wins. The two are mostly identical; FINAL adds the **Agent Portal**, **Developer/API Portal**, **Marketplace Templates**, and the **Android Mobile App** as explicit surfaces — all captured in [`TASKS.md`](../TASKS.md).
+
+Each phase lists: section reference, code status (✅ shipped / 🟡 partial / ❌ not started), and the missing slices ordered by blast radius.
 
 Status snapshot: see [`docs/BLUEPRINT_PHASE_AUDIT.md`](BLUEPRINT_PHASE_AUDIT.md) for a finer-grained per-module table.
 
@@ -36,6 +38,8 @@ Status snapshot: see [`docs/BLUEPRINT_PHASE_AUDIT.md`](BLUEPRINT_PHASE_AUDIT.md)
 - ✅ Inbound webhook with verify-token handshake
 - ✅ STOP / UNSUBSCRIBE / CANCEL keyword opt-out
 - ✅ Send throttle (per-second + monthly quota)
+- ✅ Idempotent inbound webhook processing (`Message.metaMessageId @unique`)
+- ✅ Meta `X-Hub-Signature-256` verification over the raw request body
 - ✅ WABA quality fields on `Tenant` (`wabaQualityRating`, `wabaMessagingLimitTier`, `wabaAccountStatus`, `wabaLastSyncedAt`)
 - ✅ `/whatsapp-settings` admin page
 
@@ -43,8 +47,7 @@ Status snapshot: see [`docs/BLUEPRINT_PHASE_AUDIT.md`](BLUEPRINT_PHASE_AUDIT.md)
 1. **Meta Embedded Signup** — Facebook OAuth → auto-capture Business ID + WABA ID + Phone Number ID + auto-configure webhook
 2. **Provider Abstraction Layer** (ADR-007) — `WhatsAppProvider` interface; Meta Cloud + Gupshup + 360dialog + Haptik + Twilio adapters; `ProviderRoute` table
 3. **Business Profile Manager UI** — display name update, profile description, business hours; status fields are already in the schema
-4. **Idempotency + signature verification** on inbound webhooks (X-Hub-Signature-256, unique index on `Message.metaMessageId`)
-5. **Template submission to Meta** with status tracking + approval webhook handling
+4. **Template submission to Meta** with status tracking + approval webhook handling
 
 ---
 
