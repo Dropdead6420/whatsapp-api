@@ -400,6 +400,14 @@ const configSchema = z.object({
   clearAccessToken: z.boolean().optional(),
 });
 
+const embeddedSignupSchema = z.object({
+  code: z.string().min(8).max(2000),
+  businessId: z.string().trim().min(1).max(120),
+  wabaId: z.string().trim().min(1).max(120),
+  phoneNumberId: z.string().trim().min(1).max(120),
+  redirectUri: z.string().url().optional(),
+});
+
 async function getTenantWabaConfig(tenantId: string) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
@@ -484,6 +492,53 @@ router.post(
         ...extractRequestMeta(req),
       });
       res.json({ success: true, data: config });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Meta Embedded Signup (T-004). Browser sends the Facebook OAuth code +
+// the WABA / phone / business ids; we exchange for a long-lived access
+// token, persist it (encrypted), subscribe the WABA to our webhook URL,
+// and return a redacted summary.
+router.post(
+  "/embedded-signup",
+  requirePermission(Permissions.WABA_CONFIGURE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = embeddedSignupSchema.parse(req.body);
+      const { completeEmbeddedSignup } = await import(
+        "../services/metaSignup.service"
+      );
+      const result = await completeEmbeddedSignup({
+        tenantId: req.tenantId!,
+        input: {
+          code: body.code,
+          businessId: body.businessId,
+          wabaId: body.wabaId,
+          phoneNumberId: body.phoneNumberId,
+          redirectUri: body.redirectUri,
+        },
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "WhatsAppConfig",
+        resourceId: req.tenantId!,
+        // Never log the raw token — only the masked preview.
+        newValues: {
+          source: "embedded-signup",
+          metaBusinessId: result.metaBusinessId,
+          wabaId: result.wabaId,
+          phoneNumberId: result.phoneNumberId,
+          accessTokenPreview: result.accessTokenPreview,
+          webhookSubscribed: result.webhookSubscribed,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }

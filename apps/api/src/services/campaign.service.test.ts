@@ -10,6 +10,8 @@ vi.mock("../lib/queue", () => ({
   getQueueConnection: () => ({ url: "redis://test" }),
   QueueNames: { CAMPAIGN_DISPATCH: "campaign-dispatch" },
   trackWorker: () => undefined,
+  makeBullJobId: (...parts: Array<string | number>) =>
+    parts.map((p) => String(p).replace(/:/g, "_")).join("-"),
 }));
 
 vi.mock("@nexaflow/db", () => ({
@@ -52,7 +54,9 @@ describe("campaign.service queue producer", () => {
     const [name, data, opts] = mocks.queueAdd.mock.calls[0];
     expect(name).toBe("dispatch");
     expect(data).toEqual({ campaignId: "camp_abc" });
-    expect(opts).toMatchObject({ jobId: "dispatch:camp_abc" });
+    // makeBullJobId joins with "-" and replaces ":" with "_", so the
+    // canonical id form is "dispatch-camp_abc".
+    expect(opts).toMatchObject({ jobId: "dispatch-camp_abc" });
   });
 
   it("re-enqueuing the same campaign reuses the same jobId (idempotent)", async () => {
@@ -67,9 +71,9 @@ describe("campaign.service queue producer", () => {
       ([, , opts]) => (opts as { jobId: string }).jobId,
     );
     expect(jobIds).toEqual([
-      "dispatch:camp_abc",
-      "dispatch:camp_abc",
-      "dispatch:camp_abc",
+      "dispatch-camp_abc",
+      "dispatch-camp_abc",
+      "dispatch-camp_abc",
     ]);
   });
 });

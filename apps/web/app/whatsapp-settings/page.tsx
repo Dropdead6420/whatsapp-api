@@ -18,6 +18,62 @@ interface WhatsAppConfig {
   lastSyncError: string | null;
 }
 
+// Meta Embedded Signup (T-004). Lazy-load the FB SDK + open the
+// Embedded Signup popup, listen for the WA_EMBEDDED_SIGNUP message
+// (carries wabaId + phoneNumberId), and POST the code bundle to
+// /api/v1/whatsapp/embedded-signup so the API can exchange + persist.
+
+declare global {
+  interface Window {
+    FB?: FbSdk;
+    fbAsyncInit?: () => void;
+  }
+}
+
+interface FbAuthResponse {
+  code?: string;
+  authResponse?: { code?: string };
+  business_id?: string;
+}
+
+interface FbSdk {
+  init(opts: { appId: string; version: string; xfbml?: boolean }): void;
+  login(
+    callback: (response: FbAuthResponse) => void,
+    opts: {
+      config_id: string;
+      response_type?: string;
+      override_default_response_type?: boolean;
+      extras?: { setup?: Record<string, unknown> };
+    },
+  ): void;
+}
+
+const FB_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID;
+const FB_CONFIG_ID = process.env.NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID;
+
+function loadFbSdk(appId: string): Promise<FbSdk> {
+  if (typeof window === "undefined") return Promise.reject("ssr");
+  if (window.FB) return Promise.resolve(window.FB);
+  return new Promise((resolve, reject) => {
+    window.fbAsyncInit = () => {
+      window.FB?.init({ appId, version: "v20.0" });
+      if (window.FB) resolve(window.FB);
+      else reject(new Error("FB SDK init failed"));
+    };
+    const existing = document.getElementById("facebook-jssdk");
+    if (existing) return;
+    const script = document.createElement("script");
+    script.id = "facebook-jssdk";
+    script.async = true;
+    script.defer = true;
+    script.src = "https://connect.facebook.net/en_US/sdk.js";
+    script.onerror = () =>
+      reject(new Error("Failed to load Facebook SDK script"));
+    document.body.appendChild(script);
+  });
+}
+
 function qualityClass(value: string | null) {
   const normalized = value?.toLowerCase() ?? "";
   if (normalized.includes("green") || normalized.includes("high")) {
@@ -46,6 +102,81 @@ export default function WhatsAppSettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+
+  const embeddedSignupConfigured = Boolean(FB_APP_ID && FB_CONFIG_ID);
+
+  async function startEmbeddedSignup() {
+    if (!FB_APP_ID || !FB_CONFIG_ID) return;
+    setErr(null);
+    setNotice(null);
+    setSigningIn(true);
+
+    // Listen for the WA_EMBEDDED_SIGNUP postMessage Meta emits from the
+    // popup with the selected waba_id + phone_number_id.
+    let waContext: { wabaId?: string; phoneNumberId?: string } = {};
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== "https://www.facebook.com") return;
+      try {
+        const data =
+          typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+        if (data?.type === "WA_EMBEDDED_SIGNUP" && data.event === "FINISH") {
+          waContext = {
+            wabaId: data.data?.waba_id,
+            phoneNumberId: data.data?.phone_number_id,
+          };
+        }
+      } catch {
+        // not a WA signup message — ignore
+      }
+    };
+    window.addEventListener("message", onMessage);
+
+    try {
+      const FB = await loadFbSdk(FB_APP_ID);
+      const response = await new Promise<FbAuthResponse>((resolve) => {
+        FB.login(resolve, {
+          config_id: FB_CONFIG_ID,
+          response_type: "code",
+          override_default_response_type: true,
+        });
+      });
+
+      const code = response.code ?? response.authResponse?.code;
+      const businessId = response.business_id;
+      if (!code) {
+        throw new Error("Facebook login was cancelled or returned no code.");
+      }
+      if (!businessId || !waContext.wabaId || !waContext.phoneNumberId) {
+        throw new Error(
+          "Meta did not return the selected WhatsApp business / phone. Try again.",
+        );
+      }
+
+      const saved = await api.post<WhatsAppConfig & { webhookSubscribed: boolean }>(
+        "/api/v1/whatsapp/embedded-signup",
+        {
+          code,
+          businessId,
+          wabaId: waContext.wabaId,
+          phoneNumberId: waContext.phoneNumberId,
+        },
+      );
+      setNotice(
+        saved.webhookSubscribed
+          ? "Connected. Inbound messages will route here."
+          : "Connected, but webhook subscribe failed — retry from the Sync button.",
+      );
+      await loadConfig();
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError ? e.message : (e as Error).message,
+      );
+    } finally {
+      window.removeEventListener("message", onMessage);
+      setSigningIn(false);
+    }
+  }
 
   async function loadConfig() {
     setErr(null);
@@ -130,12 +261,46 @@ export default function WhatsAppSettingsPage() {
         </div>
       )}
 
+      {/* Meta Embedded Signup (T-004). Skipped when the FB app
+          credentials aren't configured for this build. */}
+      <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-2xl">
+            <h2 className="text-sm font-semibold text-blue-900">
+              Connect with Meta (recommended)
+            </h2>
+            <p className="mt-1 text-xs text-blue-800/80">
+              One-click onboarding — Meta returns the WhatsApp Business
+              Account ID, phone number ID, and a long-lived access token.
+              We encrypt and store everything; nothing leaves your browser
+              in plain text after this step.
+            </p>
+            {!embeddedSignupConfigured && (
+              <p className="mt-2 text-xs text-amber-700">
+                Embedded Signup isn&apos;t configured for this build. Set{" "}
+                <code>NEXT_PUBLIC_META_APP_ID</code> and{" "}
+                <code>NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID</code> to
+                enable the button below. Manual configuration still works.
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={!embeddedSignupConfigured || signingIn}
+            onClick={() => void startEmbeddedSignup()}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {signingIn ? "Connecting…" : "Connect with Meta"}
+          </button>
+        </div>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <form
           onSubmit={save}
           className="rounded-lg border border-slate-200 bg-white p-5"
         >
-          <h2 className="text-sm font-semibold">Connection</h2>
+          <h2 className="text-sm font-semibold">Connection (manual)</h2>
           <p className="mt-1 text-xs text-slate-500">
             Use the phone number ID from Meta, not the customer-facing phone number.
           </p>

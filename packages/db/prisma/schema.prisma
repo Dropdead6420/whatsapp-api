@@ -76,6 +76,7 @@ model Tenant {
   customFont               String?
 
   // WhatsApp Configuration
+  metaBusinessId           String?          // Parent Meta Business Manager id (T-004)
   wabaId                   String?          // WhatsApp Business Account ID
   wabaPhoneNumber          String?
   wabaAccessToken          String?          // Encrypted

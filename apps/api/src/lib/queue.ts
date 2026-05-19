@@ -47,6 +47,10 @@ export type WebhookJobData = WebhookDeliveryData;
 
 const queueSingletons = new Map<string, Queue>();
 
+export function makeBullJobId(...parts: Array<string | number>): string {
+  return parts.map((part) => String(part).replace(/:/g, "_")).join("-");
+}
+
 function makeQueue<T>(name: string): Queue<T> {
   const existing = queueSingletons.get(name);
   if (existing) return existing as Queue<T>;

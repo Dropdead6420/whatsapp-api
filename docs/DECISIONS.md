@@ -322,3 +322,23 @@ Format:
   - Live smoke ran the full flow: create encrypts (`v1:IGzi0ffJp...` in DB), list returns mask `sk_•••2345`, duplicate POST → 409, non-admin → 403, delete → 200, audit log records both CREATE + DELETE with `configKeys: ["apiKey","appName","source"]` and no values.
   - **Rotation path is now obvious**: PATCH with a fresh `config` re-encrypts the blob (new DEK + IV per encrypt — verified by the random-per-call test from T-094). PATCH with `config: null` clears it; PATCH without the `config` key leaves the existing blob intact (the data object literally doesn't include the key, so Prisma generates no `UPDATE` clause for it).
   - **What's intentionally not in this commit**: an inline "reveal once" flow that returns the freshly-decrypted config to the SuperAdmin so they can verify the stored value. The blast radius of that surface (every load is a credential disclosure path) outweighs the operator convenience until we have a real demand for it. Today the operator copy-pastes from their BSP console at create-time and re-pastes if they need to rotate; the mask preview confirms the shape was stored.
+
+---
+
+## ADR-021 — Meta Embedded Signup: browser-side popup + server-side exchange
+
+- **Date**: 2026-05-19
+- **Status**: Accepted (T-004 — closes the manual-WABA-config debt)
+- **Context**: The manual `/whatsapp-settings` form needs operators to copy a Meta access token by hand from Business Manager. That's a non-starter for non-technical customers and a credential-leak risk (the raw token sits in a textbox, in the browser DOM, in clipboard history). Embedded Signup is Meta's officially blessed flow: a popup that returns a short-lived code + the chosen WABA / phone-number / business ids, which the server exchanges for a long-lived access token without the browser ever touching the secret.
+- **Decision**:
+  - **Browser** loads the Facebook JS SDK lazily (only when the operator clicks "Connect with Meta") and calls `FB.login` with the Embedded Signup `config_id` from Meta's developer console. The popup posts a `WA_EMBEDDED_SIGNUP` `MessageEvent` (origin `https://www.facebook.com`) when the user finishes selecting the WABA + phone; the page joins that bundle with the `code` + `business_id` from the FB.login callback and POSTs to `/api/v1/whatsapp/embedded-signup`.
+  - **Server** (`services/metaSignup.service.ts`) exchanges the code at `oauth/access_token` for a long-lived token, subscribes our app to the WABA via `POST /<waba_id>/subscribed_apps`, then encrypts the token with the existing `tokenCrypto.encryptToken` (the same envelope encryption from ADR-014) and writes it onto the `Tenant` row alongside `metaBusinessId` / `wabaId` / `wabaPhoneNumber`.
+  - **Refuses to start** when `META_APP_ID` / `META_APP_SECRET` are unset or carry the `.env.example` placeholder values. Production never silently no-ops the OAuth step.
+  - **Persist-on-subscribe-fail**: if the subscribe step fails after the exchange succeeds, the access token is still persisted so the operator only retries the subscribe step (`POST /config/sync` triggers a refresh; a follow-up task can expose the subscribe call as its own button). The alternative — leaving the tenant un-credentialed — would force a full Embedded Signup re-run on Meta's UI.
+  - **Audit log** captures `accessTokenPreview` (masked) + `webhookSubscribed`. The raw token never enters an `AuditLog.newValues` blob.
+  - **Schema**: new `Tenant.metaBusinessId String?` — the parent Meta Business Manager id, useful for tenant identification + future business-profile reads. Other Embedded Signup fields reuse existing `Tenant.wabaId` / `wabaPhoneNumber` / `wabaAccessToken`.
+- **Consequences**:
+  - 5 new service tests cover happy path / unconfigured env / Meta OAuth error / subscribe-fail / unknown tenant. Combined with the existing 44, total is **49/49 green**.
+  - The web button gracefully degrades when `NEXT_PUBLIC_META_APP_ID` + `NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID` aren't set — the manual form stays as the fallback path.
+  - The token lives encrypted at rest exactly as ADR-014 specified, so this ADR doesn't add new crypto surface area; it just adds a more convenient way to get the token in.
+  - **Future T-004 follow-ups** (intentionally deferred): (1) handling of Meta's `token_expires_at` so we proactively refresh long-lived tokens before they expire; (2) re-subscribe button on the WhatsApp settings page for the subscribe-fail case; (3) reading + persisting the business profile (display name, vertical, address) during onboarding.

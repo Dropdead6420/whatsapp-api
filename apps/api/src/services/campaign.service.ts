@@ -14,6 +14,7 @@ import { ApiError } from "@nexaflow/shared";
 import {
   getCampaignQueue,
   getQueueConnection,
+  makeBullJobId,
   QueueNames,
   trackWorker,
   type CampaignJobData,
@@ -213,7 +214,7 @@ export async function enqueueCampaign(campaignId: string): Promise<void> {
     { campaignId },
     {
       // Idempotency: same campaign enqueued twice collapses into one job.
-      jobId: `dispatch:${campaignId}`,
+      jobId: makeBullJobId("dispatch", campaignId),
     },
   );
 }

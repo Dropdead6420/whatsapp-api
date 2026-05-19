@@ -20,11 +20,13 @@ _(none — open this column when a slice is in flight)_
 
 ## Next up
 
-### T-004 — Meta Embedded Signup
+### T-004 — Meta Embedded Signup ✅ shipped
 - **Priority**: P1
 - **Blueprint**: §5.1
-- **Scope**: L — split into 3 sub-tasks (Claude: plan before assigning)
-- **Why**: Manual WABA token paste is a non-starter for non-technical users.
+- **Scope**: L — shipped in two slices:
+  1. ~~Backend code-exchange + token encryption + WABA subscribe~~ ✅ (T-004a, ADR-021)
+  2. ~~Frontend Connect-with-Meta button + FB SDK lazy load + popup handler~~ ✅ (T-004b)
+- **Follow-ups (queued, not blocking)**: token-expiry refresh job; re-subscribe button on settings page; business-profile sync during onboarding.
 
 ### T-005 — Provider Abstraction Layer ✅ fully shipped
 - **Priority**: P1
@@ -127,6 +129,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-004 Meta Embedded Signup**. New `Tenant.metaBusinessId` column; `services/metaSignup.service.ts` exchanges the FB.login code at `oauth/access_token`, subscribes the WABA to our app, and persists the long-lived token via the T-094 envelope-encryption path. New `POST /api/v1/whatsapp/embedded-signup` route (gated by `WABA_CONFIGURE`) wires that into the request layer with audit logging that masks the token. Frontend `/whatsapp-settings` adds a "Connect with Meta" button above the manual form — lazy-loads the FB SDK, opens the Embedded Signup popup, joins the `WA_EMBEDDED_SIGNUP` `MessageEvent` payload with the FB code + business id, and POSTs to the backend. Gracefully degrades when `NEXT_PUBLIC_META_APP_ID` / `NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID` aren't set. 5 new service tests; 49/49 green. Live smoke verified: 400 "not configured" without `META_APP_*`, 400 validation on malformed body, 401 unauthenticated, 200 path is gated behind real Meta credentials. See ADR-021.
 - ✅ **T-005e SuperAdmin CRUD for `ProviderRoute`**. New `/api/v1/admin/provider-routes` route group (SuperAdmin only) — list / create / patch / delete. `config` is JSON.stringified + envelope-encrypted on write via `tokenCrypto.encryptToken`; responses return only `configPreview` with masked values. New `PROVIDER_ROUTE_MANAGE` permission (auto-granted to SUPER_ADMIN). Audit log captures every mutation with `configKeys` but no values. Nav entry added under Platform → Provider Routes; admin page at `/provider-routes` with create form + toggle-active + delete. 7 new service tests; 44/44 total green. Live smoke verified: encrypt-in-DB, mask-on-list, 409 on duplicate, 403 on non-admin, audit trail intact. See ADR-020.
 - ✅ **T-005d Per-tenant config from `ProviderRoute.config` via `SendContext`**. `WhatsAppProvider` methods now accept an optional `ctx: SendContext` carrying the decrypted, JSON-parsed route config. Factory does the decrypt (via `tokenCrypto.decryptTokenIfNeeded` — legacy plaintext passes through) + binds it onto a closure-wrapped adapter, so call sites don't change. Gupshup adapter prefers `ctx.config` over env; partial config falls through to env. 4 new unit tests + 2 new factory tests. See ADR-019. T-005e (SuperAdmin CRUD UI that encrypts on write) is the natural follow-up.
 - ✅ **Login UX hardening**. The login page now maps `ApiClientError.code` to specific user-facing copy (`INVALID_CREDENTIALS`, `TOO_MANY_REQUESTS`, `EMAIL_NOT_VERIFIED`, `FORBIDDEN`), and surfaces a "Can't reach the server" message — not a credential error — when fetch itself fails. Adds a contextual hint below the main message for the throttled and unverified cases. Closes the bug where every failure looked like a wrong password.

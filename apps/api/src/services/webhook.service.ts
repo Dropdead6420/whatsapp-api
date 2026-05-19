@@ -4,6 +4,7 @@ import { prisma } from "@nexaflow/db";
 import {
   getQueueConnection,
   getWebhookQueue,
+  makeBullJobId,
   QueueNames,
   trackWorker,
   type WebhookJobData,
@@ -147,7 +148,7 @@ async function enqueueWebhookRetry(
     "deliver",
     { webhookLogId },
     {
-      jobId: `deliver:${webhookLogId}`,
+      jobId: makeBullJobId("deliver", webhookLogId),
       attempts: remaining,
       backoff: { type: WEBHOOK_BACKOFF, delay: 0 },
     },
