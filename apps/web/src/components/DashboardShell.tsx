@@ -79,6 +79,11 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/billing", label: "Billing", roles: ["SUPER_ADMIN"] },
       { href: "/platform-health", label: "Health", roles: ["SUPER_ADMIN"] },
       { href: "/audit-logs", label: "Audit Logs", roles: ["SUPER_ADMIN"] },
+      {
+        href: "/provider-routes",
+        label: "Provider Routes",
+        roles: ["SUPER_ADMIN"],
+      },
     ],
   },
 ];

@@ -302,3 +302,23 @@ Format:
   - 4 new unit tests cover ctx-preferred-over-env, partial-ctx fall-through, factory binding through the adapter, and malformed-JSON tolerance.
   - The factory pattern of "return a closure-bound adapter" leaves room for future per-tenant policy injection (rate-limit budgets, trace metadata, retry hints) by extending `SendContext` without touching call sites.
   - **T-005e** (next): SuperAdmin route for `ProviderRoute` CRUD that encrypts `config` on write. Until that lands, per-tenant routes must be inserted manually.
+
+---
+
+## ADR-020 — SuperAdmin CRUD for `ProviderRoute` with encrypt-on-write + redact-on-read
+
+- **Date**: 2026-05-19
+- **Status**: Accepted (T-005 step 5 — T-005e). Completes the T-005 series.
+- **Context**: ADR-019 introduced `SendContext` + per-tenant `ProviderRoute.config`, but the only way to write a row was a raw Postgres INSERT. That left two doors open: an operator could store plaintext credentials by mistake, and the audit trail captured nothing.
+- **Decision**:
+  - New SuperAdmin route group `/api/v1/admin/provider-routes` — list / create / patch / delete. Mounted behind `requireAuth` + `requireRole(SUPER_ADMIN)` + `requirePermission(PROVIDER_ROUTE_MANAGE)`. The new permission is added to `RolePermissions[SUPER_ADMIN]` automatically via `Object.values(Permissions)`.
+  - **Encrypt on write**: the request body's `config` (a JSON object) is `JSON.stringify`d and passed through `tokenCrypto.encryptToken` before hitting Prisma. The DB column never holds plaintext credentials.
+  - **Redact on read**: every list / create / patch response returns `configPreview` — keys present, values masked. Mask format: ≤4 chars → `•••`, 5–8 → `•••${last2}`, >8 → `${first3}•••${last4}`. The raw decrypted blob never leaves the service.
+  - **Audit**: every mutation calls `logAudit` with `resource: "ProviderRoute"`. The audit payload includes `configKeys` (the JSON keys of the config blob) but explicitly never the values — even masked. Operators can answer "what shape of credential was stored when?" without leaking the credential.
+  - **Conflict handling**: the `(tenantId, phoneNumberId)` unique constraint is surfaced as HTTP 409 before Prisma can throw P2002. `phoneNumberId === null` is the tenant's default route; one per tenant.
+  - **Web UI**: `/provider-routes` (SuperAdmin only) — list with masked config previews, "+ New route" form (with a JSON textarea — the only place plaintext exists, in the browser session), toggle-active, delete with confirm. Nav entry added under the Platform group.
+- **Consequences**:
+  - 7 new service-level tests + the existing factory tests; 44/44 backend tests green.
+  - Live smoke ran the full flow: create encrypts (`v1:IGzi0ffJp...` in DB), list returns mask `sk_•••2345`, duplicate POST → 409, non-admin → 403, delete → 200, audit log records both CREATE + DELETE with `configKeys: ["apiKey","appName","source"]` and no values.
+  - **Rotation path is now obvious**: PATCH with a fresh `config` re-encrypts the blob (new DEK + IV per encrypt — verified by the random-per-call test from T-094). PATCH with `config: null` clears it; PATCH without the `config` key leaves the existing blob intact (the data object literally doesn't include the key, so Prisma generates no `UPDATE` clause for it).
+  - **What's intentionally not in this commit**: an inline "reveal once" flow that returns the freshly-decrypted config to the SuperAdmin so they can verify the stored value. The blast radius of that surface (every load is a credential disclosure path) outweighs the operator convenience until we have a real demand for it. Today the operator copy-pastes from their BSP console at create-time and re-pastes if they need to rotate; the mask preview confirms the shape was stored.

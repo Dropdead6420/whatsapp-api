@@ -513,6 +513,7 @@ export const Permissions = {
   WALLET_MANAGE: "wallet:manage",
   WABA_CONFIGURE: "waba:configure",
   API_KEYS_MANAGE: "api_keys:manage",
+  PROVIDER_ROUTE_MANAGE: "provider_route:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
