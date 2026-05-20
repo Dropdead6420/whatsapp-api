@@ -498,6 +498,40 @@ router.post(
   },
 );
 
+// Pull the WhatsApp Business Profile from Meta (display name, vertical,
+// about) and persist on the tenant. Auto-runs at the tail of Embedded
+// Signup; this route is the manual refresh path for operators.
+router.post(
+  "/config/sync-profile",
+  requirePermission(Permissions.WABA_CONFIGURE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const { syncWhatsAppBusinessProfile } = await import(
+        "../services/metaSignup.service"
+      );
+      const profile = await syncWhatsAppBusinessProfile({
+        tenantId: req.tenantId!,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "WhatsAppBusinessProfile",
+        resourceId: req.tenantId!,
+        newValues: {
+          source: "sync-profile",
+          name: profile.name,
+          vertical: profile.vertical,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: profile });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // Re-subscribe the WABA to our app. Recovery path for the subscribe-fail
 // branch of Embedded Signup (T-004 follow-up).
 router.post(

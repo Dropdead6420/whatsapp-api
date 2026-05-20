@@ -361,3 +361,22 @@ Format:
   - Never-expires tokens (no `expires_in` from Meta) write `wabaTokenExpiresAt = null` and the worker filters them out at the SQL level — zero work for tenants on permanent System User tokens.
   - The 24h warn cooldown prevents alert fatigue. If an operator dismisses the chip but doesn't reconnect, we'll re-warn tomorrow.
   - **Still deferred**: the third T-004 follow-up — sync the business profile (display name / vertical / address) from Meta during onboarding. That needs new Tenant columns and is a separate slice.
+
+---
+
+## ADR-023 — WhatsApp business profile: flat columns, auto-sync at onboarding, manual refresh endpoint
+
+- **Date**: 2026-05-20
+- **Status**: Accepted; closes the last T-004 follow-up.
+- **Context**: After Embedded Signup completes we have the tenant's WABA + phone-number ids but nothing human-readable. The inbox header says "Phone +15551234567" instead of "Cutz & Bangs Coffee". Meta exposes two endpoints to fix this — `GET /<phone_number_id>/whatsapp_business_profile` returns the visible-to-customers profile (about, vertical, description, verified name, websites), and `GET /<waba_id>?fields=name,vertical` returns the WABA-level identity. We want both, and we want them inside the same request the operator just clicked through.
+- **Decision**:
+  - **Flat columns, not JSON blob.** Four new fields on `Tenant`: `wabaBusinessName`, `wabaBusinessVertical`, `wabaBusinessAbout`, `wabaBusinessProfileSyncedAt`. The inbox header, the analytics dashboard, and the future white-label preview all want to read these without parsing JSON. If Meta later adds new profile fields (address, websites) we'll add columns for the ones we actually display, not collect every field for show.
+  - **Phone-number profile wins over WABA profile** for `name` (`verified_name` is what customers see) and `vertical`. WABA-level fields are the fallback when the phone-number profile is empty (common right after onboarding before the operator has filled it in).
+  - **Auto-sync at the tail of `completeEmbeddedSignup`.** Fired as a `void`-discarded promise so a transient Meta hiccup doesn't undo the onboarding. The operator can refresh manually if the auto-fetch misses.
+  - **Manual refresh endpoint**: `POST /api/v1/whatsapp/config/sync-profile` (`WABA_CONFIGURE` permission) re-runs the same sync logic. Audit-logged with `name` + `vertical` in `newValues` — never the raw token, which lives in `wabaAccessToken` and stays encrypted.
+  - **UI surface**: `/whatsapp-settings` gets a "Business profile" sidebar card showing the synced name / vertical / about with a "Sync from Meta" button. The card sits above the existing "Quality Health" panel so connecting the WABA shows immediate human-readable confirmation.
+- **Consequences**:
+  - 4 new unit tests on `syncWhatsAppBusinessProfile` cover the verified-name-wins path, WABA-name-fallback path, not-connected refusal, and the Meta-error-surface case. 57/57 backend tests green.
+  - The `business*` fields stay null for tenants that haven't connected via Embedded Signup or whose phone-number profile hasn't been populated in Meta Business Manager — the UI renders `—` placeholders, no broken layout.
+  - We're not yet syncing address, email, or websites. When the white-label preview or the agent inbox header needs them, add columns and extend `fetchPhoneProfile`'s `fields=` query string — no schema migration needed beyond the column adds.
+  - T-004 is now **complete-with-no-deferrals**. Future Meta-side enhancements (business hours, vertical taxonomy refresh) land as new ADRs.

@@ -89,6 +89,14 @@ model Tenant {
   wabaLastSyncedAt         DateTime?
   wabaLastSyncError        String?
 
+  // Business profile pulled from Meta after onboarding (T-004 follow-up).
+  // Flat columns instead of a JSON blob so the inbox header and
+  // analytics queries can read them without an extra parse.
+  wabaBusinessName             String?
+  wabaBusinessVertical         String?
+  wabaBusinessAbout            String?
+  wabaBusinessProfileSyncedAt  DateTime?
+
   // Email Configuration
   emailProvider            String?          // "resend", "sendgrid", "smtp"
   emailFromAddress         String?

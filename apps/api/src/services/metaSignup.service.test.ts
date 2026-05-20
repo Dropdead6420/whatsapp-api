@@ -190,4 +190,119 @@ describe("metaSignup.service", () => {
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // ---- syncWhatsAppBusinessProfile (T-004 follow-up) -------------------
+
+  it("syncs business profile: phone-number verified_name wins over WABA name", async () => {
+    fetchMock
+      // first call: phone-number profile
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              about: "We sell artisanal coffee.",
+              verified_name: "Cutz & Bangs Coffee",
+              vertical: "Restaurant",
+            },
+          ],
+        }),
+      )
+      // second call: WABA profile
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          name: "Cutz & Bangs LLC",
+          vertical: "Other",
+        }),
+      );
+    mocks.tenantFindUnique.mockResolvedValue({
+      wabaId: "waba_2",
+      wabaPhoneNumber: "phone_3",
+      // valid envelope-encrypted token so decryptTokenIfNeeded round-trips.
+      // simpler: store plaintext; decryptTokenIfNeeded passes it through.
+      wabaAccessToken: "plain_token",
+    });
+    mocks.tenantUpdate.mockImplementation(async ({ data }) => data);
+
+    const { syncWhatsAppBusinessProfile } = await import(
+      "./metaSignup.service"
+    );
+    const result = await syncWhatsAppBusinessProfile({ tenantId: "t_1" });
+    expect(result.name).toBe("Cutz & Bangs Coffee");
+    expect(result.vertical).toBe("Restaurant");
+    expect(result.about).toBe("We sell artisanal coffee.");
+
+    const updateCall = mocks.tenantUpdate.mock.calls[0][0];
+    expect(updateCall.data.wabaBusinessName).toBe("Cutz & Bangs Coffee");
+    expect(updateCall.data.wabaBusinessVertical).toBe("Restaurant");
+    expect(updateCall.data.wabaBusinessProfileSyncedAt).toBeInstanceOf(Date);
+  });
+
+  it("falls back to WABA name when phone-number verified_name is empty", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { data: [{ about: "" }] }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, { name: "Acme Corp", vertical: "Retail" }),
+      );
+    mocks.tenantFindUnique.mockResolvedValue({
+      wabaId: "waba_2",
+      wabaPhoneNumber: "phone_3",
+      wabaAccessToken: "plain_token",
+    });
+    mocks.tenantUpdate.mockImplementation(async ({ data }) => data);
+
+    const { syncWhatsAppBusinessProfile } = await import(
+      "./metaSignup.service"
+    );
+    const result = await syncWhatsAppBusinessProfile({ tenantId: "t_1" });
+    expect(result.name).toBe("Acme Corp");
+    expect(result.vertical).toBe("Retail");
+    expect(result.about).toBeNull();
+  });
+
+  it("rejects when WhatsApp isn't connected yet", async () => {
+    mocks.tenantFindUnique.mockResolvedValue({
+      wabaId: null,
+      wabaPhoneNumber: null,
+      wabaAccessToken: null,
+    });
+
+    const { syncWhatsAppBusinessProfile } = await import(
+      "./metaSignup.service"
+    );
+    await expect(
+      syncWhatsAppBusinessProfile({ tenantId: "t_1" }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: /WhatsApp must be connected/,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces Meta error messages from the phone-profile endpoint", async () => {
+    // Both fetches run via Promise.all — mock both so only the first
+    // rejects with the message we're asserting on.
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(403, {
+          error: { message: "Insufficient permissions on this WABA." },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { name: "ignored" }));
+    mocks.tenantFindUnique.mockResolvedValue({
+      wabaId: "waba_2",
+      wabaPhoneNumber: "phone_3",
+      wabaAccessToken: "plain_token",
+    });
+
+    const { syncWhatsAppBusinessProfile } = await import(
+      "./metaSignup.service"
+    );
+    await expect(
+      syncWhatsAppBusinessProfile({ tenantId: "t_1" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: /Insufficient permissions/,
+    });
+    expect(mocks.tenantUpdate).not.toHaveBeenCalled();
+  });
 });

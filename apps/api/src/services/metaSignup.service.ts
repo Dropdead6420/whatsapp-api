@@ -186,6 +186,17 @@ export async function completeEmbeddedSignup(args: {
     },
   });
 
+  // Best-effort business profile sync. Failure here doesn't undo the
+  // onboarding — operator can refresh manually from /whatsapp-settings.
+  void syncWhatsAppBusinessProfile({ tenantId: args.tenantId }).catch(
+    (err) => {
+      console.warn(
+        "[meta-signup] business profile sync failed (non-fatal):",
+        (err as Error).message,
+      );
+    },
+  );
+
   return {
     tenantId: args.tenantId,
     metaBusinessId: args.input.businessId,
@@ -236,4 +247,154 @@ export async function resubscribeTenantWebhook(args: {
       : { wabaLastSyncError: "Webhook subscribe failed. Try again." },
   });
   return { subscribed };
+}
+
+// ----------------------------------------------------------------------------
+// Business profile sync (T-004 follow-up). Meta exposes two profile shapes:
+//   - /<waba_id>?fields=name,vertical,timezone_offset_min  → WABA-level
+//   - /<phone_number_id>/whatsapp_business_profile?fields=about,verified_name,vertical,description,address,websites
+//
+// We pull both, prefer the phone-number profile values when populated,
+// and persist a flat name/vertical/about on the tenant row.
+//
+// Failure is non-fatal: this runs at the tail of completeEmbeddedSignup,
+// so a transient Meta hiccup doesn't undo a successful onboarding. The
+// manual sync endpoint surfaces the error to the operator.
+// ----------------------------------------------------------------------------
+
+interface PhoneProfileFields {
+  about?: string;
+  verified_name?: string;
+  vertical?: string;
+  description?: string;
+}
+interface PhoneProfileResponse {
+  data?: PhoneProfileFields[];
+  error?: { message?: string };
+}
+interface WabaProfileResponse {
+  name?: string;
+  vertical?: string;
+  timezone_offset_min?: number;
+  error?: { message?: string };
+}
+
+export interface BusinessProfileResult {
+  name: string | null;
+  vertical: string | null;
+  about: string | null;
+  syncedAt: string;
+}
+
+async function fetchPhoneProfile(args: {
+  phoneNumberId: string;
+  accessToken: string;
+}): Promise<PhoneProfileFields | null> {
+  const fields = encodeURIComponent("about,verified_name,vertical,description");
+  const res = await fetch(
+    `${META_GRAPH_BASE}/${encodeURIComponent(args.phoneNumberId)}/whatsapp_business_profile?fields=${fields}`,
+    { headers: { Authorization: `Bearer ${args.accessToken}` } },
+  );
+  const data = (await res.json().catch(() => ({}))) as PhoneProfileResponse;
+  if (!res.ok) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      res.status || 502,
+      data.error?.message ?? `WhatsApp business profile fetch failed (${res.status})`,
+    );
+  }
+  return data.data?.[0] ?? null;
+}
+
+async function fetchWabaProfile(args: {
+  wabaId: string;
+  accessToken: string;
+}): Promise<WabaProfileResponse | null> {
+  const fields = encodeURIComponent("name,vertical,timezone_offset_min");
+  const res = await fetch(
+    `${META_GRAPH_BASE}/${encodeURIComponent(args.wabaId)}?fields=${fields}`,
+    { headers: { Authorization: `Bearer ${args.accessToken}` } },
+  );
+  const data = (await res.json().catch(() => ({}))) as WabaProfileResponse;
+  if (!res.ok) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      res.status || 502,
+      data.error?.message ?? `WABA profile fetch failed (${res.status})`,
+    );
+  }
+  return data;
+}
+
+/**
+ * Pull both the phone-number profile and the WABA profile from Meta, merge
+ * (phone fields take precedence), and persist to the tenant row.
+ *
+ * Caller must already hold an authenticated context (a route layer with
+ * WABA_CONFIGURE permission). The tenant must have wabaId + wabaPhoneNumber
+ * + a decryptable wabaAccessToken on record.
+ */
+export async function syncWhatsAppBusinessProfile(args: {
+  tenantId: string;
+}): Promise<BusinessProfileResult> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: args.tenantId },
+    select: {
+      wabaId: true,
+      wabaPhoneNumber: true,
+      wabaAccessToken: true,
+    },
+  });
+  if (!tenant?.wabaId || !tenant.wabaPhoneNumber || !tenant.wabaAccessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp must be connected (WABA + phone + access token) before syncing the business profile.",
+    );
+  }
+
+  const { decryptTokenIfNeeded } = await import("../lib/tokenCrypto");
+  const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+  if (!accessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp access token failed to decrypt.",
+    );
+  }
+
+  const [phoneProfile, wabaProfile] = await Promise.all([
+    fetchPhoneProfile({
+      phoneNumberId: tenant.wabaPhoneNumber,
+      accessToken,
+    }),
+    fetchWabaProfile({ wabaId: tenant.wabaId, accessToken }),
+  ]);
+
+  const name =
+    phoneProfile?.verified_name?.trim() || wabaProfile?.name?.trim() || null;
+  const vertical =
+    phoneProfile?.vertical?.trim() || wabaProfile?.vertical?.trim() || null;
+  const about =
+    phoneProfile?.about?.trim() ||
+    phoneProfile?.description?.trim() ||
+    null;
+  const syncedAt = new Date();
+
+  await prisma.tenant.update({
+    where: { id: args.tenantId },
+    data: {
+      wabaBusinessName: name,
+      wabaBusinessVertical: vertical,
+      wabaBusinessAbout: about,
+      wabaBusinessProfileSyncedAt: syncedAt,
+    },
+  });
+
+  return {
+    name,
+    vertical,
+    about,
+    syncedAt: syncedAt.toISOString(),
+  };
 }

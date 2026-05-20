@@ -18,6 +18,10 @@ export interface WhatsAppConfigPublic {
   lastSyncError: string | null;
   tokenExpiresAt: string | null;
   tokenExpiryWarning: "ok" | "warn" | "critical" | "expired" | null;
+  businessName: string | null;
+  businessVertical: string | null;
+  businessAbout: string | null;
+  businessProfileSyncedAt: string | null;
 }
 
 interface MetaPhoneNumberStatus {
@@ -62,6 +66,10 @@ function toPublicConfig(tenant: {
   wabaAccountStatus: string | null;
   wabaLastSyncedAt: Date | null;
   wabaLastSyncError: string | null;
+  wabaBusinessName: string | null;
+  wabaBusinessVertical: string | null;
+  wabaBusinessAbout: string | null;
+  wabaBusinessProfileSyncedAt: Date | null;
 }): WhatsAppConfigPublic {
   return {
     wabaId: tenant.wabaId,
@@ -76,6 +84,11 @@ function toPublicConfig(tenant: {
     lastSyncError: tenant.wabaLastSyncError,
     tokenExpiresAt: tenant.wabaTokenExpiresAt?.toISOString() ?? null,
     tokenExpiryWarning: tokenExpiryWarning(tenant.wabaTokenExpiresAt),
+    businessName: tenant.wabaBusinessName,
+    businessVertical: tenant.wabaBusinessVertical,
+    businessAbout: tenant.wabaBusinessAbout,
+    businessProfileSyncedAt:
+      tenant.wabaBusinessProfileSyncedAt?.toISOString() ?? null,
   };
 }
 
@@ -95,6 +108,10 @@ export async function getWhatsAppConfig(
       wabaLastSyncedAt: true,
       wabaTokenExpiresAt: true,
       wabaLastSyncError: true,
+      wabaBusinessName: true,
+      wabaBusinessVertical: true,
+      wabaBusinessAbout: true,
+      wabaBusinessProfileSyncedAt: true,
     },
   });
   if (!tenant) {
@@ -138,6 +155,10 @@ export async function updateWhatsAppConfig(
       wabaLastSyncedAt: true,
       wabaTokenExpiresAt: true,
       wabaLastSyncError: true,
+      wabaBusinessName: true,
+      wabaBusinessVertical: true,
+      wabaBusinessAbout: true,
+      wabaBusinessProfileSyncedAt: true,
     },
   });
   return toPublicConfig(tenant);
@@ -205,8 +226,12 @@ export async function syncWhatsAppBusinessStatus(
         wabaMessagingLimitTier: true,
         wabaAccountStatus: true,
         wabaLastSyncedAt: true,
-      wabaTokenExpiresAt: true,
+        wabaTokenExpiresAt: true,
         wabaLastSyncError: true,
+        wabaBusinessName: true,
+        wabaBusinessVertical: true,
+        wabaBusinessAbout: true,
+        wabaBusinessProfileSyncedAt: true,
       },
     });
     return toPublicConfig(updated);
@@ -239,6 +264,10 @@ export async function syncWhatsAppBusinessStatus(
       wabaLastSyncedAt: true,
       wabaTokenExpiresAt: true,
       wabaLastSyncError: true,
+      wabaBusinessName: true,
+      wabaBusinessVertical: true,
+      wabaBusinessAbout: true,
+      wabaBusinessProfileSyncedAt: true,
     },
   });
 

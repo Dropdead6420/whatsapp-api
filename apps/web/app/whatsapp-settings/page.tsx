@@ -18,6 +18,17 @@ interface WhatsAppConfig {
   lastSyncError: string | null;
   tokenExpiresAt: string | null;
   tokenExpiryWarning: "ok" | "warn" | "critical" | "expired" | null;
+  businessName: string | null;
+  businessVertical: string | null;
+  businessAbout: string | null;
+  businessProfileSyncedAt: string | null;
+}
+
+interface BusinessProfileResult {
+  name: string | null;
+  vertical: string | null;
+  about: string | null;
+  syncedAt: string;
 }
 
 function formatExpiry(iso: string | null): string {
@@ -129,6 +140,7 @@ export default function WhatsAppSettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncingProfile, setSyncingProfile] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [resubscribing, setResubscribing] = useState(false);
 
@@ -283,6 +295,30 @@ export default function WhatsAppSettingsPage() {
       setErr(e instanceof ApiClientError ? e.message : "Sync failed");
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function syncBusinessProfile() {
+    setSyncingProfile(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      const profile = await api.post<BusinessProfileResult>(
+        "/api/v1/whatsapp/config/sync-profile",
+      );
+      // Reload full config so the panel reflects every field after the sync.
+      await loadConfig();
+      setNotice(
+        profile.name
+          ? `Business profile synced — ${profile.name}.`
+          : "Business profile synced (Meta returned no display name yet).",
+      );
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError ? e.message : "Business profile sync failed",
+      );
+    } finally {
+      setSyncingProfile(false);
     }
   }
 
@@ -458,6 +494,50 @@ export default function WhatsAppSettingsPage() {
         </form>
 
         <aside className="space-y-4">
+          {/* Business profile card. Visible once WhatsApp is connected;
+              fields are pulled from Meta via /config/sync-profile. */}
+          <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-sm font-semibold">Business profile</h2>
+              <button
+                type="button"
+                onClick={() => void syncBusinessProfile()}
+                disabled={syncingProfile || !config?.hasAccessToken}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {syncingProfile ? "Syncing..." : "Sync from Meta"}
+              </button>
+            </div>
+            <dl className="mt-4 space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-slate-500">Display name</dt>
+                <dd className="text-right font-medium text-slate-700">
+                  {config?.businessName ?? "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-slate-500">Vertical</dt>
+                <dd className="text-right font-medium text-slate-700">
+                  {config?.businessVertical ?? "—"}
+                </dd>
+              </div>
+              {config?.businessAbout && (
+                <div>
+                  <dt className="text-slate-500">About</dt>
+                  <dd className="mt-1 text-slate-700">{config.businessAbout}</dd>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                <dt>Last synced</dt>
+                <dd>
+                  {config?.businessProfileSyncedAt
+                    ? new Date(config.businessProfileSyncedAt).toLocaleString()
+                    : "never"}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="text-sm font-semibold">Quality Health</h2>
             <dl className="mt-4 space-y-3 text-sm">
