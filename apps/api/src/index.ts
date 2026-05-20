@@ -38,6 +38,7 @@ import apiKeysRoutes from "./routes/api-keys.routes";
 import publicApiRoutes from "./routes/public-api.routes";
 import providerRoutesRoutes from "./routes/provider-routes.routes";
 import demoRoutes from "./routes/demo.routes";
+import whitelabelRoutes from "./routes/whitelabel.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -187,6 +188,7 @@ app.use("/api/v1/wallets", walletsRoutes);
 app.use("/api/v1/api-keys", apiKeysRoutes);
 app.use("/api/v1/admin/provider-routes", providerRoutesRoutes);
 app.use("/api/v1/partner/demo", demoRoutes);
+app.use("/api/v1/partner/whitelabel", whitelabelRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
