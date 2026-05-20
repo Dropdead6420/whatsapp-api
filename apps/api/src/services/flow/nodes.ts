@@ -467,13 +467,17 @@ const aiResponseHandler: NodeHandler = {
       return { nextNodeId: node.next ?? null, trail: { skipped: "no conversation context" } };
     }
     const autoSend = getConfig<boolean>(node, "autoSend", false);
+    // Pull the LAST 30 messages, not the first 30. On long-lived
+    // conversations the AI needs recent context to draft a relevant
+    // reply; the original greeting is useless. desc + take, then
+    // reverse before handing to the suggester.
     const conversation = await prisma.conversation.findUnique({
       where: { id: ctx.conversationId },
       include: {
         contact: { select: { name: true } },
         tenant: { select: { name: true } },
         messages: {
-          orderBy: { createdAt: "asc" },
+          orderBy: { createdAt: "desc" },
           take: 30,
           select: { direction: true, content: true },
         },
@@ -482,9 +486,10 @@ const aiResponseHandler: NodeHandler = {
     if (!conversation || conversation.messages.length === 0) {
       return { nextNodeId: node.next ?? null, trail: { skipped: "no messages" } };
     }
+    const recentMessagesChronological = [...conversation.messages].reverse();
     try {
       const suggestions = await suggestReplies(ctx.tenantId, {
-        conversationContext: conversation.messages.map((m) => ({
+        conversationContext: recentMessagesChronological.map((m) => ({
           direction: m.direction as "INBOUND" | "OUTBOUND",
           content: m.content,
         })),

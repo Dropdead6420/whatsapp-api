@@ -84,13 +84,17 @@ const aiSummarizeHandler: NodeHandler = {
       [];
 
     if (ctx.conversationId) {
+      // Pull the LAST N messages, not the first N. Old conversations
+      // can have hundreds of messages; the agent needs the recent
+      // context, not the original greeting. `desc + take` then reverse
+      // so the AI sees them in chronological order.
       const rows = await prisma.message.findMany({
         where: { conversationId: ctx.conversationId },
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         take: getConfig<number>(node, "lookback", 40),
         select: { direction: true, content: true },
       });
-      messages = rows.map((m) => ({
+      messages = rows.reverse().map((m) => ({
         direction: m.direction as "INBOUND" | "OUTBOUND",
         content: m.content,
       }));
