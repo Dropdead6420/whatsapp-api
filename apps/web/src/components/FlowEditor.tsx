@@ -48,7 +48,7 @@ export interface NexaEdge {
   label?: string;
 }
 
-interface NodeTypeMeta {
+export interface NodeTypeMeta {
   type: string;
   label: string;
 }
