@@ -128,6 +128,7 @@ model Tenant {
   webhooks                 Webhook[]
   auditLogs                AuditLog[]
   aiUsage                  AiUsage[]
+  analyticsReports         AnalyticsReport[]
   invoices                 Invoice[]
   wallet                   Wallet?
   walletTransactions       WalletTransaction[] @relation("TenantWalletTransactions")
@@ -267,6 +268,7 @@ model User {
   leads                    Lead[]           @relation("LeadAssignee")
   apiKeys                  ApiKey[]
   auditLogs                AuditLog[]
+  analyticsReports         AnalyticsReport[] @relation("AnalyticsReportCreator")
   walletTransactions       WalletTransaction[]
   oauthAccounts            OAuthAccount[]
 
@@ -1001,6 +1003,48 @@ model AiUsage {
   @@index([createdAt])
 }
 
+enum AnalyticsReportType {
+  CAMPAIGN_PERFORMANCE
+  LEAD_FUNNEL
+  CONTACT_GROWTH
+  AI_USAGE
+}
+
+enum AnalyticsReportFrequency {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model AnalyticsReport {
+  id                       String                   @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdById              String?
+  createdBy                User?                    @relation("AnalyticsReportCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  name                     String
+  type                     AnalyticsReportType
+  frequency                AnalyticsReportFrequency @default(NONE)
+  recipients               String[]                 @default([])
+  filters                  String?                  // JSON: { rangeDays, timezone, ... }
+
+  lastRunAt                DateTime?
+  nextRunAt                DateTime?
+  lastDeliveryStatus       String?
+  lastDeliveryError        String?
+
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+
+  @@index([tenantId])
+  @@index([type])
+  @@index([frequency])
+  @@index([nextRunAt])
+}
+
 // ============================================================================
 // AUDIT & SECURITY
 // ============================================================================
@@ -1224,12 +1268,13 @@ model DemoTenant {
   expiresAt          DateTime    // When demo should be auto-deleted
   renewalCount       Int         @default(0) // How many times renewed (max 2)
   lastRenewedAt      DateTime?   // When renewal last happened
-  
+
   sampleDataSeeded   Boolean     @default(false) // Tracks if sample data was created
-  
+
   createdAt          DateTime    @default(now())
-  
+
   @@index([createdByPartnerId])
   @@index([expiresAt])
   @@index([tenantId])
 }
+

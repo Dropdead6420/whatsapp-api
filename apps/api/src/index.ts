@@ -63,6 +63,10 @@ import {
   startWabaTokenExpiryWorker,
   stopWabaTokenExpiryWorker,
 } from "./services/wabaTokenExpiry.service";
+import {
+  startAnalyticsReportWorker,
+  stopAnalyticsReportWorker,
+} from "./services/analyticsReport.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -218,6 +222,7 @@ async function startWorkers(): Promise<void> {
   await startWebhookWorker();
   await startLeadFollowUpWorker();
   await startWabaTokenExpiryWorker();
+  await startAnalyticsReportWorker();
 }
 
 function stopWorkers(): void {
@@ -228,6 +233,7 @@ function stopWorkers(): void {
   stopWebhookWorker();
   stopLeadFollowUpWorker();
   stopWabaTokenExpiryWorker();
+  stopAnalyticsReportWorker();
 }
 
 if (START_HTTP) {

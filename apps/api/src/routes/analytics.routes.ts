@@ -1,21 +1,81 @@
 import { Router, Response, NextFunction } from "express";
+import { z } from "zod";
 // Analytics is read-only; route through the replica when configured.
-import { prismaRead as prisma } from "@nexaflow/db";
+import {
+  AnalyticsReportFrequency,
+  AnalyticsReportType,
+  prisma as prismaWrite,
+  prismaRead as prisma,
+} from "@nexaflow/db";
 import {
   ApiError,
   CampaignStatus,
   ErrorCodes,
   LeadStatus,
   MessageStatus,
+  Permissions,
   SubscriptionStatus,
   TenantStatus,
   UserRole,
 } from "@nexaflow/shared";
-import { requireAuth, RequestWithAuth } from "../middleware/auth";
+import {
+  requireAuth,
+  requireTenantScope,
+  RequestWithAuth,
+} from "../middleware/auth";
+import { requirePermission, requireRole } from "../middleware/rbac";
 import { getTenantSendStats } from "../services/sendThrottle.service";
+import {
+  analyticsReportToCsv,
+  buildAnalyticsReportSnapshot,
+  computeNextReportRun,
+  runAnalyticsReport,
+} from "../services/analyticsReport.service";
+import { extractRequestMeta, logAudit } from "../services/audit.service";
 
 const router = Router();
 router.use(requireAuth);
+
+const reportSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  type: z.nativeEnum(AnalyticsReportType),
+  frequency: z.nativeEnum(AnalyticsReportFrequency).default(AnalyticsReportFrequency.NONE),
+  recipients: z.array(z.string().email()).max(10).default([]),
+  rangeDays: z.number().int().min(1).max(365).default(30),
+});
+
+const reportUpdateSchema = reportSchema.partial();
+
+const reportRunSchema = z.object({
+  deliver: z.boolean().default(false),
+});
+
+function reportFilters(rangeDays?: number): string | undefined {
+  if (rangeDays === undefined) return undefined;
+  return JSON.stringify({ rangeDays });
+}
+
+function parseReportFilters(raw: string | null): { rangeDays: number } {
+  if (!raw) return { rangeDays: 30 };
+  try {
+    const parsed = JSON.parse(raw) as { rangeDays?: unknown };
+    return {
+      rangeDays:
+        typeof parsed.rangeDays === "number" && Number.isFinite(parsed.rangeDays)
+          ? parsed.rangeDays
+          : 30,
+    };
+  } catch {
+    return { rangeDays: 30 };
+  }
+}
+
+function serializeReport<T extends { filters: string | null }>(report: T) {
+  return {
+    ...report,
+    filters: parseReportFilters(report.filters),
+  };
+}
 
 function startOfToday(): Date {
   const date = new Date();
@@ -199,6 +259,206 @@ async function getTenantSummary(tenantId: string) {
     campaignsByStatus: normalizeCounts(Object.values(CampaignStatus), campaignGroups),
   };
 }
+
+const reportMiddleware = [
+  requireTenantScope,
+  requireRole(UserRole.BUSINESS_ADMIN, UserRole.TEAM_LEAD),
+  requirePermission(Permissions.CONTACT_READ),
+];
+
+router.get(
+  "/reports",
+  ...reportMiddleware,
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const reports = await prismaWrite.analyticsReport.findMany({
+        where: { tenantId: req.tenantId! },
+        orderBy: { createdAt: "desc" },
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+        },
+      });
+      res.json({ success: true, data: reports.map(serializeReport) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/reports",
+  ...reportMiddleware,
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = reportSchema.parse(req.body);
+      const report = await prismaWrite.analyticsReport.create({
+        data: {
+          tenantId: req.tenantId!,
+          createdById: req.userId!,
+          name: body.name,
+          type: body.type,
+          frequency: body.frequency,
+          recipients: body.recipients,
+          filters: reportFilters(body.rangeDays),
+          nextRunAt: computeNextReportRun(body.frequency),
+        },
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+        },
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "AnalyticsReport",
+        resourceId: report.id,
+        newValues: {
+          name: report.name,
+          type: report.type,
+          frequency: report.frequency,
+          recipients: report.recipients,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.status(201).json({ success: true, data: serializeReport(report) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.patch(
+  "/reports/:id",
+  ...reportMiddleware,
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = reportUpdateSchema.parse(req.body);
+      const existing = await prismaWrite.analyticsReport.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId! },
+      });
+      if (!existing) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Report not found.");
+      }
+
+      const frequency = body.frequency ?? existing.frequency;
+      const report = await prismaWrite.analyticsReport.update({
+        where: { id: existing.id },
+        data: {
+          name: body.name,
+          type: body.type,
+          frequency: body.frequency,
+          recipients: body.recipients,
+          filters: reportFilters(body.rangeDays),
+          nextRunAt:
+            body.frequency !== undefined
+              ? computeNextReportRun(frequency)
+              : undefined,
+        },
+        include: {
+          createdBy: { select: { id: true, name: true, email: true } },
+        },
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "AnalyticsReport",
+        resourceId: report.id,
+        oldValues: {
+          name: existing.name,
+          type: existing.type,
+          frequency: existing.frequency,
+          recipients: existing.recipients,
+        },
+        newValues: body,
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: serializeReport(report) });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.delete(
+  "/reports/:id",
+  ...reportMiddleware,
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prismaWrite.analyticsReport.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId! },
+      });
+      if (!existing) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Report not found.");
+      }
+      await prismaWrite.analyticsReport.delete({ where: { id: existing.id } });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "DELETE",
+        resource: "AnalyticsReport",
+        resourceId: existing.id,
+        oldValues: {
+          name: existing.name,
+          type: existing.type,
+          frequency: existing.frequency,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/reports/:id/run",
+  ...reportMiddleware,
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = reportRunSchema.parse(req.body);
+      const snapshot = await runAnalyticsReport({
+        reportId: req.params.id,
+        tenantId: req.tenantId!,
+        deliver: body.deliver,
+      });
+      res.json({ success: true, data: snapshot });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/reports/:id/export.csv",
+  ...reportMiddleware,
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const report = await prismaWrite.analyticsReport.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId! },
+      });
+      if (!report) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Report not found.");
+      }
+      const snapshot = await buildAnalyticsReportSnapshot({
+        tenantId: report.tenantId,
+        type: report.type,
+        filters: report.filters,
+      });
+      const filename = `${report.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60) || "report"}-${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(analyticsReportToCsv(snapshot));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.get(
   "/summary",
