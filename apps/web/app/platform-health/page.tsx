@@ -146,6 +146,58 @@ export default function PlatformHealthPage() {
     }
   }
 
+  async function retryFailedJob(job: FailedQueueJob) {
+    if (!failedJobs) return;
+    const confirmed = window.confirm(`Retry failed job ${job.id}?`);
+    if (!confirmed) return;
+    const key = `${failedJobs.queue}:${job.id}:retry`;
+    setQueueAction(key);
+    setErr(null);
+    try {
+      await api.post(
+        `/api/v1/admin/queues/${failedJobs.queue}/jobs/${encodeURIComponent(job.id)}/retry`,
+      );
+      const [queues, nextFailedJobs] = await Promise.all([
+        api.get<QueueHealth>("/api/v1/admin/queues"),
+        api.get<FailedJobsResponse>(
+          `/api/v1/admin/queues/${failedJobs.queue}/failed?limit=25`,
+        ),
+      ]);
+      setQueueHealth(queues);
+      setFailedJobs(nextFailedJobs);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Failed to retry job");
+    } finally {
+      setQueueAction(null);
+    }
+  }
+
+  async function removeFailedJob(job: FailedQueueJob) {
+    if (!failedJobs) return;
+    const confirmed = window.confirm(`Remove failed job ${job.id}?`);
+    if (!confirmed) return;
+    const key = `${failedJobs.queue}:${job.id}:remove`;
+    setQueueAction(key);
+    setErr(null);
+    try {
+      await api.delete(
+        `/api/v1/admin/queues/${failedJobs.queue}/jobs/${encodeURIComponent(job.id)}`,
+      );
+      const [queues, nextFailedJobs] = await Promise.all([
+        api.get<QueueHealth>("/api/v1/admin/queues"),
+        api.get<FailedJobsResponse>(
+          `/api/v1/admin/queues/${failedJobs.queue}/failed?limit=25`,
+        ),
+      ]);
+      setQueueHealth(queues);
+      setFailedJobs(nextFailedJobs);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Failed to remove job");
+    } finally {
+      setQueueAction(null);
+    }
+  }
+
   if (loading || !user) {
     return <div className="p-10 text-sm text-slate-500">Loading...</div>;
   }
@@ -391,6 +443,28 @@ export default function PlatformHealthPage() {
                     Attempts {job.attemptsMade}/{job.attempts ?? "-"}
                     {job.finishedOn ? ` · Finished ${formatDateTime(job.finishedOn)}` : ""}
                   </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void retryFailedJob(job)}
+                    disabled={queueAction !== null}
+                    className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {queueAction === `${failedJobs.queue}:${job.id}:retry`
+                      ? "Retrying..."
+                      : "Retry job"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void removeFailedJob(job)}
+                    disabled={queueAction !== null}
+                    className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {queueAction === `${failedJobs.queue}:${job.id}:remove`
+                      ? "Removing..."
+                      : "Remove job"}
+                  </button>
                 </div>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   <div>

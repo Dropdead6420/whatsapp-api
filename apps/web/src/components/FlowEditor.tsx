@@ -76,8 +76,6 @@ const NODE_PILL_STYLES: Record<string, string> = {
   AGENT_TRANSFER: "bg-cyan-600 text-white",
   AI_RESPONSE: "bg-violet-600 text-white",
   WEBHOOK: "bg-orange-600 text-white",
-  SEND_TEMPLATE: "bg-indigo-600 text-white",
-  CREATE_LEAD: "bg-teal-600 text-white",
   WAIT_FOR_REPLY: "bg-rose-600 text-white",
   SWITCH: "bg-yellow-600 text-white",
   FILTER: "bg-stone-600 text-white",
