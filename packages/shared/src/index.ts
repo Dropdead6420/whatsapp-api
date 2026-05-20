@@ -529,6 +529,7 @@ export const Permissions = {
   WABA_CONFIGURE: "waba:configure",
   API_KEYS_MANAGE: "api_keys:manage",
   PROVIDER_ROUTE_MANAGE: "provider_route:manage",
+  KNOWLEDGE_BASE_MANAGE: "knowledge_base:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",

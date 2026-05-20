@@ -129,6 +129,7 @@ model Tenant {
   auditLogs                AuditLog[]
   aiUsage                  AiUsage[]
   analyticsReports         AnalyticsReport[]
+  knowledgeBaseEntries     KnowledgeBaseEntry[]
   invoices                 Invoice[]
   wallet                   Wallet?
   walletTransactions       WalletTransaction[] @relation("TenantWalletTransactions")
@@ -1278,3 +1279,60 @@ model DemoTenant {
   @@index([tenantId])
 }
 
+// ============================================================================
+// KNOWLEDGE BASE (T-051 slice 1)
+// ============================================================================
+//
+// Tenant-scoped knowledge entries. Slice 1 is plain CRUD — no embeddings,
+// no retrieval. Slice 2 adds embeddingVector + lastEmbeddedAt + a batch
+// embedder. Slice 3 adds a retrieval helper + a new AI_ANSWER_FROM_KB
+// flow node that grounds replies against published entries.
+
+enum KnowledgeBaseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum KnowledgeBaseCategory {
+  FAQ
+  SERVICE
+  PRODUCT
+  POLICY
+  HOURS
+  LOCATION
+  OTHER
+}
+
+model KnowledgeBaseEntry {
+  id           String                @id @default(cuid())
+  tenantId     String
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  title        String
+  // The actual knowledge text. Plain string for now — slice 2 chunks
+  // it before embedding. No JSON shape because every consumer wants the
+  // raw content.
+  content      String
+  // Optional short summary the model can use as a quick context line
+  // without loading the full content.
+  summary      String?
+  category     KnowledgeBaseCategory @default(FAQ)
+  tags         String[]              @default([])
+
+  // Provenance — where this came from.
+  source       String?               // "manual" | "url" | "file" | "import"
+  sourceUrl    String?               // when scraped from a URL
+
+  // Lifecycle. DRAFT → PUBLISHED → ARCHIVED. Only PUBLISHED entries are
+  // visible to the retrieval helper in slice 3.
+  status       KnowledgeBaseStatus   @default(DRAFT)
+  publishedAt  DateTime?
+  archivedAt   DateTime?
+
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, category])
+}
