@@ -90,35 +90,38 @@ describe("demo.service", () => {
     });
   });
 
-  it("createDemoTenant: happy path — calculates expiry from expiryDays, returns redacted credentials shape", async () => {
+  it("createDemoTenant: happy path — calculates expiry, redacted credentials, seeds with REAL schema fields (regression for task #22)", async () => {
     mocks.tenantFindUnique.mockResolvedValue({
       id: "p_1",
       type: TenantType.WHITE_LABEL,
       status: TenantStatus.ACTIVE,
     });
     const beforeMs = Date.now();
-    // Mock the transaction body — pass through and synthesize a result.
-    // The seedDemoData helper called inside the tx references fields that
-    // don't exist on the current schema (firstName/lastName/source/etc) —
-    // see follow-up task #22. We mock those calls as resolved so the
-    // outer createDemoTenant happy path is testable in isolation.
+
+    // Capture every call to the tx.* methods so we can assert the
+    // payloads match the actual Prisma schema. The previous version of
+    // seedDemoData passed `firstName`/`source`/`headerFormat`/etc which
+    // don't exist on the schema and would crash at runtime — typed `tx:
+    // any` hid it from tsc, so we lock it here.
+    const captured = {
+      contactCreateMany: vi.fn().mockResolvedValue({ count: 5 }),
+      templateCreate: vi.fn().mockResolvedValue({ id: "tpl_seed_1" }),
+      campaignCreate: vi.fn().mockResolvedValue({}),
+      leadCreate: vi.fn().mockResolvedValue({}),
+    };
     mocks.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const noop = vi.fn().mockResolvedValue({});
       const txMock = {
-        tenant: {
-          // Use a CUID-shaped id (no underscores) — the service slices
-          // .slice(0,8) into the email local-part, which must match
-          // [a-z0-9]+ to be a valid email user component.
-          create: vi.fn().mockResolvedValue({ id: "clxyz1234abcdef" }),
-        },
-        demoTenant: {
-          create: vi.fn().mockResolvedValue({ id: "dt_1" }),
-        },
+        tenant: { create: vi.fn().mockResolvedValue({ id: "clxyz1234abcdef" }) },
+        demoTenant: { create: vi.fn().mockResolvedValue({ id: "dt_1" }) },
         user: { create: noop },
-        contact: { createMany: vi.fn().mockResolvedValue({ count: 0 }) },
-        whatsAppTemplate: { create: noop },
-        campaign: { create: noop },
-        lead: { create: noop, createMany: noop },
+        contact: {
+          createMany: captured.contactCreateMany,
+          findUnique: vi.fn().mockResolvedValue({ id: "contact_seed_1" }),
+        },
+        whatsAppTemplate: { create: captured.templateCreate },
+        campaign: { create: captured.campaignCreate },
+        lead: { create: captured.leadCreate },
       };
       return fn(txMock);
     });
@@ -131,19 +134,63 @@ describe("demo.service", () => {
     });
 
     expect(result.tenantId).toBe("clxyz1234abcdef");
-    // Credentials present + the password is the GENERATED plaintext (not the
-    // hash) — that's the point: the caller needs it once to give to the
-    // operator. Hash goes to the DB.
     expect(result.credentials.email).toMatch(/^demo-[a-z0-9]+@demo\.nexaflow\.local$/);
-    expect(typeof result.credentials.password).toBe("string");
     expect(result.credentials.password.length).toBeGreaterThan(8);
     expect(result.renewalCount).toBe(0);
 
-    // Expiry is roughly 30 days in the future.
     const days = (result.expiresAt.getTime() - beforeMs) / (24 * 60 * 60 * 1000);
     expect(days).toBeGreaterThan(29.9);
     expect(days).toBeLessThan(30.1);
+
+    // --- task #22 regression guard ----------------------------------------
+    // Contact payload uses the schema's actual fields (name, phoneNumber,
+    // email, tags, lifecycleStage) — NOT firstName/lastName/source.
+    const contactPayload = captured.contactCreateMany.mock.calls[0][0].data;
+    expect(Array.isArray(contactPayload)).toBe(true);
+    expect(contactPayload[0]).toMatchObject({
+      tenantId: "clxyz1234abcdef",
+      name: "Alice Johnson",
+      phoneNumber: expect.stringMatching(/^\+/),
+      tags: ["demo"],
+      lifecycleStage: "LEAD",
+    });
+    expect(contactPayload[0]).not.toHaveProperty("firstName");
+    expect(contactPayload[0]).not.toHaveProperty("source");
+
+    // Template uses bodyText (not body) + no headerFormat / source.
+    const templatePayload = captured.templateCreate.mock.calls[0][0].data;
+    expect(templatePayload).toMatchObject({
+      bodyText: expect.stringContaining("welcome"),
+      category: "MARKETING",
+      status: "APPROVED",
+    });
+    expect(templatePayload).not.toHaveProperty("body");
+    expect(templatePayload).not.toHaveProperty("headerFormat");
+
+    // Campaign needs templateId (FK) + targetContacts as JSON string,
+    // not the broken `targetList` / `messageTemplate` / `createdBy`.
+    const campaignPayload = captured.campaignCreate.mock.calls[0][0].data;
+    expect(campaignPayload).toMatchObject({
+      templateId: "tpl_seed_1",
+      type: "BROADCAST",
+      status: "DRAFT",
+    });
+    expect(typeof campaignPayload.targetContacts).toBe("string");
+    expect(campaignPayload).not.toHaveProperty("targetList");
+    expect(campaignPayload).not.toHaveProperty("messageTemplate");
+    expect(campaignPayload).not.toHaveProperty("createdBy");
+
+    // Lead uses contactId + title; not firstName/email/assignedTeamId.
+    const leadPayload = captured.leadCreate.mock.calls[0][0].data;
+    expect(leadPayload).toMatchObject({
+      contactId: "contact_seed_1",
+      title: expect.any(String),
+      status: "NEW",
+    });
+    expect(leadPayload).not.toHaveProperty("firstName");
+    expect(leadPayload).not.toHaveProperty("assignedTeamId");
   });
+
 
   // -- renewDemoTenant -------------------------------------------------------
 
