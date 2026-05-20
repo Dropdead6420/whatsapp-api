@@ -16,6 +16,33 @@ interface WhatsAppConfig {
   accountStatus: string | null;
   lastSyncedAt: string | null;
   lastSyncError: string | null;
+  tokenExpiresAt: string | null;
+  tokenExpiryWarning: "ok" | "warn" | "critical" | "expired" | null;
+}
+
+function formatExpiry(iso: string | null): string {
+  if (!iso) return "never";
+  const d = new Date(iso);
+  const days = Math.round((d.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  const abs = d.toLocaleString();
+  if (days < 0) return `expired ${Math.abs(days)} day(s) ago (${abs})`;
+  if (days === 0) return `expires today (${abs})`;
+  return `${days} day(s) — ${abs}`;
+}
+
+function expiryClass(warning: WhatsAppConfig["tokenExpiryWarning"]): string {
+  switch (warning) {
+    case "expired":
+      return "bg-red-100 text-red-800 border-red-200";
+    case "critical":
+      return "bg-red-50 text-red-700 border-red-200";
+    case "warn":
+      return "bg-amber-50 text-amber-700 border-amber-200";
+    case "ok":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200";
+    default:
+      return "bg-slate-50 text-slate-600 border-slate-200";
+  }
 }
 
 // Meta Embedded Signup (T-004). Lazy-load the FB SDK + open the
@@ -103,6 +130,28 @@ export default function WhatsAppSettingsPage() {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+  const [resubscribing, setResubscribing] = useState(false);
+
+  async function resubscribeWebhook() {
+    setResubscribing(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      const result = await api.post<{ subscribed: boolean }>(
+        "/api/v1/whatsapp/config/resubscribe",
+      );
+      setNotice(
+        result.subscribed
+          ? "Re-subscribed. Inbound messages will route here."
+          : "Re-subscribe failed — check that the access token is still valid.",
+      );
+      await loadConfig();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Re-subscribe failed.");
+    } finally {
+      setResubscribing(false);
+    }
+  }
 
   const embeddedSignupConfigured = Boolean(FB_APP_ID && FB_CONFIG_ID);
 
@@ -260,6 +309,35 @@ export default function WhatsAppSettingsPage() {
           {notice}
         </div>
       )}
+
+      {config?.tokenExpiryWarning &&
+        config.tokenExpiryWarning !== "ok" && (
+          <div
+            className={`mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${expiryClass(config.tokenExpiryWarning)}`}
+          >
+            <div>
+              <div className="font-medium">
+                {config.tokenExpiryWarning === "expired"
+                  ? "Access token has expired."
+                  : config.tokenExpiryWarning === "critical"
+                  ? "Access token expires soon."
+                  : "Access token expires within 14 days."}
+              </div>
+              <div className="mt-0.5 text-xs opacity-80">
+                {formatExpiry(config.tokenExpiresAt)}. Re-run Connect with
+                Meta to refresh before it lapses.
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={resubscribing || !config.hasAccessToken}
+              onClick={() => void resubscribeWebhook()}
+              className="rounded-md border border-current/40 px-3 py-1.5 text-xs font-medium hover:bg-white/40 disabled:opacity-50"
+            >
+              {resubscribing ? "Re-subscribing…" : "Re-subscribe webhook"}
+            </button>
+          </div>
+        )}
 
       {/* Meta Embedded Signup (T-004). Skipped when the FB app
           credentials aren't configured for this build. */}

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import dns from "node:dns/promises";
+import https from "node:https";
 import { prisma } from "@nexaflow/db";
 import {
   ApiError,
@@ -85,6 +86,69 @@ async function txtMatches(host: string, expected: string): Promise<boolean> {
   }
 }
 
+/**
+ * Check if SSL certificate is valid for a domain
+ * Returns ACTIVE if certificate exists and is not expired
+ */
+async function checkSslCertificate(domain: string): Promise<DomainSslStatus> {
+  try {
+    const agent = new https.Agent({
+      rejectUnauthorized: false, // Allow self-signed for the check
+    });
+
+    // Create a promise-wrapped HTTPS request
+    const cert = await new Promise<any>((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: domain,
+          path: "/",
+          method: "HEAD",
+          agent,
+          timeout: 5000,
+        },
+        (res) => {
+          // res.socket on an HTTPS request is a TLSSocket; the base Socket
+          // type doesn't expose getPeerCertificate, so widen at the call.
+          const tlsSocket = res.socket as import("node:tls").TLSSocket | undefined;
+          const cert = tlsSocket?.getPeerCertificate(false);
+          if (!cert) {
+            reject(new Error("No certificate found"));
+          } else {
+            resolve(cert);
+          }
+        }
+      );
+
+      req.on("error", (err) => reject(err));
+      req.on("timeout", () => {
+        req.destroy();
+        reject(new Error("SSL check timeout"));
+      });
+
+      req.end();
+    });
+
+    // Check certificate validity
+    if (!cert || !cert.valid_from || !cert.valid_to) {
+      return DomainSslStatus.FAILED;
+    }
+
+    const now = new Date();
+    const validFrom = new Date(cert.valid_from);
+    const validTo = new Date(cert.valid_to);
+
+    // Certificate is valid if current time is within validity range
+    if (now >= validFrom && now <= validTo) {
+      return DomainSslStatus.ACTIVE;
+    }
+
+    return DomainSslStatus.FAILED;
+  } catch (error) {
+    // SSL check failed - might be pending or certificate doesn't exist yet
+    return DomainSslStatus.PENDING;
+  }
+}
+
 function deriveStatus({
   cnameOk,
   txtOk,
@@ -139,21 +203,23 @@ export async function checkDomain(domainId: string) {
     );
   }
 
-  const [cnameOk, txtOk] = await Promise.all([
+  const [cnameOk, txtOk, sslStatus] = await Promise.all([
     cnameMatches(domain.cnameHost, domain.cnameValue),
     txtMatches(domain.txtHost, domain.txtValue),
+    checkSslCertificate(domain.domain),
   ]);
 
   const next = deriveStatus({
     cnameOk,
     txtOk,
-    sslStatus: domain.sslStatus as DomainSslStatus,
+    sslStatus,
   });
 
   return prisma.domain.update({
     where: { id: domainId },
     data: {
       dnsStatus: next.dnsStatus,
+      sslStatus,
       status: next.status,
       lastError: next.lastError,
       lastCheckedAt: new Date(),

@@ -342,3 +342,22 @@ Format:
   - The web button gracefully degrades when `NEXT_PUBLIC_META_APP_ID` + `NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID` aren't set — the manual form stays as the fallback path.
   - The token lives encrypted at rest exactly as ADR-014 specified, so this ADR doesn't add new crypto surface area; it just adds a more convenient way to get the token in.
   - **Future T-004 follow-ups** (intentionally deferred): (1) handling of Meta's `token_expires_at` so we proactively refresh long-lived tokens before they expire; (2) re-subscribe button on the WhatsApp settings page for the subscribe-fail case; (3) reading + persisting the business profile (display name, vertical, address) during onboarding.
+
+---
+
+## ADR-022 — WABA token expiry: warn, don't auto-refresh
+
+- **Date**: 2026-05-20
+- **Status**: Accepted; closes two of the three deferred T-004 follow-ups (expiry tracking + re-subscribe button).
+- **Context**: Meta Embedded Signup mints tokens via `oauth/access_token`. By default these expire in 60 days; only System Users explicitly flagged "never-expires" come back with no `expires_in`. Meta deliberately does **not** expose a refresh endpoint for these tokens — there's no equivalent of `grant_type=refresh_token`. When a token expires, inbound messages stop arriving silently and the next outbound returns `OAuthException`. Customers lose hours-to-days of WhatsApp traffic before someone notices.
+- **Decision**:
+  - **Persist the expiry** at signup. `exchangeMetaCodeForToken` returns `{ accessToken, expiresAt }`; `expiresAt` is `now + expires_in*1000` when Meta sends one, otherwise null. New `Tenant.wabaTokenExpiresAt DateTime?` + `wabaTokenExpiryWarnedAt DateTime?` columns hold the stamp + warn cooldown.
+  - **Warn, never auto-refresh.** No refresh endpoint exists, so the only safe move is to nudge the operator to re-run Embedded Signup. The `wabaTokenExpiry.service` worker scans daily (BullMQ scheduled, every 6h) for tokens within `WABA_TOKEN_EXPIRY_WARN_DAYS` (default 14). For each match not warned in the last 24h it (a) stamps `wabaLastSyncError` so `/whatsapp-settings` surfaces it, (b) emits `TOKEN_EXPIRING` outbound webhook with severity `warning` / `critical` / `expired`, (c) stamps `wabaTokenExpiryWarnedAt` so we don't re-warn every tick.
+  - **Severity bands**: `>14d` → no warn; `4–14d` → `warning`; `≤3d` → `critical`; past expiry → `expired`. Same band drives the UI chip color (amber / red / dark-red) and the webhook severity field operators can route on.
+  - **Recovery path is two-click**: the warn banner on `/whatsapp-settings` carries a "Re-subscribe webhook" button that POSTs `/api/v1/whatsapp/config/resubscribe` — calls `subscribeWabaToApp` again with the existing decrypted token. Useful when the subscribe step failed during onboarding but the token itself is still valid. For an actually-expired token, the operator clicks "Connect with Meta" instead, which mints a fresh one through the standard T-004 flow.
+  - **TOKEN_EXPIRING is a real Prisma enum value** on `WebhookEvent`, not a string-only entry on the webhook union — that way tenants can `events: { has: "TOKEN_EXPIRING" }` against the schema.
+- **Consequences**:
+  - 4 new tests on `scanWabaTokenExpiry` cover the warn / critical / expired severity paths plus the no-op case. 53/53 backend tests green.
+  - Never-expires tokens (no `expires_in` from Meta) write `wabaTokenExpiresAt = null` and the worker filters them out at the SQL level — zero work for tenants on permanent System User tokens.
+  - The 24h warn cooldown prevents alert fatigue. If an operator dismisses the chip but doesn't reconnect, we'll re-warn tomorrow.
+  - **Still deferred**: the third T-004 follow-up — sync the business profile (display name / vertical / address) from Meta during onboarding. That needs new Tenant columns and is a separate slice.
