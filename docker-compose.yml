@@ -1,3 +1,21 @@
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+
+x-api-env: &api-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://nexaflow:nexaflow@postgres:5432/nexaflow_dev
+  DATABASE_URL_POOLED: postgresql://nexaflow:nexaflow@pgbouncer:5432/nexaflow_dev?pgbouncer=true
+  REDIS_URL: redis://redis:6379
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  WEB_URL: http://localhost:3000
+  API_URL: http://localhost:3001
+  JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+  TENANT_TOKEN_ENCRYPTION_KEY: ${TENANT_TOKEN_ENCRYPTION_KEY:-dev_tenant_encryption_master_key_change_in_prod}
+  WALLET_BILLING_ENABLED: ${WALLET_BILLING_ENABLED:-false}
+  WHATSAPP_MESSAGE_COST_CREDITS: ${WHATSAPP_MESSAGE_COST_CREDITS:-1}
+  AI_CALL_COST_CREDITS: ${AI_CALL_COST_CREDITS:-1}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -75,6 +93,69 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  api:
+    profiles: ["app"]
+    build: *api-build
+    image: nexaflow-api:dev
+    container_name: nexaflow-api
+    environment:
+      <<: *api-env
+      APP_MODE: api
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:3001/api/v1/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  worker:
+    profiles: ["app"]
+    build: *api-build
+    image: nexaflow-api:dev
+    container_name: nexaflow-worker
+    environment:
+      <<: *api-env
+      APP_MODE: worker
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    image: nexaflow-web:dev
+    container_name: nexaflow-web
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:

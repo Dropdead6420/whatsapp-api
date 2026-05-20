@@ -41,6 +41,8 @@ export interface ExchangeResult {
   wabaId: string;
   phoneNumberId: string;
   accessTokenPreview: string; // masked
+  /** ISO timestamp when the token expires, or null for never-expires. */
+  tokenExpiresAt: string | null;
   webhookSubscribed: boolean;
 }
 
@@ -82,11 +84,15 @@ function requireMetaAppCreds(): { appId: string; appSecret: string } {
 /**
  * Exchange the Embedded Signup code for a long-lived access token.
  * Documented at developers.facebook.com/docs/whatsapp/embedded-signup.
+ *
+ * Returns both the token and the absolute expiry (when Meta sends an
+ * `expires_in`). System User tokens with the never-expires flag return
+ * undefined expiresAt; we use that to skip the warn worker for them.
  */
 export async function exchangeMetaCodeForToken(args: {
   code: string;
   redirectUri?: string;
-}): Promise<string> {
+}): Promise<{ accessToken: string; expiresAt: Date | null }> {
   const { appId, appSecret } = requireMetaAppCreds();
   const params = new URLSearchParams({
     client_id: appId,
@@ -104,7 +110,11 @@ export async function exchangeMetaCodeForToken(args: {
     const msg = data.error?.message ?? `Meta OAuth exchange failed (${res.status})`;
     throw new ApiError(ErrorCodes.BAD_REQUEST, res.status || 502, msg);
   }
-  return data.access_token;
+  const expiresAt =
+    typeof data.expires_in === "number" && data.expires_in > 0
+      ? new Date(Date.now() + data.expires_in * 1000)
+      : null;
+  return { accessToken: data.access_token, expiresAt };
 }
 
 /**
@@ -151,7 +161,7 @@ export async function completeEmbeddedSignup(args: {
     throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Tenant not found.");
   }
 
-  const accessToken = await exchangeMetaCodeForToken({
+  const { accessToken, expiresAt } = await exchangeMetaCodeForToken({
     code: args.input.code,
     redirectUri: args.input.redirectUri,
   });
@@ -170,6 +180,8 @@ export async function completeEmbeddedSignup(args: {
       wabaId: args.input.wabaId,
       wabaPhoneNumber: args.input.phoneNumberId,
       wabaAccessToken: encryptToken(accessToken),
+      wabaTokenExpiresAt: expiresAt,
+      wabaTokenExpiryWarnedAt: null, // reset warn cooldown on fresh token
       wabaLastSyncError: null,
     },
   });
@@ -180,6 +192,48 @@ export async function completeEmbeddedSignup(args: {
     wabaId: args.input.wabaId,
     phoneNumberId: args.input.phoneNumberId,
     accessTokenPreview: tokenPreview(accessToken),
+    tokenExpiresAt: expiresAt ? expiresAt.toISOString() : null,
     webhookSubscribed: subscribed,
   };
+}
+
+/**
+ * Re-run the WABA → app subscription. Used as a recovery path when the
+ * initial subscribe step failed during embedded signup.
+ */
+export async function resubscribeTenantWebhook(args: {
+  tenantId: string;
+}): Promise<{ subscribed: boolean }> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: args.tenantId },
+    select: { wabaId: true, wabaAccessToken: true },
+  });
+  if (!tenant?.wabaId || !tenant.wabaAccessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp must be connected (WABA + access token) before re-subscribing.",
+    );
+  }
+  // Lazy import to avoid a cycle with tokenCrypto in test setups.
+  const { decryptTokenIfNeeded } = await import("../lib/tokenCrypto");
+  const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+  if (!accessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp access token failed to decrypt.",
+    );
+  }
+  const subscribed = await subscribeWabaToApp({
+    wabaId: tenant.wabaId,
+    accessToken,
+  });
+  await prisma.tenant.update({
+    where: { id: args.tenantId },
+    data: subscribed
+      ? { wabaLastSyncError: null }
+      : { wabaLastSyncError: "Webhook subscribe failed. Try again." },
+  });
+  return { subscribed };
 }

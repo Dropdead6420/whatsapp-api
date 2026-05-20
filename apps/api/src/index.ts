@@ -37,6 +37,7 @@ import walletsRoutes from "./routes/wallets.routes";
 import apiKeysRoutes from "./routes/api-keys.routes";
 import publicApiRoutes from "./routes/public-api.routes";
 import providerRoutesRoutes from "./routes/provider-routes.routes";
+import demoRoutes from "./routes/demo.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -55,6 +56,10 @@ import {
   startLeadFollowUpWorker,
   stopLeadFollowUpWorker,
 } from "./services/leadFollowUp.service";
+import {
+  startWabaTokenExpiryWorker,
+  stopWabaTokenExpiryWorker,
+} from "./services/wabaTokenExpiry.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -181,6 +186,7 @@ app.use("/api/v1/domains", domainsRoutes);
 app.use("/api/v1/wallets", walletsRoutes);
 app.use("/api/v1/api-keys", apiKeysRoutes);
 app.use("/api/v1/admin/provider-routes", providerRoutesRoutes);
+app.use("/api/v1/partner/demo", demoRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
@@ -205,6 +211,7 @@ async function startWorkers(): Promise<void> {
   await startSlaWorker();
   await startWebhookWorker();
   await startLeadFollowUpWorker();
+  await startWabaTokenExpiryWorker();
 }
 
 function stopWorkers(): void {
@@ -214,6 +221,7 @@ function stopWorkers(): void {
   stopSlaWorker();
   stopWebhookWorker();
   stopLeadFollowUpWorker();
+  stopWabaTokenExpiryWorker();
 }
 
 if (START_HTTP) {

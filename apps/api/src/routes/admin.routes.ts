@@ -16,6 +16,7 @@ import {
   getFlowQueue,
   getLeadFollowUpQueue,
   getSlaQueue,
+  getWabaTokenExpiryQueue,
   getWebhookQueue,
   queueDepth,
 } from "../lib/queue";
@@ -70,6 +71,52 @@ const auditQuerySchema = z.object({
 });
 
 router.use(requireAuth, requireRole(UserRole.SUPER_ADMIN));
+
+const queueCleanSchema = z.object({
+  state: z.enum(["failed", "completed"]).default("failed"),
+  graceHours: z.coerce.number().min(0).max(24 * 30).default(0),
+  limit: z.coerce.number().int().min(1).max(5000).default(1000),
+});
+
+const queueRetrySchema = z.object({
+  count: z.coerce.number().int().min(1).max(1000).default(100),
+});
+
+const queueFailedQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+function getManagedQueues() {
+  return [
+    getCampaignQueue(),
+    getAppointmentQueue(),
+    getFlowQueue(),
+    getSlaQueue(),
+    getWebhookQueue(),
+    getLeadFollowUpQueue(),
+    getWabaTokenExpiryQueue(),
+  ];
+}
+
+function getManagedQueue(name: string) {
+  const queue = getManagedQueues().find((item) => item.name === name);
+  if (!queue) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, `Queue ${name} not found.`);
+  }
+  return queue;
+}
+
+function previewJson(value: unknown, maxLength = 1200): string {
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (!text) return "";
+    return text.length > maxLength
+      ? `${text.slice(0, maxLength)}\n... truncated`
+      : text;
+  } catch {
+    return "[unserializable]";
+  }
+}
 
 async function checkService(
   name: string,
@@ -146,14 +193,7 @@ router.get(
   "/queues",
   async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
-      const queues = [
-        getCampaignQueue(),
-        getAppointmentQueue(),
-        getFlowQueue(),
-        getSlaQueue(),
-        getWebhookQueue(),
-        getLeadFollowUpQueue(),
-      ];
+      const queues = getManagedQueues();
       const rows = await Promise.all(
         queues.map(async (q) => ({ name: q.name, ...(await queueDepth(q)) })),
       );
@@ -162,6 +202,218 @@ router.get(
         data: {
           checkedAt: new Date().toISOString(),
           queues: rows,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/admin/queues/:name/failed — recent failed jobs for debugging.
+router.get(
+  "/queues/:name/failed",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const query = queueFailedQuerySchema.parse(req.query);
+      const queue = getManagedQueue(req.params.name);
+      const jobs = await queue.getJobs("failed", 0, query.limit - 1, false);
+      res.json({
+        success: true,
+        data: {
+          queue: queue.name,
+          checkedAt: new Date().toISOString(),
+          jobs: jobs.filter(Boolean).map((job) => ({
+            id: job.id ?? "",
+            name: job.name,
+            attemptsMade: job.attemptsMade,
+            attempts: job.opts.attempts ?? null,
+            failedReason: job.failedReason ?? null,
+            timestamp: job.timestamp
+              ? new Date(job.timestamp).toISOString()
+              : null,
+            processedOn: job.processedOn
+              ? new Date(job.processedOn).toISOString()
+              : null,
+            finishedOn: job.finishedOn
+              ? new Date(job.finishedOn).toISOString()
+              : null,
+            dataPreview: previewJson(job.data),
+            stacktrace: (job.stacktrace ?? []).slice(0, 3).map((line) =>
+              line.length > 1200 ? `${line.slice(0, 1200)}... truncated` : line,
+            ),
+          })),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/admin/queues/:name/jobs/:jobId/retry — retry one failed job.
+router.post(
+  "/queues/:name/jobs/:jobId/retry",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const queue = getManagedQueue(req.params.name);
+      const job = await queue.getJob(req.params.jobId);
+      if (!job) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Queue job not found.");
+      }
+
+      await job.retry("failed");
+
+      if (req.tenantId) {
+        await logAudit({
+          tenantId: req.tenantId,
+          userId: req.userId!,
+          action: "UPDATE",
+          resource: "QueueJob",
+          resourceId: job.id ?? req.params.jobId,
+          newValues: {
+            queue: queue.name,
+            jobId: job.id,
+            action: "retry_one",
+          },
+          ...extractRequestMeta(req),
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          queue: queue.name,
+          jobId: job.id,
+          retried: true,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// DELETE /api/v1/admin/queues/:name/jobs/:jobId — remove one failed job.
+router.delete(
+  "/queues/:name/jobs/:jobId",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const queue = getManagedQueue(req.params.name);
+      const job = await queue.getJob(req.params.jobId);
+      if (!job) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Queue job not found.");
+      }
+
+      await job.remove({ removeChildren: true });
+
+      if (req.tenantId) {
+        await logAudit({
+          tenantId: req.tenantId,
+          userId: req.userId!,
+          action: "DELETE",
+          resource: "QueueJob",
+          resourceId: job.id ?? req.params.jobId,
+          oldValues: {
+            queue: queue.name,
+            jobId: job.id,
+            name: job.name,
+            failedReason: job.failedReason,
+          },
+          ...extractRequestMeta(req),
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          queue: queue.name,
+          jobId: job.id,
+          removed: true,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/admin/queues/:name/clean — remove old failed/completed jobs.
+router.post(
+  "/queues/:name/clean",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = queueCleanSchema.parse(req.body);
+      const queue = getManagedQueue(req.params.name);
+      const removedIds = await queue.clean(
+        body.graceHours * 60 * 60 * 1000,
+        body.limit,
+        body.state,
+      );
+
+      if (req.tenantId) {
+        await logAudit({
+          tenantId: req.tenantId,
+          userId: req.userId!,
+          action: "DELETE",
+          resource: "QueueJob",
+          resourceId: queue.name,
+          newValues: {
+            queue: queue.name,
+            state: body.state,
+            graceHours: body.graceHours,
+            limit: body.limit,
+            removed: removedIds.length,
+          },
+          ...extractRequestMeta(req),
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          queue: queue.name,
+          state: body.state,
+          removed: removedIds.length,
+          removedIds: removedIds.slice(0, 25),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/admin/queues/:name/retry-failed — move failed jobs back to wait.
+router.post(
+  "/queues/:name/retry-failed",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = queueRetrySchema.parse(req.body);
+      const queue = getManagedQueue(req.params.name);
+      await queue.retryJobs({ state: "failed", count: body.count });
+
+      if (req.tenantId) {
+        await logAudit({
+          tenantId: req.tenantId,
+          userId: req.userId!,
+          action: "UPDATE",
+          resource: "QueueJob",
+          resourceId: queue.name,
+          newValues: {
+            queue: queue.name,
+            action: "retry_failed",
+            count: body.count,
+          },
+          ...extractRequestMeta(req),
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          queue: queue.name,
+          retriedUpTo: body.count,
         },
       });
     } catch (err) {

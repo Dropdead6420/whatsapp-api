@@ -27,7 +27,8 @@ type WebhookEvent =
   | "CONTACT_TAGGED"
   | "CAMPAIGN_COMPLETED"
   | "CONVERSATION_ASSIGNED"
-  | "APPOINTMENT_BOOKED";
+  | "APPOINTMENT_BOOKED"
+  | "TOKEN_EXPIRING";
 
 interface DeliveryAttempt {
   ok: boolean;

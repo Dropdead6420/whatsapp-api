@@ -79,7 +79,9 @@ model Tenant {
   metaBusinessId           String?          // Parent Meta Business Manager id (T-004)
   wabaId                   String?          // WhatsApp Business Account ID
   wabaPhoneNumber          String?
-  wabaAccessToken          String?          // Encrypted
+  wabaAccessToken          String?          // Encrypted (T-094)
+  wabaTokenExpiresAt       DateTime?        // expires_in stamped at OAuth exchange (T-004 follow-up)
+  wabaTokenExpiryWarnedAt  DateTime?        // last time the expiry-warn worker fired
   wabaDisplayPhoneNumber   String?
   wabaQualityRating        String?
   wabaMessagingLimitTier   String?
@@ -131,6 +133,9 @@ model Tenant {
   appointments             Appointment[]
   flowRuns                 FlowRun[]
   providerRoutes           ProviderRoute[]
+  branding                 Branding?
+  demoTenant               DemoTenant?
+  createdDemos             DemoTenant[] @relation("DemoCreatedBy")
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -699,6 +704,7 @@ enum WebhookEvent {
   CAMPAIGN_COMPLETED
   CONVERSATION_ASSIGNED
   APPOINTMENT_BOOKED
+  TOKEN_EXPIRING
 }
 
 model Webhook {
@@ -1146,4 +1152,57 @@ model FlowRun {
   @@index([flowId])
   @@index([conversationId])
   @@index([status, resumeAt])
+}
+
+// ============================================================================
+// BRANDING — partner white-label customization
+// ============================================================================
+
+model Branding {
+  id                 String      @id @default(cuid())
+  tenantId           String      @unique
+  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  logoUrl            String?     // Primary logo
+  logoSquareUrl      String?     // Square version for favicon
+  faviconUrl         String?     // Favicon URL
+  
+  primaryColor       String      @default("#0066cc")
+  secondaryColor     String      @default("#f0f0f0")
+  accentColor        String      @default("#ff6600")
+  
+  fontFamily         String      @default("Inter")
+  fontUrl            String?     // Google Fonts or custom font URL
+  
+  customCss          String?     // Custom CSS overrides
+  
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  
+  @@index([tenantId])
+}
+
+// ============================================================================
+// DEMO TENANTS — partner sandbox environments
+// ============================================================================
+
+model DemoTenant {
+  id                 String      @id @default(cuid())
+  tenantId           String      @unique
+  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  createdByPartnerId String      // Partner tenant ID that created this demo
+  createdByPartner   Tenant      @relation("DemoCreatedBy", fields: [createdByPartnerId], references: [id], onDelete: Cascade)
+  
+  expiresAt          DateTime    // When demo should be auto-deleted
+  renewalCount       Int         @default(0) // How many times renewed (max 2)
+  lastRenewedAt      DateTime?   // When renewal last happened
+  
+  sampleDataSeeded   Boolean     @default(false) // Tracks if sample data was created
+  
+  createdAt          DateTime    @default(now())
+  
+  @@index([createdByPartnerId])
+  @@index([expiresAt])
+  @@index([tenantId])
 }

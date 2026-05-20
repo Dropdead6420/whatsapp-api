@@ -498,6 +498,33 @@ router.post(
   },
 );
 
+// Re-subscribe the WABA to our app. Recovery path for the subscribe-fail
+// branch of Embedded Signup (T-004 follow-up).
+router.post(
+  "/config/resubscribe",
+  requirePermission(Permissions.WABA_CONFIGURE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const { resubscribeTenantWebhook } = await import(
+        "../services/metaSignup.service"
+      );
+      const result = await resubscribeTenantWebhook({ tenantId: req.tenantId! });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "WhatsAppConfig",
+        resourceId: req.tenantId!,
+        newValues: { source: "resubscribe", subscribed: result.subscribed },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // Meta Embedded Signup (T-004). Browser sends the Facebook OAuth code +
 // the WABA / phone / business ids; we exchange for a long-lived access
 // token, persist it (encrypted), subscribe the WABA to our webhook URL,

@@ -96,7 +96,7 @@ nexaflow-ai/
 
 3. **Start infrastructure services**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 4. **Setup environment variables**
@@ -121,6 +121,28 @@ This will start:
 - **Web App**: http://localhost:3000
 - **API**: http://localhost:3001
 - **Prisma Studio**: http://localhost:5555 (in another terminal: `npm run db:studio`)
+
+### Docker App Stack
+
+For a production-like local run with separate API, worker, and web containers:
+
+```bash
+docker compose --profile app up -d --build
+```
+
+Use this instead of `npm run dev`; ports `3000` and `3001` must be free.
+
+This starts:
+- **API container**: `APP_MODE=api` on http://localhost:3001
+- **Worker container**: `APP_MODE=worker` for BullMQ jobs and schedulers
+- **Web container**: http://localhost:3000
+- **Infra containers**: PostgreSQL, PgBouncer, Redis, Elasticsearch
+
+Stop only the app containers while leaving infra up:
+
+```bash
+docker compose --profile app stop api worker web
+```
 
 ## 📋 5 Portals & Interfaces
 

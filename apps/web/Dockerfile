@@ -32,6 +32,9 @@ RUN npm config set fetch-retries 5 \
 FROM deps AS build
 WORKDIR /app
 
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 COPY tsconfig*.json ./
 COPY packages ./packages
 COPY apps/web ./apps/web
@@ -53,6 +56,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_PUBLIC_API_URL=http://localhost:3001
 
 RUN apk add --no-cache libc6-compat \
   && addgroup --system --gid 1001 nodejs \

@@ -15,6 +15,7 @@ export const QueueNames = {
   SLA_DISPATCH: "sla-dispatch",
   WEBHOOK_DELIVERY: "webhook-delivery",
   LEAD_FOLLOWUP_DISPATCH: "lead-followup-dispatch",
+  WABA_TOKEN_EXPIRY: "waba-token-expiry",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -44,6 +45,8 @@ interface WebhookDeliveryData {
   webhookLogId: string;
 }
 export type WebhookJobData = WebhookDeliveryData;
+
+export type WabaTokenExpiryJobData = { kind: "scan" };
 
 const queueSingletons = new Map<string, Queue>();
 
@@ -87,6 +90,10 @@ export function getSlaQueue(): Queue<SlaJobData> {
 
 export function getWebhookQueue(): Queue<WebhookJobData> {
   return makeQueue<WebhookJobData>(QueueNames.WEBHOOK_DELIVERY);
+}
+
+export function getWabaTokenExpiryQueue(): Queue<WabaTokenExpiryJobData> {
+  return makeQueue<WabaTokenExpiryJobData>(QueueNames.WABA_TOKEN_EXPIRY);
 }
 
 export function getLeadFollowUpQueue(): Queue<LeadFollowUpJobData> {
