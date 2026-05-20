@@ -14,6 +14,9 @@ type RoleName =
 
 export function useAuth(opts: { required?: boolean; roles?: RoleName[] } = {}) {
   const router = useRouter();
+  const required = opts.required;
+  const roles = opts.roles;
+  const rolesKey = roles?.join(",");
   const [user, setUser] = useState<AuthUserPublic | null>(null);
   const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,7 +26,7 @@ export function useAuth(opts: { required?: boolean; roles?: RoleName[] } = {}) {
     const access = tokenStore.getAccess();
     if (!access) {
       setLoading(false);
-      if (opts.required) router.replace("/login");
+      if (required) router.replace("/login");
       return;
     }
     (async () => {
@@ -32,10 +35,11 @@ export function useAuth(opts: { required?: boolean; roles?: RoleName[] } = {}) {
       if (!me) {
         tokenStore.clear();
         setLoading(false);
-        if (opts.required) router.replace("/login");
+        if (required) router.replace("/login");
         return;
       }
-      if (opts.roles && !opts.roles.includes(me.user.role as RoleName)) {
+      if (roles && !roles.includes(me.user.role as RoleName)) {
+        setLoading(false);
         router.replace(roleHome(me.user.role));
         return;
       }
@@ -46,7 +50,7 @@ export function useAuth(opts: { required?: boolean; roles?: RoleName[] } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [opts.required, router]);
+  }, [required, rolesKey, router]);
 
   return {
     user,

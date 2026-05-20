@@ -638,3 +638,239 @@ export async function recommendLeadFollowUp(
 
   return normalizeFollowUpRecommendation(parsed, fallback);
 }
+
+// ============================================================================
+// AI Flow Nodes (blueprint §6.4) — typed wrappers around callLlmJson that
+// the flow-builder nodes call. Keep the prompt engineering here so the
+// node handlers in services/flow/nodes.ts stay thin.
+// ============================================================================
+
+export interface ClassifyIntentInput {
+  /** Text to classify (typically the latest inbound WhatsApp message). */
+  text: string;
+  /** Allowed labels. The classifier picks one. */
+  intents: string[];
+  /** Optional one-line context (e.g. "Salon booking flow"). */
+  context?: string;
+}
+
+export interface ClassifyIntentResult {
+  /** The matched label, or the literal string "unknown" when none fits. */
+  intent: string;
+  /** 0.0–1.0 confidence the model assigns to its choice. */
+  confidence: number;
+  /** One short sentence explaining the call. Useful for the flow trail. */
+  reasoning: string;
+}
+
+/**
+ * Pick one label from `intents` that best fits `text`. Returns "unknown"
+ * when the model decides nothing fits — callers route those to a default
+ * branch so flows don't dead-end on ambiguous messages.
+ */
+export async function classifyIntent(
+  tenantId: string,
+  payload: ClassifyIntentInput,
+): Promise<ClassifyIntentResult> {
+  if (!payload.text?.trim()) {
+    return { intent: "unknown", confidence: 0, reasoning: "empty input" };
+  }
+  if (!payload.intents?.length) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "classifyIntent requires at least one intent label.",
+    );
+  }
+
+  const labels = payload.intents
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.length <= 60)
+    .slice(0, 24);
+
+  const prompt = [
+    "Classify the user message into exactly one of these intents.",
+    `Allowed intents: ${labels.map((l) => JSON.stringify(l)).join(", ")}`,
+    'If none of the labels fit, use the literal string "unknown".',
+    payload.context ? `Context: ${payload.context}` : "",
+    "",
+    `User message: ${JSON.stringify(payload.text.slice(0, 2000))}`,
+    "",
+    'Return JSON: {"intent":"<one of the labels or unknown>","confidence":0.0,"reasoning":"one short sentence"}',
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const parsed = await callLlmJson<Partial<ClassifyIntentResult>>({
+    tenantId,
+    feature: "flow_classify_intent",
+    system:
+      'You are a careful intent classifier. Pick exactly one intent from the allowed list, or the literal "unknown" if none fits. Output strict JSON.',
+    prompt,
+    maxTokens: 200,
+    temperature: 0,
+  });
+
+  // Snap unknown labels back to "unknown" so downstream branches stay
+  // deterministic — never trust the model to invent a new label.
+  const intent =
+    typeof parsed.intent === "string" && parsed.intent.trim()
+      ? labels.includes(parsed.intent) || parsed.intent === "unknown"
+        ? parsed.intent
+        : "unknown"
+      : "unknown";
+  const confidence =
+    typeof parsed.confidence === "number" &&
+    parsed.confidence >= 0 &&
+    parsed.confidence <= 1
+      ? parsed.confidence
+      : 0;
+  const reasoning =
+    typeof parsed.reasoning === "string" ? parsed.reasoning.slice(0, 240) : "";
+
+  return { intent, confidence, reasoning };
+}
+
+export interface SummarizeInput {
+  messages: Array<{ direction: "INBOUND" | "OUTBOUND"; content: string }>;
+  /** Optional steering: "executive summary", "next steps", "blockers"... */
+  focus?: string;
+}
+
+export interface SummarizeResult {
+  summary: string;
+  /** 3-7 short bullets the agent can scan in five seconds. */
+  bullets: string[];
+}
+
+export async function summarizeConversation(
+  tenantId: string,
+  payload: SummarizeInput,
+): Promise<SummarizeResult> {
+  if (!payload.messages?.length) {
+    return { summary: "(no messages)", bullets: [] };
+  }
+  const transcript = payload.messages
+    .slice(-40)
+    .map(
+      (m) =>
+        `${m.direction === "INBOUND" ? "Customer" : "Agent"}: ${m.content.slice(0, 800)}`,
+    )
+    .join("\n");
+
+  const prompt = [
+    "Summarize this customer-support conversation for an agent who needs to take it over.",
+    payload.focus ? `Focus: ${payload.focus}` : "",
+    "Rules:",
+    "- Summary: 2-4 sentences, neutral tone, no marketing language.",
+    "- Bullets: 3-7 short items, each starts with a verb where it's an action.",
+    '- Never invent facts. If something is unclear, say "unclear".',
+    "",
+    "Transcript:",
+    transcript,
+    "",
+    'Return JSON: {"summary":"...","bullets":["...","..."]}',
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const parsed = await callLlmJson<Partial<SummarizeResult>>({
+    tenantId,
+    feature: "flow_summarize",
+    system:
+      "You are a senior support engineer summarizing customer conversations. Be precise; never invent facts.",
+    prompt,
+    maxTokens: 500,
+    temperature: 0.2,
+  });
+
+  const summary =
+    typeof parsed.summary === "string" ? parsed.summary.trim() : "";
+  const bullets = Array.isArray(parsed.bullets)
+    ? parsed.bullets
+        .filter((b): b is string => typeof b === "string" && b.trim().length > 0)
+        .slice(0, 7)
+    : [];
+  return { summary, bullets };
+}
+
+export interface ExtractDataInput {
+  text: string;
+  /** Field name → human description of what to extract. */
+  fields: Record<string, string>;
+}
+
+export type ExtractDataResult = Record<string, string | number | boolean | null>;
+
+/**
+ * Pull a typed dictionary from a freeform message. Returned values are
+ * coerced to string|number|boolean|null. Missing or ambiguous values are
+ * null so downstream nodes can branch on the gap to ask a follow-up.
+ */
+export async function extractStructuredData(
+  tenantId: string,
+  payload: ExtractDataInput,
+): Promise<ExtractDataResult> {
+  const fieldNames = Object.keys(payload.fields).filter(
+    (k) => k.length > 0 && k.length <= 64,
+  );
+  if (fieldNames.length === 0) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "extractStructuredData requires at least one field to extract.",
+    );
+  }
+  if (!payload.text?.trim()) {
+    return Object.fromEntries(fieldNames.map((k) => [k, null]));
+  }
+
+  const cappedNames = fieldNames.slice(0, 20);
+  const fieldLines = cappedNames
+    .map((name) => `- ${name}: ${payload.fields[name]}`)
+    .join("\n");
+
+  const prompt = [
+    "Extract the listed fields from the customer message.",
+    "Return null when a value is missing or ambiguous; do NOT guess.",
+    "Use simple JSON values (string | number | boolean | null). No nested objects.",
+    "",
+    "Fields to extract:",
+    fieldLines,
+    "",
+    `Customer message: ${JSON.stringify(payload.text.slice(0, 3000))}`,
+    "",
+    `Return JSON with keys: ${cappedNames.map((n) => JSON.stringify(n)).join(", ")}.`,
+  ].join("\n");
+
+  const parsed = await callLlmJson<Record<string, unknown>>({
+    tenantId,
+    feature: "flow_extract_data",
+    system:
+      "You are an accurate information extractor. Return null when a value is missing or ambiguous; never guess.",
+    prompt,
+    maxTokens: 400,
+    temperature: 0,
+  });
+
+  const out: ExtractDataResult = {};
+  for (const name of cappedNames) {
+    const raw = parsed?.[name];
+    if (raw === null || raw === undefined) {
+      out[name] = null;
+    } else if (
+      typeof raw === "string" ||
+      typeof raw === "number" ||
+      typeof raw === "boolean"
+    ) {
+      out[name] = raw;
+    } else {
+      try {
+        out[name] = JSON.stringify(raw);
+      } catch {
+        out[name] = null;
+      }
+    }
+  }
+  return out;
+}

@@ -380,3 +380,22 @@ Format:
   - The `business*` fields stay null for tenants that haven't connected via Embedded Signup or whose phone-number profile hasn't been populated in Meta Business Manager — the UI renders `—` placeholders, no broken layout.
   - We're not yet syncing address, email, or websites. When the white-label preview or the agent inbox header needs them, add columns and extend `fetchPhoneProfile`'s `fields=` query string — no schema migration needed beyond the column adds.
   - T-004 is now **complete-with-no-deferrals**. Future Meta-side enhancements (business hours, vertical taxonomy refresh) land as new ADRs.
+
+---
+
+## ADR-024 — AI flow nodes: typed helpers in `ai.service`, thin handlers in `flow/aiNodes.ts`
+
+- **Date**: 2026-05-20
+- **Status**: Accepted; partial implementation of blueprint §6.4 (T-050 first slice — `AI_CLASSIFY_INTENT`, `AI_SUMMARIZE`, `AI_EXTRACT_DATA`)
+- **Context**: The flow builder shipped with a single `AI_RESPONSE` node that proxied `suggestReplies`. Customers want richer AI building blocks — intent routing for branching, conversation summarization for agent handoff, structured data extraction for booking flows. Inlining each model call inside its handler (the way Codex's first cut did) duplicates prompt engineering across files and makes the prompts un-testable in isolation.
+- **Decision**:
+  - **Typed helpers in `services/ai.service.ts`** own the prompts + output validation: `classifyIntent({tenantId, text, intents, context?}) → {intent, confidence, reasoning}`, `summarizeConversation({tenantId, messages, focus?}) → {summary, bullets[]}`, `extractStructuredData({tenantId, text, fields}) → Record<string, string|number|boolean|null>`. Each is a thin wrapper over the existing private `callLlmJson`, picks up wallet billing + `AiUsage` logging for free, and snaps model output back to a deterministic shape (intent → "unknown" when out of list, bullets capped at 7, values coerced or null).
+  - **Thin handlers in `services/flow/aiNodes.ts`** unpack `node.config`, call the typed helper, write the result into `ctx.vars`, and pick `node.branches[<intent>] | node.branches.default | node.next` for routing. The `{{var.path}}` interpolation helper is shared so handlers stay one-liners.
+  - **Variable splat for extracted data**: `AI_EXTRACT_DATA` writes both `aiExtracted` (the full object) AND `extracted_<field>` (one var per field) so downstream `CONDITION` nodes can branch on individual fields via `{{extracted_email}}` without writing JSON-path expressions.
+  - **Intent snapping**: the classifier prompt instructs the model to use the literal "unknown" when nothing fits, AND the post-processing layer rejects any return value that isn't in the allowed list. Both layers must agree — defense in depth against prompt-injection attempts that name a non-existent label.
+  - **Editor ergonomics**: `AI_EXTRACT_DATA.config.fields` accepts both `string[]` (shorthand for "extract the customer's X") and `Record<string,string>` (custom descriptions). The handler converts internally so the UI can stay simple.
+  - **Default configs** for all 5 new node types ship in the editor's `addNodeOfType` switch — dragging a fresh `AI_CLASSIFY_INTENT` gives `{labels: ["pricing", "support", "booking"], context: ""}` instead of an empty object the operator has to fill in by hand.
+- **Consequences**:
+  - 9 new unit tests cover the helpers directly with the Anthropic SDK mocked: intent snap-to-unknown, in-list passthrough, empty-input short-circuit, intents-required validation, summary bullet capping + non-string filtering, value coercion (numbers stay numbers, nested objects → JSON string, nulls preserved), empty-text + empty-fields short-circuits. 71/71 backend tests green.
+  - The 5 supporting handlers Codex shipped (`AI_TRANSLATE`, `AI_COMPLIANCE_CHECK`, `WAIT_FOR_REPLY`, `SWITCH`, `FILTER`) keep their existing inline implementations — they're either too simple to need typed helpers (translate / compliance) or have no AI surface at all (wait / switch / filter).
+  - **Still deferred** from blueprint §6.4: `AI_RECOMMEND`, `AI_CHURN_PREDICT`, `AI_ROUTE_BEST_AGENT`. They each need real data inputs (purchase history, behavioral features, agent skill matrix) that we don't yet wire through the flow ctx — separate slices.

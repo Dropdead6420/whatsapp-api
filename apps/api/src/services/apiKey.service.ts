@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { prisma } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { getRedis } from "../lib/redis";
 
 const API_KEY_PREFIX = "nxf_live_";
 
@@ -215,6 +216,48 @@ export async function authenticateApiKey(
     name: apiKey.name,
     rateLimit: apiKey.rateLimit,
   };
+}
+
+export async function assertApiKeyRateLimit(input: {
+  apiKeyId: string;
+  rateLimit: number;
+}): Promise<{
+  limit: number;
+  remaining: number;
+  resetSeconds: number;
+}> {
+  const limit = Math.max(60, Math.min(10_000, Math.floor(input.rateLimit)));
+  const windowMs = 60_000;
+  const bucket = Math.floor(Date.now() / windowMs);
+  const resetSeconds = Math.max(
+    1,
+    Math.ceil(((bucket + 1) * windowMs - Date.now()) / 1000),
+  );
+
+  try {
+    const redis = await getRedis();
+    const key = `rl:api-key:{${input.apiKeyId}}:${bucket}`;
+    const current = await redis.incr(key);
+    if (current === 1) {
+      await redis.expire(key, 62);
+    }
+
+    const remaining = Math.max(0, limit - current);
+    if (current > limit) {
+      throw new ApiError(
+        ErrorCodes.TOO_MANY_REQUESTS,
+        429,
+        `API key rate limit exceeded. Allowed ${limit} requests per minute.`,
+      );
+    }
+
+    return { limit, remaining, resetSeconds };
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    // Fail open: an unavailable Redis cluster should not take down customer integrations.
+    console.warn("[api-key] redis unavailable for per-key rate limit", err);
+    return { limit, remaining: limit, resetSeconds };
+  }
 }
 
 export async function recordApiRequestLog(input: {

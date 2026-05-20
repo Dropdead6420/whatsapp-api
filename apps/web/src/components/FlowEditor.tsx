@@ -349,16 +349,53 @@ export function FlowEditor({
             : type === "CREATE_LEAD"
               ? { title: "New lead from workflow" }
               : type === "ADD_TAG"
-            ? { tag: "" }
-            : type === "DELAY"
-              ? { seconds: 60 }
-              : type === "CONDITION"
-                ? { rules: [], default: "" }
-                : type === "WEBHOOK"
-                  ? { url: "https://", method: "POST" }
-                  : type === "AI_RESPONSE"
-                    ? { autoSend: false }
-                    : {};
+                ? { tag: "" }
+                : type === "DELAY"
+                  ? { seconds: 60 }
+                  : type === "CONDITION"
+                    ? { rules: [], default: "" }
+                    : type === "WEBHOOK"
+                      ? { url: "https://", method: "POST" }
+                      : type === "AI_RESPONSE"
+                        ? { autoSend: false }
+                        : type === "AI_CLASSIFY_INTENT"
+                          ? {
+                              labels: ["pricing", "support", "booking"],
+                              context: "",
+                            }
+                          : type === "AI_SUMMARIZE"
+                            ? {
+                                outputVar: "aiSummary",
+                                focus: "next steps for the agent",
+                                lookback: 40,
+                              }
+                            : type === "AI_EXTRACT_DATA"
+                              ? {
+                                  fields: {
+                                    name: "Customer's full name.",
+                                    email: "Customer's email address.",
+                                    phone: "Customer's phone with country code.",
+                                  },
+                                  outputVar: "aiExtracted",
+                                }
+                              : type === "AI_TRANSLATE"
+                                ? {
+                                    text: "{{triggerText}}",
+                                    targetLanguage: "en",
+                                    outputVar: "aiTranslation",
+                                  }
+                                : type === "AI_COMPLIANCE_CHECK"
+                                  ? { text: "{{aiSuggestion}}" }
+                                  : type === "WAIT_FOR_REPLY"
+                                    ? {}
+                                    : type === "SWITCH"
+                                      ? {
+                                          field: "triggerText",
+                                          branches: { default: "" },
+                                        }
+                                      : type === "FILTER"
+                                        ? { requireTag: "" }
+                                        : {};
       const position = { x: 200, y: 200 + nodeCounter.current * 30 };
       const newNode: NexaNode = {
         id: newId,

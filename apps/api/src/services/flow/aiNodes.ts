@@ -1,5 +1,10 @@
 import { prisma } from "@nexaflow/db";
-import { runTenantLlmJson } from "../ai.service";
+import {
+  classifyIntent,
+  extractStructuredData,
+  runTenantLlmJson,
+  summarizeConversation,
+} from "../ai.service";
 import { FlowNode, NodeHandler, NodeRunResult } from "./types";
 
 function getConfig<T>(node: FlowNode, key: string, fallback?: T): T {
@@ -22,71 +27,153 @@ function interpolate(template: string, vars: Record<string, unknown>): string {
   });
 }
 
+// AI_CLASSIFY_INTENT — picks one label from `labels` to route on.
+// Uses the validated classifyIntent helper so the model can never
+// invent a new label (out-of-list outputs are snapped to "unknown").
 const aiClassifyIntentHandler: NodeHandler = {
   type: "AI_CLASSIFY_INTENT",
   label: "AI classify intent",
   async run(node, ctx): Promise<NodeRunResult> {
     const text =
-      getConfig<string>(node, "text", "") ||
+      interpolate(getConfig<string>(node, "text", ""), ctx.vars) ||
       ctx.triggerText ||
       String(ctx.vars.lastReplyText ?? "");
     if (!text.trim()) {
-      return { nextNodeId: node.branches?.default ?? node.next ?? null };
+      return {
+        nextNodeId:
+          node.branches?.unknown ?? node.branches?.default ?? node.next ?? null,
+        vars: { aiIntent: "unknown", aiIntentConfidence: 0 },
+        trail: { intent: "unknown", reason: "empty input" },
+      };
     }
-    const labels = getConfig<string[]>(node, "labels", ["general", "sales", "support"]);
-    const parsed = await runTenantLlmJson<{ intent: string }>({
-      tenantId: ctx.tenantId,
-      feature: "flow_classify_intent",
-      system: "Classify user intent. Return JSON only.",
-      prompt: `Message: "${text}"\nLabels: ${labels.join(", ")}\nReturn {"intent":"<one label>"}`,
-      maxTokens: 120,
+    const labels = getConfig<string[]>(node, "labels", [
+      "general",
+      "sales",
+      "support",
+    ]);
+    const result = await classifyIntent(ctx.tenantId, {
+      text,
+      intents: labels,
+      context: getConfig<string>(node, "context", "") || undefined,
     });
-    const intent = parsed.intent?.toLowerCase() ?? "general";
-    const goto = node.branches?.[intent] ?? node.branches?.default ?? node.next ?? null;
+    const goto =
+      node.branches?.[result.intent] ??
+      node.branches?.default ??
+      node.next ??
+      null;
     return {
       nextNodeId: goto,
-      vars: { aiIntent: intent },
-      trail: { intent },
+      vars: {
+        aiIntent: result.intent,
+        aiIntentConfidence: result.confidence,
+      },
+      trail: { intent: result.intent, confidence: result.confidence },
     };
   },
 };
 
+// AI_SUMMARIZE — pulls the last N conversation messages and writes a
+// 2-4 sentence summary + 3-7 bullets. When no conversation is in scope,
+// summarizes the configured `text` instead.
 const aiSummarizeHandler: NodeHandler = {
   type: "AI_SUMMARIZE",
   label: "AI summarize",
   async run(node, ctx): Promise<NodeRunResult> {
-    const text = getConfig<string>(node, "text", "") || ctx.triggerText || "";
-    const parsed = await runTenantLlmJson<{ summary: string }>({
-      tenantId: ctx.tenantId,
-      feature: "flow_summarize",
-      prompt: `Summarize in 2 sentences:\n${text}\nReturn {"summary":"..."}`,
-      maxTokens: 200,
-    });
     const outVar = getConfig<string>(node, "outputVar", "aiSummary");
+    let messages: Array<{ direction: "INBOUND" | "OUTBOUND"; content: string }> =
+      [];
+
+    if (ctx.conversationId) {
+      const rows = await prisma.message.findMany({
+        where: { conversationId: ctx.conversationId },
+        orderBy: { createdAt: "asc" },
+        take: getConfig<number>(node, "lookback", 40),
+        select: { direction: true, content: true },
+      });
+      messages = rows.map((m) => ({
+        direction: m.direction as "INBOUND" | "OUTBOUND",
+        content: m.content,
+      }));
+    } else {
+      const text =
+        interpolate(getConfig<string>(node, "text", ""), ctx.vars) ||
+        ctx.triggerText ||
+        "";
+      if (text.trim()) messages = [{ direction: "INBOUND", content: text }];
+    }
+
+    if (messages.length === 0) {
+      return {
+        nextNodeId: node.next ?? null,
+        vars: { [outVar]: "" },
+        trail: { skipped: "no content" },
+      };
+    }
+
+    const result = await summarizeConversation(ctx.tenantId, {
+      messages,
+      focus: getConfig<string>(node, "focus", "") || undefined,
+    });
     return {
       nextNodeId: node.next ?? null,
-      vars: { [outVar]: parsed.summary },
-      trail: { chars: parsed.summary?.length ?? 0 },
+      vars: { [outVar]: result.summary, [`${outVar}Bullets`]: result.bullets },
+      trail: { chars: result.summary.length, bullets: result.bullets.length },
     };
   },
 };
 
+// AI_EXTRACT_DATA — pulls a typed dictionary out of free-form text.
+// Splats each field as its own ctx variable (`extracted_<field>`) so
+// downstream CONDITION nodes can reference them directly via {{...}}.
 const aiExtractDataHandler: NodeHandler = {
   type: "AI_EXTRACT_DATA",
   label: "AI extract data",
   async run(node, ctx): Promise<NodeRunResult> {
-    const text = getConfig<string>(node, "text", "") || ctx.triggerText || "";
-    const fields = getConfig<string[]>(node, "fields", ["name", "email", "phone"]);
-    const parsed = await runTenantLlmJson<{ data: Record<string, string> }>({
-      tenantId: ctx.tenantId,
-      feature: "flow_extract_data",
-      prompt: `Extract ${fields.join(", ")} from:\n${text}\nReturn {"data":{${fields.map((f) => `"${f}":""`).join(",")}}}`,
-      maxTokens: 300,
+    const text =
+      interpolate(getConfig<string>(node, "text", ""), ctx.vars) ||
+      ctx.triggerText ||
+      "";
+
+    // `fields` accepts two editor shapes for ergonomics:
+    //   - string[]:                ["name", "email"]
+    //   - Record<string, string>:  {name: "...", ...}
+    const rawFields = node.config?.fields;
+    let fieldsDict: Record<string, string> = {};
+    if (Array.isArray(rawFields)) {
+      for (const f of rawFields as unknown[]) {
+        if (typeof f === "string" && f.trim()) {
+          fieldsDict[f] = `Extract the customer's ${f}.`;
+        }
+      }
+    } else if (rawFields && typeof rawFields === "object") {
+      for (const [k, v] of Object.entries(rawFields as Record<string, unknown>)) {
+        if (typeof v === "string") fieldsDict[k] = v;
+      }
+    }
+    if (Object.keys(fieldsDict).length === 0) {
+      fieldsDict = {
+        name: "Customer's full name.",
+        email: "Customer's email address.",
+        phone: "Customer's phone number including country code if mentioned.",
+      };
+    }
+
+    const out = await extractStructuredData(ctx.tenantId, {
+      text,
+      fields: fieldsDict,
     });
     const outVar = getConfig<string>(node, "outputVar", "aiExtracted");
+    const splat: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(out)) {
+      splat[`extracted_${k}`] = v;
+    }
     return {
       nextNodeId: node.next ?? null,
-      vars: { [outVar]: parsed.data ?? {} },
+      vars: { [outVar]: out, ...splat },
+      trail: {
+        fields: Object.keys(out),
+        present: Object.values(out).filter((v) => v !== null).length,
+      },
     };
   },
 };

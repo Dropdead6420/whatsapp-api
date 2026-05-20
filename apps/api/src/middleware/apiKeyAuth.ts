@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import {
+  assertApiKeyRateLimit,
   authenticateApiKey,
   recordApiRequestLog,
 } from "../services/apiKey.service";
@@ -45,9 +46,6 @@ export async function requireApiKey(
     const auth = await authenticateApiKey(secret);
     req.apiKeyId = auth.apiKeyId;
     req.apiKeyName = auth.name;
-    // NOTE: per-key rate enforcement is not wired yet — global IP limit at
-    // /api/* still applies. Tracked as a Phase B follow-up: limit per
-    // (apiKeyId) using a Redis token-bucket keyed by req.apiKeyRateLimit.
     req.apiKeyRateLimit = auth.rateLimit;
     req.tenantId = auth.tenantId;
 
@@ -68,8 +66,19 @@ export async function requireApiKey(
       });
     });
 
+    const quota = await assertApiKeyRateLimit({
+      apiKeyId: auth.apiKeyId,
+      rateLimit: auth.rateLimit,
+    });
+    res.setHeader("RateLimit-Limit", String(quota.limit));
+    res.setHeader("RateLimit-Remaining", String(quota.remaining));
+    res.setHeader("RateLimit-Reset", String(quota.resetSeconds));
+
     next();
   } catch (err) {
+    if (err instanceof ApiError && err.statusCode === 429) {
+      res.setHeader("Retry-After", "60");
+    }
     next(err);
   }
 }
