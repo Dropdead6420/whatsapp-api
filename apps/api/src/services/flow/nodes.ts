@@ -1,6 +1,7 @@
 import { prisma } from "@nexaflow/db";
-import { ApiError, MessageDirection, MessageStatus } from "@nexaflow/shared";
-import { sendWhatsAppText } from "../whatsapp.service";
+import { ApiError, LeadStatus, MessageDirection, MessageStatus } from "@nexaflow/shared";
+import { sendWhatsAppText, sendWhatsAppTemplate } from "../whatsapp.service";
+import { emitWebhookEvent } from "../webhook.service";
 import { canSendNow, recordSend } from "../sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../billing.service";
 import { decryptTokenIfNeeded } from "../../lib/tokenCrypto";
@@ -12,6 +13,7 @@ import {
   NodeRunResult,
   FlowRuntimeError,
 } from "./types";
+import { aiFlowNodeHandlers } from "./aiNodes";
 
 // ----------------------------------------------------------------------------
 // Variable interpolation helper — replaces {{var.path}} in strings.
@@ -197,6 +199,126 @@ const messageHandler: NodeHandler = {
       }
       throw err;
     }
+  },
+};
+
+// ----------------------------------------------------------------------------
+// SEND_TEMPLATE — send an approved WhatsApp template
+// ----------------------------------------------------------------------------
+
+const sendTemplateHandler: NodeHandler = {
+  type: "SEND_TEMPLATE",
+  label: "Send WhatsApp template",
+  async run(node, ctx): Promise<NodeRunResult> {
+    const templateName = getConfig<string>(node, "templateName", "");
+    if (!templateName) {
+      throw new FlowRuntimeError("SEND_TEMPLATE missing 'templateName'", node.id);
+    }
+    const languageCode = getConfig<string>(node, "languageCode", "en");
+    const rawParams = getConfig<string[]>(node, "bodyParams", []);
+    const bodyParams = rawParams.map((p) => interpolate(String(p), ctx.vars));
+
+    if (!ctx.contactId) {
+      throw new FlowRuntimeError("SEND_TEMPLATE requires contactId", node.id);
+    }
+
+    const contact = await prisma.contact.findUnique({ where: { id: ctx.contactId } });
+    if (!contact || contact.optedOut) {
+      return {
+        nextNodeId: node.next ?? null,
+        trail: { skipped: "contact opted out or missing" },
+      };
+    }
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: ctx.tenantId },
+      select: { wabaPhoneNumber: true, wabaAccessToken: true },
+    });
+    if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
+      return { nextNodeId: node.next ?? null, trail: { skipped: "WABA not configured" } };
+    }
+
+    const gate = await canSendNow(ctx.tenantId, { phoneNumberId: tenant.wabaPhoneNumber });
+    if (!gate.allowed) {
+      return { nextNodeId: node.next ?? null, trail: { skipped: `throttled: ${gate.reason}` } };
+    }
+
+    try {
+      await assertCanAffordMessage(ctx.tenantId);
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 402) {
+        return { nextNodeId: node.next ?? null, trail: { skipped: `unfunded: ${err.message}` } };
+      }
+      throw err;
+    }
+
+    try {
+      const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+      if (!accessToken) {
+        return { nextNodeId: node.next ?? null, trail: { skipped: "token decrypt failed" } };
+      }
+      const metaMessageId = await sendWhatsAppTemplate({
+        tenantId: ctx.tenantId,
+        phoneNumberId: tenant.wabaPhoneNumber,
+        accessToken,
+        to: contact.phoneNumber.replace(/^\+/, ""),
+        templateName,
+        languageCode,
+        bodyParams,
+      });
+      await recordSend(ctx.tenantId, { phoneNumberId: tenant.wabaPhoneNumber });
+      await debitMessage(ctx.tenantId, metaMessageId, {
+        reason: `Flow SEND_TEMPLATE node ${node.id}`,
+      });
+      return {
+        nextNodeId: node.next ?? null,
+        vars: { lastTemplate: templateName },
+        trail: { sent: true, templateName },
+      };
+    } catch (err) {
+      if (err instanceof ApiError) {
+        return { nextNodeId: node.next ?? null, trail: { error: err.message } };
+      }
+      throw err;
+    }
+  },
+};
+
+// ----------------------------------------------------------------------------
+// CREATE_LEAD — creates a CRM lead for the run contact
+// ----------------------------------------------------------------------------
+
+const createLeadHandler: NodeHandler = {
+  type: "CREATE_LEAD",
+  label: "Create lead",
+  async run(node, ctx): Promise<NodeRunResult> {
+    if (!ctx.contactId) {
+      throw new FlowRuntimeError("CREATE_LEAD requires contactId", node.id);
+    }
+    const titleTpl = getConfig<string>(node, "title", "Workflow lead");
+    const title = interpolate(titleTpl, ctx.vars).trim() || "Workflow lead";
+
+    const lead = await prisma.lead.create({
+      data: {
+        tenantId: ctx.tenantId,
+        contactId: ctx.contactId,
+        title,
+        status: LeadStatus.NEW,
+      },
+    });
+
+    void emitWebhookEvent(ctx.tenantId, "LEAD_CREATED", {
+      leadId: lead.id,
+      contactId: lead.contactId,
+      title: lead.title,
+      source: "workflow",
+    });
+
+    return {
+      nextNodeId: node.next ?? null,
+      vars: { leadId: lead.id, leadTitle: lead.title },
+      trail: { leadId: lead.id },
+    };
   },
 };
 
@@ -487,12 +609,15 @@ export const nodeRegistry: Record<string, NodeHandler> = {
   START: startHandler,
   END: endHandler,
   MESSAGE: messageHandler,
+  SEND_TEMPLATE: sendTemplateHandler,
+  CREATE_LEAD: createLeadHandler,
   CONDITION: conditionHandler,
   DELAY: delayHandler,
   ADD_TAG: addTagHandler,
   AGENT_TRANSFER: agentTransferHandler,
   AI_RESPONSE: aiResponseHandler,
   WEBHOOK: webhookHandler,
+  ...aiFlowNodeHandlers,
 };
 
 export function listNodeTypes(): Array<{ type: string; label: string }> {

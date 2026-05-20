@@ -66,6 +66,14 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "Partner",
+    items: [
+      { href: "/partner/dashboard", label: "Partner dashboard", roles: ["WHITE_LABEL_ADMIN"] },
+      { href: "/partner/customers", label: "Customers", roles: ["WHITE_LABEL_ADMIN"] },
+      { href: "/partner/team", label: "Team", roles: ["WHITE_LABEL_ADMIN"] },
+    ],
+  },
+  {
     label: "White Label",
     items: [
       { href: "/domains", label: "Domains", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN"] },

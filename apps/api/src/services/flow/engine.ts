@@ -155,6 +155,19 @@ export async function executeFlowRun(runId: string): Promise<void> {
         result: result.trail,
       });
 
+      if (result.waitForReply) {
+        await prisma.flowRun.update({
+          where: { id: run.id },
+          data: {
+            status: "WAITING",
+            currentNodeId: node.id,
+            resumeAt: null,
+            context: JSON.stringify({ ...vars, waitingForReply: true }),
+            trail: JSON.stringify(trail),
+          },
+        });
+        return;
+      }
       if (result.waitUntil) {
         await prisma.flowRun.update({
           where: { id: run.id },

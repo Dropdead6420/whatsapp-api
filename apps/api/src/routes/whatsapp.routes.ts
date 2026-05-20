@@ -24,7 +24,8 @@ import { pickNextAgent } from "../services/routing.service";
 import { scoreLead } from "../services/ai.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
-import { findFlowForInbound, startFlowRun } from "../services/flow/engine";
+import { dispatchInboundMessageFlows } from "../services/flow/flowTrigger.service";
+import { resumeWaitingFlowRuns } from "../services/flow/flowWait.service";
 import { emitWebhookEvent } from "../services/webhook.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
@@ -249,20 +250,18 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
               select: { optedOut: true },
             });
             if (!freshContact?.optedOut) {
-              try {
-                const flowId = await findFlowForInbound(tenant.id, msg.text.body);
-                if (flowId) {
-                  void startFlowRun({
-                    tenantId: tenant.id,
-                    flowId,
-                    contactId: contact.id,
-                    conversationId: conversation.id,
-                    triggerText: msg.text.body,
-                  });
-                }
-              } catch (err) {
-                console.error("[whatsapp:flow-trigger]", err);
-              }
+              void resumeWaitingFlowRuns({
+                tenantId: tenant.id,
+                contactId: contact.id,
+                conversationId: conversation.id,
+                inboundText: msg.text.body,
+              });
+              void dispatchInboundMessageFlows({
+                tenantId: tenant.id,
+                contactId: contact.id,
+                conversationId: conversation.id,
+                text: msg.text.body,
+              });
             }
           }
 

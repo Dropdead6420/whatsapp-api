@@ -10,6 +10,7 @@ import {
 import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { emitWebhookEvent } from "../services/webhook.service";
+import { dispatchFlowTriggers } from "../services/flow/flowTrigger.service";
 import { requireFeature } from "../services/features.service";
 import { recommendLeadFollowUp } from "../services/ai.service";
 import { sendLeadFollowUp } from "../services/leadFollowUp.service";
@@ -59,8 +60,12 @@ function daysBetween(a: Date, b: Date): number {
 // GET /leads — Kanban view, grouped by status
 router.get("/", requirePermission(Permissions.CONTACT_READ), async (req: RequestWithAuth, res, next) => {
   try {
+    const where: { tenantId: string; assigneeId?: string } = { tenantId: req.tenantId! };
+    if (req.userRole === "AGENT") {
+      where.assigneeId = req.userId!;
+    }
     const leads = await prisma.lead.findMany({
-      where: { tenantId: req.tenantId },
+      where,
       orderBy: { updatedAt: "desc" },
       include: { contact: true, assignee: { select: { id: true, name: true } } },
     });
@@ -119,6 +124,12 @@ router.post("/", requirePermission(Permissions.LEAD_UPDATE), async (req: Request
       contactId: lead.contactId,
       title: lead.title,
       value: lead.value,
+    });
+    void dispatchFlowTriggers({
+      tenantId: req.tenantId!,
+      trigger: "lead_created",
+      contactId: lead.contactId,
+      initialVars: { leadId: lead.id, leadTitle: lead.title },
     });
     res.status(201).json({ success: true, data: lead });
   } catch (err) {

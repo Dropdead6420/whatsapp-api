@@ -97,7 +97,7 @@ router.get(
     try {
       const q = listSchema.parse(req.query);
       const where: Record<string, unknown> = { tenantId: req.tenantId };
-      if (q.assignedToMe) where.agentId = req.userId;
+      if (q.assignedToMe || req.userRole === "AGENT") where.agentId = req.userId;
       if (typeof q.isActive === "boolean") where.isActive = q.isActive;
       if (q.label) where.labels = { has: q.label };
       if (q.slaBreached === true) where.slaBreachedAt = { not: null };

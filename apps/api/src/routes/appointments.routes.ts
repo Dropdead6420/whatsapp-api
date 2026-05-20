@@ -10,6 +10,7 @@ import {
 import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { emitWebhookEvent } from "../services/webhook.service";
+import { dispatchFlowTriggers } from "../services/flow/flowTrigger.service";
 import { requireFeature } from "../services/features.service";
 
 // ============================================================================
@@ -161,6 +162,16 @@ publicBookingRouter.post(
         scheduledAt: appointment.scheduledAt.toISOString(),
         source: "PUBLIC_FORM",
       });
+      void dispatchFlowTriggers({
+        tenantId,
+        trigger: "appointment_booked",
+        contactId: contact.id,
+        initialVars: {
+          appointmentId: appointment.id,
+          serviceName: service.name,
+          scheduledAt: appointment.scheduledAt.toISOString(),
+        },
+      });
 
       res.status(201).json({
         success: true,
@@ -311,6 +322,16 @@ router.post(
         serviceName: service.name,
         scheduledAt: created.scheduledAt.toISOString(),
         source: "ADMIN",
+      });
+      void dispatchFlowTriggers({
+        tenantId: req.tenantId!,
+        trigger: "appointment_booked",
+        contactId: created.contactId,
+        initialVars: {
+          appointmentId: created.id,
+          serviceName: service.name,
+          scheduledAt: created.scheduledAt.toISOString(),
+        },
       });
 
       res.status(201).json({ success: true, data: created });

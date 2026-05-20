@@ -69,6 +69,11 @@ interface CallLlmOpts {
   temperature?: number;
 }
 
+/** Exported for workflow AI nodes (T-050). */
+export async function runTenantLlmJson<T>(opts: CallLlmOpts): Promise<T> {
+  return callLlmJson<T>(opts);
+}
+
 async function callLlmJson<T>(opts: CallLlmOpts): Promise<T> {
   const anthropic = getClient();
   await assertCanAffordAi(opts.tenantId, opts.feature);

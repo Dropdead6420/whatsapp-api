@@ -16,6 +16,13 @@ interface FlowSummary {
   updatedAt: string;
 }
 
+interface FlowTemplate {
+  slug: string;
+  name: string;
+  industry: string;
+  description: string | null;
+}
+
 interface FlowDetail extends FlowSummary {
   definition: { nodes: unknown[]; edges?: unknown[] } | null;
   nodes: string;
@@ -70,6 +77,8 @@ export default function FlowsPage() {
   const [runs, setRuns] = useState<FlowRun[]>([]);
   const [busy, setBusy] = useState(false);
   const [testRunStatus, setTestRunStatus] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<FlowTemplate[]>([]);
+  const [installing, setInstalling] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -78,6 +87,33 @@ export default function FlowsPage() {
       if (!selectedId && list.length > 0) setSelectedId(list[0].id);
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Load failed");
+    }
+  }
+
+  async function loadTemplates() {
+    try {
+      const list = await api.get<FlowTemplate[]>("/api/v1/flow-templates");
+      setTemplates(list);
+    } catch {
+      setTemplates([]);
+    }
+  }
+
+  async function installTemplate(slug: string) {
+    setInstalling(slug);
+    setErr(null);
+    try {
+      const res = await api.post<{ flowId: string; name: string }>(
+        `/api/v1/flow-templates/${slug}/install`,
+        {},
+      );
+      await refresh();
+      setSelectedId(res.flowId);
+      setTestRunStatus(`Installed “${res.name}” (inactive — activate when ready).`);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Install failed");
+    } finally {
+      setInstalling(null);
     }
   }
 
@@ -95,7 +131,10 @@ export default function FlowsPage() {
   }
 
   useEffect(() => {
-    if (user) refresh();
+    if (user) {
+      void refresh();
+      void loadTemplates();
+    }
   }, [user]);
 
   useEffect(() => {
@@ -182,6 +221,37 @@ export default function FlowsPage() {
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {err}
         </div>
+      )}
+
+      {templates.length > 0 && (
+        <section className="mb-8 rounded-lg border border-slate-200 bg-white p-5">
+          <h2 className="text-sm font-semibold text-slate-900">Marketplace templates</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Install a pre-built flow, then edit and activate it.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {templates.map((t) => (
+              <div
+                key={t.slug}
+                className="rounded-md border border-slate-100 p-3 text-sm"
+              >
+                <div className="font-medium">{t.name}</div>
+                <div className="text-xs text-slate-500">{t.industry}</div>
+                {t.description && (
+                  <p className="mt-1 line-clamp-2 text-xs text-slate-600">{t.description}</p>
+                )}
+                <button
+                  type="button"
+                  disabled={installing === t.slug}
+                  onClick={() => installTemplate(t.slug)}
+                  className="mt-2 text-xs font-medium text-emerald-700 hover:underline disabled:opacity-50"
+                >
+                  {installing === t.slug ? "Installing…" : "Install"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">

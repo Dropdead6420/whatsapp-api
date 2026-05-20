@@ -1194,6 +1194,25 @@ model Branding {
 // DEMO TENANTS — partner sandbox environments
 // ============================================================================
 
+// ============================================================================
+// FLOW MARKETPLACE — installable workflow templates (T-142)
+// ============================================================================
+
+model FlowTemplate {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  industry    String
+  description String?
+  definition  String   // JSON FlowDefinition
+  isPublic    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([industry])
+  @@index([isPublic])
+}
+
 model DemoTenant {
   id                 String      @id @default(cuid())
   tenantId           String      @unique

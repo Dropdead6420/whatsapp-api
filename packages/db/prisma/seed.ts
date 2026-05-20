@@ -127,9 +127,175 @@ async function seedSuperAdmin() {
   console.log(`  (Override via SEED_SUPER_ADMIN_EMAIL and SEED_SUPER_ADMIN_PASSWORD env vars)`);
 }
 
+const FLOW_TEMPLATES: Array<{
+  slug: string;
+  name: string;
+  industry: string;
+  description: string;
+  definition: object;
+}> = [
+  {
+    slug: "salon-booking",
+    name: "Salon booking assistant",
+    industry: "salon",
+    description: "Greets customers, captures booking intent, tags price inquiries.",
+    definition: {
+      nodes: [
+        { id: "start", type: "START", isEntry: true, config: {}, next: "greet" },
+        {
+          id: "greet",
+          type: "MESSAGE",
+          config: {
+            text: "Hi! I can help you book at our salon. Reply BOOK for slots or PRICES for our menu.",
+          },
+          next: "wait",
+        },
+        { id: "wait", type: "WAIT_FOR_REPLY", config: {}, next: "classify" },
+        {
+          id: "classify",
+          type: "AI_CLASSIFY_INTENT",
+          config: { labels: ["book", "prices", "general"] },
+          branches: { book: "book_tag", prices: "price_tag", default: "end" },
+        },
+        { id: "book_tag", type: "ADD_TAG", config: { tag: "booking_intent" }, next: "end" },
+        { id: "price_tag", type: "ADD_TAG", config: { tag: "price_inquiry" }, next: "end" },
+        { id: "end", type: "END", config: {} },
+      ],
+    },
+  },
+  {
+    slug: "clinic-reminders",
+    name: "Clinic appointment reminders",
+    industry: "clinic",
+    description: "Triggered when an appointment is booked; sends confirmation template.",
+    definition: {
+      nodes: [
+        { id: "start", type: "START", isEntry: true, config: {}, next: "confirm" },
+        {
+          id: "confirm",
+          type: "MESSAGE",
+          config: {
+            text: "Your appointment is confirmed for {{scheduledAt}}. Reply RESCHEDULE if you need to change.",
+          },
+          next: "end",
+        },
+        { id: "end", type: "END", config: {} },
+      ],
+    },
+  },
+  {
+    slug: "ecommerce-order-tracking",
+    name: "E-commerce order tracking",
+    industry: "ecommerce",
+    description: "Keyword flow for order status inquiries.",
+    definition: {
+      nodes: [
+        { id: "start", type: "START", isEntry: true, config: {}, next: "ask" },
+        {
+          id: "ask",
+          type: "MESSAGE",
+          config: { text: "Please share your order ID (e.g. ORD-12345) and we'll update you." },
+          next: "extract",
+        },
+        { id: "extract", type: "AI_EXTRACT_DATA", config: { fields: ["orderId"] }, next: "tag" },
+        { id: "tag", type: "ADD_TAG", config: { tag: "order_inquiry" }, next: "end" },
+        { id: "end", type: "END", config: {} },
+      ],
+    },
+  },
+  {
+    slug: "real-estate-lead",
+    name: "Real estate lead qualification",
+    industry: "real_estate",
+    description: "Qualifies budget and creates a lead from conversation.",
+    definition: {
+      nodes: [
+        { id: "start", type: "START", isEntry: true, config: {}, next: "intro" },
+        {
+          id: "intro",
+          type: "MESSAGE",
+          config: { text: "Thanks for your interest! What's your budget range and preferred location?" },
+          next: "wait",
+        },
+        { id: "wait", type: "WAIT_FOR_REPLY", config: {}, next: "lead" },
+        {
+          id: "lead",
+          type: "CREATE_LEAD",
+          config: { title: "Property inquiry — {{triggerText}}" },
+          next: "end",
+        },
+        { id: "end", type: "END", config: {} },
+      ],
+    },
+  },
+  {
+    slug: "coaching-inquiry",
+    name: "Coaching inquiry follow-up",
+    industry: "coaching",
+    description: "Tags coaching leads and suggests AI reply.",
+    definition: {
+      nodes: [
+        { id: "start", type: "START", isEntry: true, config: {}, next: "tag" },
+        { id: "tag", type: "ADD_TAG", config: { tag: "coaching_lead" }, next: "ai" },
+        { id: "ai", type: "AI_RESPONSE", config: { autoSend: false }, next: "end" },
+        { id: "end", type: "END", config: {} },
+      ],
+    },
+  },
+  {
+    slug: "payment-follow-up",
+    name: "Payment follow-up",
+    industry: "payments",
+    description: "Polite payment reminder with compliance check.",
+    definition: {
+      nodes: [
+        { id: "start", type: "START", isEntry: true, config: {}, next: "check" },
+        {
+          id: "check",
+          type: "AI_COMPLIANCE_CHECK",
+          config: { text: "Reminder: your invoice is due. Reply PAID once completed." },
+          next: "send",
+        },
+        {
+          id: "send",
+          type: "MESSAGE",
+          config: { text: "Reminder: your invoice is due. Reply PAID once completed." },
+          next: "end",
+        },
+        { id: "end", type: "END", config: {} },
+      ],
+    },
+  },
+];
+
+async function seedFlowTemplates() {
+  for (const tpl of FLOW_TEMPLATES) {
+    await prisma.flowTemplate.upsert({
+      where: { slug: tpl.slug },
+      update: {
+        name: tpl.name,
+        industry: tpl.industry,
+        description: tpl.description,
+        definition: JSON.stringify(tpl.definition),
+        isPublic: true,
+      },
+      create: {
+        slug: tpl.slug,
+        name: tpl.name,
+        industry: tpl.industry,
+        description: tpl.description,
+        definition: JSON.stringify(tpl.definition),
+        isPublic: true,
+      },
+    });
+  }
+  console.log(`✓ Seeded ${FLOW_TEMPLATES.length} flow marketplace templates`);
+}
+
 async function main() {
   await seedPlans();
   await seedSuperAdmin();
+  await seedFlowTemplates();
 }
 
 main()

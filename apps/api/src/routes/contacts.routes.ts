@@ -9,6 +9,7 @@ import {
 } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
+import { dispatchFlowTriggers, tagsAdded } from "../services/flow/flowTrigger.service";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope);
@@ -282,6 +283,16 @@ router.patch(
         newValues: body,
         ...extractRequestMeta(req),
       });
+      if (body.tags) {
+        for (const tag of tagsAdded(existing.tags, updated.tags)) {
+          void dispatchFlowTriggers({
+            tenantId: req.tenantId!,
+            trigger: "tag_added",
+            contactId: updated.id,
+            tag,
+          });
+        }
+      }
       res.json({ success: true, data: updated });
     } catch (err) {
       next(err);

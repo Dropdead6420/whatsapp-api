@@ -14,11 +14,23 @@ blueprint reference, scope (S/M/L), and acceptance criteria.
 
 ## Active
 
-_(none — open this column when a slice is in flight)_
+_(none)_
 
 ---
 
 ## Next up
+
+### T-060 — Event-driven flow triggers ✅ shipped (2026-05-20)
+- **Priority**: P1
+- **Blueprint**: Claude FINAL PDF — Workflow triggers
+- **Scope**: M — `flowTrigger.service.ts`; triggers `lead_created`, `tag_added`, `appointment_booked`, `message_received`; wired from leads/contacts/appointments/WhatsApp inbound.
+- **Follow-up**: T-060b — Flow create/edit UI trigger dropdown + tag filter helper text.
+
+### T-061 — Workflow action nodes SEND_TEMPLATE + CREATE_LEAD ✅ shipped (2026-05-20)
+- **Priority**: P1
+- **Blueprint**: Claude FINAL PDF — Workflow action nodes
+- **Scope**: S — runtime handlers + FlowEditor palette hints.
+- **Follow-up**: T-062 logic nodes (WAIT_FOR_REPLY, SWITCH, FILTER); see `docs/WORKFLOW_BUILDER_PLAN.md`.
 
 ### T-004 — Meta Embedded Signup ✅ shipped
 - **Priority**: P1
@@ -46,9 +58,7 @@ _(none — open this column when a slice is in flight)_
 
 The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None are blocking the current scale plan; they queue behind T-004 / T-005.
 
-- T-140 **Agent Portal** — simplified inbox-only view for `UserRole.AGENT`. Routes group `/agent/*`. Only assigned conversations, AI reply suggestions, internal notes, follow-up tasks, lead updates. No campaign/template/admin surfaces. Reuses existing inbox components.
-- T-141 **Developer / API Portal** — `/developer/*` route group: webhook subscriptions/logs consolidation, SDK/docs, richer sandbox testing, usage metering chart. API key management is shipped in T-141A; per-key usage logs + basic sandbox status endpoint are shipped in T-141B.
-- T-142 **Marketplace templates** — installable flow templates (salon booking, clinic reminders, e-commerce order tracking, real-estate lead qualification, coaching inquiry, payment follow-up). `FlowTemplate` model + clone-to-tenant action. Pairs with the Workflow Builder.
+- T-141 **Developer / API Portal** — SDK/docs, richer sandbox, usage metering chart (T-141A/B shipped).
 - T-143 **Android mobile app** — Phase 7 of the FINAL PDF. Inbox, notifications (FCM), replies, lead pipeline, quick campaigns, booking calendar, AI reply button. Read-only on the API side; no new backend surface beyond push token registration.
 
 ### Compliance + safety
@@ -64,8 +74,8 @@ The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None 
 - T-023 Daily reconciliation worker — recompute balance from ledger sum, alert on drift
 
 ### Partner Portal (blueprint §1.2, §7)
-- T-030 Partner role split (Owner / Admin / Staff) + `/partner/*` route group
-- T-031 Partner dashboard + customer list (filtered by `parentTenantId`)
+- T-030b Partner role split (Owner / Admin / Staff enum) — optional; WHITE_LABEL_ADMIN + TEAM_LEAD used for now
+- T-031 Partner commissions schema + payout report
 - T-032 Partner commissions schema + payout report
 - T-033 Partner team management
 - T-034 Demo workspace template + expiry + conversion (§11)
@@ -77,7 +87,7 @@ The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None 
 - T-043 Module enable/disable matrix UI (currently flag toggles per-tenant)
 
 ### AI (blueprint §6)
-- T-050 Add AI workflow nodes: `AI_CLASSIFY_INTENT`, `AI_SUMMARIZE`, `AI_EXTRACT_DATA`, `AI_TRANSLATE`, `AI_RECOMMEND`, `AI_CHURN_PREDICT`, `AI_COMPLIANCE_CHECK`, `AI_ROUTE_BEST_AGENT`
+- T-050b Remaining AI workflow nodes: `AI_RECOMMEND`, `AI_CHURN_PREDICT`, `AI_ROUTE_BEST_AGENT` (classify/summarize/extract/translate/compliance shipped)
 - T-051 AI Knowledge Base — schema, content sources, RAG index
 - T-052 AI Agent Builder — `AiAgent` model + visual builder + runtime
 - T-053 SuperAdmin AI — Platform Monitor, Compliance Auditor, Support Copilot, Revenue Intelligence
@@ -129,6 +139,11 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-030 Partner portal** — `/api/v1/partner/*` (dashboard, customers CRUD, team list/invite) + `/partner/*` UI (dashboard, customers, team). WHITE_LABEL_ADMIN lands on `/partner/dashboard`.
+- ✅ **T-140 Agent portal** — `/agent/inbox`, `/agent/leads`; API auto-scopes conversations/leads to assignee for `AGENT`; `AgentShell` nav.
+- ✅ **T-050 / T-062 workflow nodes** — `AI_CLASSIFY_INTENT`, `AI_SUMMARIZE`, `AI_EXTRACT_DATA`, `AI_TRANSLATE`, `AI_COMPLIANCE_CHECK`, `WAIT_FOR_REPLY`, `SWITCH`, `FILTER` + inbound resume via `flowWait.service.ts`.
+- ✅ **T-142 Marketplace templates** — `FlowTemplate` model, seed (6 industries), `GET/POST /api/v1/flow-templates`, install UI on `/flows`.
+- ✅ **T-060 Event-driven flow triggers** + **T-061 SEND_TEMPLATE / CREATE_LEAD nodes**. `flowTrigger.service.ts` fires flows on `lead_created`, `tag_added`, `appointment_booked`, and `message_received` (after keyword pass). New workflow nodes registered in runtime + FlowEditor hints. See `docs/WORKFLOW_BUILDER_PLAN.md` and `docs/CLAUDE_FINAL_PDF_GAP_MATRIX.md`.
 - ✅ **T-004 Meta Embedded Signup**. New `Tenant.metaBusinessId` column; `services/metaSignup.service.ts` exchanges the FB.login code at `oauth/access_token`, subscribes the WABA to our app, and persists the long-lived token via the T-094 envelope-encryption path. New `POST /api/v1/whatsapp/embedded-signup` route (gated by `WABA_CONFIGURE`) wires that into the request layer with audit logging that masks the token. Frontend `/whatsapp-settings` adds a "Connect with Meta" button above the manual form — lazy-loads the FB SDK, opens the Embedded Signup popup, joins the `WA_EMBEDDED_SIGNUP` `MessageEvent` payload with the FB code + business id, and POSTs to the backend. Gracefully degrades when `NEXT_PUBLIC_META_APP_ID` / `NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID` aren't set. 5 new service tests; 49/49 green. Live smoke verified: 400 "not configured" without `META_APP_*`, 400 validation on malformed body, 401 unauthenticated, 200 path is gated behind real Meta credentials. See ADR-021.
 - ✅ **T-005e SuperAdmin CRUD for `ProviderRoute`**. New `/api/v1/admin/provider-routes` route group (SuperAdmin only) — list / create / patch / delete. `config` is JSON.stringified + envelope-encrypted on write via `tokenCrypto.encryptToken`; responses return only `configPreview` with masked values. New `PROVIDER_ROUTE_MANAGE` permission (auto-granted to SUPER_ADMIN). Audit log captures every mutation with `configKeys` but no values. Nav entry added under Platform → Provider Routes; admin page at `/provider-routes` with create form + toggle-active + delete. 7 new service tests; 44/44 total green. Live smoke verified: encrypt-in-DB, mask-on-list, 409 on duplicate, 403 on non-admin, audit trail intact. See ADR-020.
 - ✅ **T-005d Per-tenant config from `ProviderRoute.config` via `SendContext`**. `WhatsAppProvider` methods now accept an optional `ctx: SendContext` carrying the decrypted, JSON-parsed route config. Factory does the decrypt (via `tokenCrypto.decryptTokenIfNeeded` — legacy plaintext passes through) + binds it onto a closure-wrapped adapter, so call sites don't change. Gupshup adapter prefers `ctx.config` over env; partial config falls through to env. 4 new unit tests + 2 new factory tests. See ADR-019. T-005e (SuperAdmin CRUD UI that encrypts on write) is the natural follow-up.

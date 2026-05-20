@@ -49,6 +49,8 @@ export interface NodeRunResult {
   vars?: Record<string, unknown>;
   /** If set, the engine should suspend (e.g. delay). */
   waitUntil?: Date;
+  /** Pause until the contact replies in the same conversation. */
+  waitForReply?: boolean;
   /** Status override (e.g. to mark a run COMPLETED early). */
   status?: "COMPLETED" | "FAILED" | "ABORTED";
   /** Free-form metadata for the trail. */

@@ -68,12 +68,24 @@ const NODE_PILL_STYLES: Record<string, string> = {
   START: "bg-emerald-600 text-white",
   END: "bg-slate-600 text-white",
   MESSAGE: "bg-blue-600 text-white",
+  SEND_TEMPLATE: "bg-indigo-600 text-white",
+  CREATE_LEAD: "bg-teal-600 text-white",
   CONDITION: "bg-amber-600 text-white",
   DELAY: "bg-purple-600 text-white",
   ADD_TAG: "bg-pink-600 text-white",
   AGENT_TRANSFER: "bg-cyan-600 text-white",
   AI_RESPONSE: "bg-violet-600 text-white",
   WEBHOOK: "bg-orange-600 text-white",
+  SEND_TEMPLATE: "bg-indigo-600 text-white",
+  CREATE_LEAD: "bg-teal-600 text-white",
+  WAIT_FOR_REPLY: "bg-rose-600 text-white",
+  SWITCH: "bg-yellow-600 text-white",
+  FILTER: "bg-stone-600 text-white",
+  AI_CLASSIFY_INTENT: "bg-violet-700 text-white",
+  AI_SUMMARIZE: "bg-violet-500 text-white",
+  AI_EXTRACT_DATA: "bg-violet-500 text-white",
+  AI_TRANSLATE: "bg-violet-500 text-white",
+  AI_COMPLIANCE_CHECK: "bg-red-600 text-white",
 };
 
 function NexaNodeCard({
@@ -157,6 +169,12 @@ function makeSubtitle(node: NexaNode): string | undefined {
   }
   if (node.type === "WEBHOOK" && typeof c.url === "string") {
     return c.url.length > 50 ? `${c.url.slice(0, 50)}…` : c.url;
+  }
+  if (node.type === "SEND_TEMPLATE" && typeof c.templateName === "string") {
+    return c.templateName;
+  }
+  if (node.type === "CREATE_LEAD" && typeof c.title === "string") {
+    return c.title;
   }
   if (node.type === "CONDITION") {
     const rules = c.rules as unknown[] | undefined;
@@ -328,7 +346,11 @@ export function FlowEditor({
       const defaultConfig: Record<string, unknown> =
         type === "MESSAGE"
           ? { text: "Hello!" }
-          : type === "ADD_TAG"
+          : type === "SEND_TEMPLATE"
+            ? { templateName: "", languageCode: "en", bodyParams: [] }
+            : type === "CREATE_LEAD"
+              ? { title: "New lead from workflow" }
+              : type === "ADD_TAG"
             ? { tag: "" }
             : type === "DELAY"
               ? { seconds: 60 }
@@ -616,6 +638,10 @@ function ConfigHint({ type }: { type: string }) {
     switch (type) {
       case "MESSAGE":
         return '{ "text": "Hi {{contactName}}, …" }';
+      case "SEND_TEMPLATE":
+        return '{ "templateName": "hello_world", "languageCode": "en", "bodyParams": ["{{name}}"] }';
+      case "CREATE_LEAD":
+        return '{ "title": "Inquiry from {{triggerText}}" }';
       case "ADD_TAG":
         return '{ "tag": "vip" }';
       case "DELAY":

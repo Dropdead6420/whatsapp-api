@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
+import { AgentShell } from "../../src/components/AgentShell";
 import { api, ApiClientError } from "../../src/lib/api";
 import { useAutoSave } from "../../src/hooks/useAutoSave";
 import { useInbox } from "../../src/hooks/useInbox";
@@ -53,10 +55,13 @@ interface Note {
 }
 
 export default function InboxPage() {
-  const { user, loading, signOut } = useAuth({
+  const pathname = usePathname() ?? "";
+  const agentPortal = pathname.startsWith("/agent");
+  const { user, features, loading, signOut } = useAuth({
     required: true,
-    roles: ["AGENT", "TEAM_LEAD", "BUSINESS_ADMIN"],
+    roles: agentPortal ? ["AGENT"] : ["AGENT", "TEAM_LEAD", "BUSINESS_ADMIN"],
   });
+  const Shell = agentPortal ? AgentShell : DashboardShell;
   const [err, setErr] = useState<string | null>(null);
   const userScope = `${user?.tenantId ?? "anon"}:${user?.id ?? "anon"}`;
   const [drafts, setDrafts, draftStatus] = useAutoSave<Record<string, string>>(
@@ -237,7 +242,7 @@ export default function InboxPage() {
   if (loading || !user) return <div className="p-10 text-sm text-slate-500">Loading…</div>;
 
   return (
-    <DashboardShell user={user} signOut={signOut}>
+    <Shell user={user} signOut={signOut} features={features}>
       <header className="mb-6 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Inbox</h1>
@@ -574,7 +579,7 @@ export default function InboxPage() {
           </div>
         )}
       </div>
-    </DashboardShell>
+    </Shell>
   );
 }
 

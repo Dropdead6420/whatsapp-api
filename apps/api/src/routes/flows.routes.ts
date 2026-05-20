@@ -41,7 +41,16 @@ const flowDefinitionSchema = z.object({
 const createFlowSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(2000).optional(),
-  trigger: z.enum(["keyword", "message_received", "manual"]).default("keyword"),
+  trigger: z
+    .enum([
+      "keyword",
+      "message_received",
+      "manual",
+      "lead_created",
+      "tag_added",
+      "appointment_booked",
+    ])
+    .default("keyword"),
   triggerKeywords: z.array(z.string().min(1).max(40)).max(20).default([]),
   definition: flowDefinitionSchema,
   isActive: z.boolean().default(false),

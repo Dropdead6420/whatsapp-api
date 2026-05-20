@@ -61,12 +61,12 @@ export function roleHome(role: UserRole): string {
     case "SUPER_ADMIN":
       return "/dashboard";
     case "WHITE_LABEL_ADMIN":
-      return "/dashboard";
+      return "/partner/dashboard";
     case "BUSINESS_ADMIN":
     case "TEAM_LEAD":
       return "/dashboard";
     case "AGENT":
-      return "/inbox";
+      return "/agent/inbox";
     default:
       return "/";
   }

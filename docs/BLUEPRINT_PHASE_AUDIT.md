@@ -1,8 +1,9 @@
 # NexaFlow AI Blueprint Phase Audit
 
-Source of truth: `/Users/sidharthkumar/Downloads/NexaFlow_Codex_FINAL_Full_Implementation_Blueprint_and_Features.pdf`
+Source of truth: `/Users/sidharthkumar/Downloads/NexaFlow_Codex_FINAL_Full_Implementation_Blueprint_and_Features.pdf`  
+Companion gap matrix (Claude FINAL PDF): [`CLAUDE_FINAL_PDF_GAP_MATRIX.md`](CLAUDE_FINAL_PDF_GAP_MATRIX.md)
 
-Last checked: 2026-05-18
+Last checked: 2026-05-20
 
 ## Summary
 
@@ -22,7 +23,8 @@ They are not identical in priority:
 | Phase 3 | Partner portal: partner dashboard, customer management, wallet, transactions, team, demo system | Early partial. Tenant hierarchy, white-label admin role, customer tenants, feature flags, and tenant CRUD exist. | Dedicated partner dashboard, wallet/ledger, customer onboarding wizard, demo workspace, commissions |
 | Phase 4 | White label portal: custom domains, logo/colors, email branding, module control, preview mode | Partial. Tenant branding fields, feature flags, and custom-domain connection flow are present. | Branding UI, email sender/domain setup, preview mode, SSL provider automation |
 | Phase 5 | AI automation: AI workflow builder, AI agents, AI compliance, AI partner assistant, AI onboarding assistant | Partial. AI copy, smart segmenting, reply suggestions, sentiment, lead scoring, autopilot, flow runtime, visual editor, and AI nodes exist. | AI Agent Builder, AI Knowledge Base, compliance auditor, partner assistant, onboarding assistant |
-| Phase 6 | Enterprise scale: provider routing, developer/API portal, marketplace, advanced analytics, omnichannel expansion | Early. Platform health, webhooks, API-key model, API-key management UI, analytics summary, and rate throttling exist. | Provider abstraction/BSP routing, API logs/docs/sandbox, marketplace, advanced exports/reports, omnichannel, CI/CD hardening |
+| Phase 6 | Enterprise scale: provider routing, developer/API portal, marketplace, advanced analytics, omnichannel expansion | Early. Platform health, webhooks, API-key model, API-key management UI, analytics summary, and rate throttling exist. Provider routing ✅ (T-005). | API logs/docs/sandbox polish, marketplace (T-142), advanced exports/reports, omnichannel, CI/CD hardening |
+| Workflow (PDF Phase 5) | React Flow builder, runtime, triggers, action/AI nodes, marketplace | Partial → stronger. Event triggers + SEND_TEMPLATE + CREATE_LEAD shipped 2026-05-20 (T-060, T-061). | AI nodes (T-050), WAIT_FOR_REPLY (T-062), marketplace templates (T-142) |
 
 ## Old PRD To Final Blueprint Mapping
 
