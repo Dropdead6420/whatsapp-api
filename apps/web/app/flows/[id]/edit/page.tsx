@@ -6,10 +6,10 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "../../../../src/hooks/useAuth";
 import { DashboardShell } from "../../../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../../../src/lib/api";
-import {
-  FlowEditor,
-  type NexaEdge,
-  type NexaNode,
+import { EnhancedFlowEditor } from "../../../../src/components/EnhancedFlowEditor";
+import type {
+  NexaEdge,
+  NexaNode,
 } from "../../../../src/components/FlowEditor";
 
 interface FlowDetail {
@@ -104,7 +104,7 @@ export default function FlowEditPage() {
         </button>
       </header>
 
-      <FlowEditor
+      <EnhancedFlowEditor
         initialNodes={initialNodes}
         initialEdges={initialEdges}
         nodeTypes={nodeTypes}

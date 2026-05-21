@@ -874,3 +874,281 @@ export async function extractStructuredData(
   }
   return out;
 }
+
+// ============================================================================
+// Closing out blueprint §6.4 — AI_RECOMMEND, AI_CHURN_PREDICT,
+// AI_ROUTE_BEST_AGENT. Same typed-wrapper pattern; the flow node
+// handlers pull the contextual data and call these helpers.
+// ============================================================================
+
+export interface RecommendInput {
+  /** What the customer wants. Free text. */
+  context: string;
+  /** Catalog the model picks from. Order is irrelevant. */
+  items: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    priceLabel?: string;
+  }>;
+  /** Optional cap on how many to return; default 3. */
+  topK?: number;
+}
+
+export interface RecommendResult {
+  recommendations: Array<{
+    id: string;
+    name: string;
+    reasoning: string;
+  }>;
+}
+
+/**
+ * Rank catalog items by fit for a customer's context. The model can
+ * only return ids that were in the input catalog — out-of-list ids are
+ * filtered (defense in depth, same pattern as classifyIntent).
+ */
+export async function generateRecommendations(
+  tenantId: string,
+  payload: RecommendInput,
+): Promise<RecommendResult> {
+  if (!payload.items?.length) {
+    return { recommendations: [] };
+  }
+  if (!payload.context?.trim()) {
+    return { recommendations: [] };
+  }
+
+  const items = payload.items.slice(0, 60); // bound prompt size
+  const topK = Math.min(Math.max(payload.topK ?? 3, 1), 10);
+  const allowedIds = new Set(items.map((i) => i.id));
+  const catalogLines = items
+    .map(
+      (i) =>
+        `- id=${JSON.stringify(i.id)} name=${JSON.stringify(i.name)}${
+          i.description ? ` desc=${JSON.stringify(i.description.slice(0, 200))}` : ""
+        }${i.priceLabel ? ` price=${JSON.stringify(i.priceLabel)}` : ""}`,
+    )
+    .join("\n");
+
+  const prompt = [
+    "Pick the best matches for the customer from the catalog below.",
+    `Return up to ${topK} items, best-first.`,
+    "Use ONLY ids that appear in the catalog. Never invent new ids.",
+    "If nothing fits, return an empty array.",
+    "",
+    "Catalog:",
+    catalogLines,
+    "",
+    `Customer context: ${JSON.stringify(payload.context.slice(0, 1500))}`,
+    "",
+    'Return JSON: {"recommendations":[{"id":"<from catalog>","name":"<copy from catalog>","reasoning":"one short sentence"}]}',
+  ].join("\n");
+
+  const parsed = await callLlmJson<Partial<RecommendResult>>({
+    tenantId,
+    feature: "flow_recommend",
+    system:
+      "You are a careful recommender. Only choose ids from the provided catalog. Never invent new ids. Output strict JSON.",
+    prompt,
+    maxTokens: 600,
+    temperature: 0.2,
+  });
+
+  type Rec = { id: string; name?: unknown; reasoning?: unknown };
+  const recs = Array.isArray(parsed.recommendations)
+    ? (parsed.recommendations as unknown[])
+        .filter(
+          (r): r is Rec =>
+            !!r && typeof r === "object" && typeof (r as Rec).id === "string",
+        )
+        .filter((r) => allowedIds.has(r.id))
+        .slice(0, topK)
+        .map((r) => {
+          const original = items.find((i) => i.id === r.id);
+          return {
+            id: r.id,
+            // Snap name back to the catalog's value — model can't rename items.
+            name: original?.name ?? "",
+            reasoning:
+              typeof r.reasoning === "string" ? r.reasoning.slice(0, 240) : "",
+          };
+        })
+    : [];
+
+  return { recommendations: recs };
+}
+
+export interface ChurnPredictInput {
+  daysSinceLastInbound: number | null;
+  daysSinceLastOutbound: number | null;
+  totalInboundMessages: number;
+  totalOutboundMessages: number;
+  daysSinceCreated: number;
+  hasOpenLead: boolean;
+  optedOut: boolean;
+}
+
+export interface ChurnPredictResult {
+  /** 0.0–1.0 risk that the contact churns within 30 days. */
+  riskScore: number;
+  /** "low" | "medium" | "high" — derived from riskScore band. */
+  riskBand: "low" | "medium" | "high";
+  reasoning: string;
+}
+
+/**
+ * Estimate the 30-day churn risk from engagement signals. Opted-out
+ * contacts short-circuit to risk=1.0 / band=high without an LLM call;
+ * brand new contacts with no inbound activity short-circuit to medium.
+ */
+export async function predictChurnRisk(
+  tenantId: string,
+  payload: ChurnPredictInput,
+): Promise<ChurnPredictResult> {
+  if (payload.optedOut) {
+    return {
+      riskScore: 1,
+      riskBand: "high",
+      reasoning: "Contact opted out — treat as churned.",
+    };
+  }
+  if (
+    payload.totalInboundMessages === 0 &&
+    payload.daysSinceCreated < 1
+  ) {
+    return {
+      riskScore: 0.4,
+      riskBand: "medium",
+      reasoning: "Brand-new contact with no inbound yet — neutral baseline.",
+    };
+  }
+
+  const prompt = [
+    "Estimate the probability this WhatsApp contact churns (no further engagement) in the next 30 days.",
+    "Use only the signals below. Don't invent facts.",
+    "",
+    `Days since last inbound: ${payload.daysSinceLastInbound ?? "n/a"}`,
+    `Days since last outbound: ${payload.daysSinceLastOutbound ?? "n/a"}`,
+    `Total inbound messages: ${payload.totalInboundMessages}`,
+    `Total outbound messages: ${payload.totalOutboundMessages}`,
+    `Days since contact created: ${payload.daysSinceCreated}`,
+    `Has open lead: ${payload.hasOpenLead ? "yes" : "no"}`,
+    "",
+    'Return JSON: {"riskScore":0.0,"reasoning":"one short sentence"}',
+    'Hint: riskScore <= 0.33 = low, <= 0.66 = medium, > 0.66 = high.',
+  ].join("\n");
+
+  const parsed = await callLlmJson<Partial<ChurnPredictResult>>({
+    tenantId,
+    feature: "flow_churn_predict",
+    system:
+      "You are a churn-risk estimator. Use only the provided signals. Never invent facts. Output strict JSON.",
+    prompt,
+    maxTokens: 250,
+    temperature: 0,
+  });
+
+  const riskScore =
+    typeof parsed.riskScore === "number" &&
+    parsed.riskScore >= 0 &&
+    parsed.riskScore <= 1
+      ? parsed.riskScore
+      : 0;
+  const riskBand: ChurnPredictResult["riskBand"] =
+    riskScore > 0.66 ? "high" : riskScore > 0.33 ? "medium" : "low";
+  const reasoning =
+    typeof parsed.reasoning === "string" ? parsed.reasoning.slice(0, 240) : "";
+  return { riskScore, riskBand, reasoning };
+}
+
+export interface AgentCandidate {
+  id: string;
+  name: string;
+  skills?: string[];
+  activeConversations?: number;
+  languages?: string[];
+}
+
+export interface RouteAgentInput {
+  ticketText: string;
+  agents: AgentCandidate[];
+  /** Optional hint, e.g. "prefer Hindi speakers". */
+  preferences?: string;
+}
+
+export interface RouteAgentResult {
+  agentId: string | null;
+  reasoning: string;
+}
+
+/**
+ * Pick the best agent for a ticket from the candidate set. The model
+ * can only return an id that was in the input. When nothing fits or the
+ * set is empty we return null so the route can fall back to the
+ * round-robin agent picker.
+ */
+export async function routeBestAgent(
+  tenantId: string,
+  payload: RouteAgentInput,
+): Promise<RouteAgentResult> {
+  if (!payload.agents?.length) {
+    return { agentId: null, reasoning: "No candidate agents." };
+  }
+  if (!payload.ticketText?.trim()) {
+    return { agentId: null, reasoning: "Empty ticket text." };
+  }
+
+  const agents = payload.agents.slice(0, 50);
+  const allowedIds = new Set(agents.map((a) => a.id));
+  const agentLines = agents
+    .map((a) =>
+      [
+        `id=${JSON.stringify(a.id)}`,
+        `name=${JSON.stringify(a.name)}`,
+        a.skills?.length ? `skills=${JSON.stringify(a.skills.join(","))}` : "",
+        a.languages?.length ? `languages=${JSON.stringify(a.languages.join(","))}` : "",
+        typeof a.activeConversations === "number"
+          ? `active=${a.activeConversations}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    )
+    .join("\n");
+
+  const prompt = [
+    "Pick exactly one agent to handle this ticket.",
+    "Use ONLY ids that appear below. Never invent new ids.",
+    "Prefer agents whose skills/languages match the ticket. Break ties by lowest active load.",
+    payload.preferences ? `Preferences: ${payload.preferences}` : "",
+    "",
+    "Agents:",
+    agentLines,
+    "",
+    `Ticket: ${JSON.stringify(payload.ticketText.slice(0, 2000))}`,
+    "",
+    'Return JSON: {"agentId":"<from list>","reasoning":"one short sentence"}',
+    'If nothing fits, return {"agentId":null,"reasoning":"..."}.',
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const parsed = await callLlmJson<Partial<RouteAgentResult>>({
+    tenantId,
+    feature: "flow_route_best_agent",
+    system:
+      "You are a careful ticket-routing engine. Only choose agent ids from the provided list. Never invent ids. Output strict JSON.",
+    prompt,
+    maxTokens: 200,
+    temperature: 0,
+  });
+
+  const agentId =
+    typeof parsed.agentId === "string" && allowedIds.has(parsed.agentId)
+      ? parsed.agentId
+      : null;
+  const reasoning =
+    typeof parsed.reasoning === "string" ? parsed.reasoning.slice(0, 240) : "";
+  return { agentId, reasoning };
+}

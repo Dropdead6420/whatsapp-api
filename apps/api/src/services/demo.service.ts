@@ -339,69 +339,59 @@ async function seedDemoData(
   tx: any, // Prisma transaction client
   tenantId: string
 ): Promise<void> {
-  // 1. Create sample contacts
+  // 1. Create sample contacts. Schema uses `name` (single field), `tags`
+  //    (string[] used as a soft taxonomy), and `lifecycleStage` enum.
+  //    There's no `source` column — using a "demo" tag instead so the
+  //    demo data is filterable from the inbox.
   const sampleContacts = [
-    {
-      tenantId,
-      firstName: "Alice",
-      lastName: "Johnson",
-      email: "alice@example.com",
-      phoneNumber: "+14155552671",
-      source: "DEMO",
-    },
-    {
-      tenantId,
-      firstName: "Bob",
-      lastName: "Smith",
-      email: "bob@example.com",
-      phoneNumber: "+14155552672",
-      source: "DEMO",
-    },
-    {
-      tenantId,
-      firstName: "Charlie",
-      lastName: "Brown",
-      email: "charlie@example.com",
-      phoneNumber: "+14155552673",
-      source: "DEMO",
-    },
-    {
-      tenantId,
-      firstName: "Diana",
-      lastName: "Prince",
-      email: "diana@example.com",
-      phoneNumber: "+14155552674",
-      source: "DEMO",
-    },
-    {
-      tenantId,
-      firstName: "Eve",
-      lastName: "Wilson",
-      email: "eve@example.com",
-      phoneNumber: "+14155552675",
-      source: "DEMO",
-    },
-  ];
+    { name: "Alice Johnson", phoneNumber: "+14155552671", email: "alice@example.com" },
+    { name: "Bob Smith", phoneNumber: "+14155552672", email: "bob@example.com" },
+    { name: "Charlie Brown", phoneNumber: "+14155552673", email: "charlie@example.com" },
+    { name: "Diana Prince", phoneNumber: "+14155552674", email: "diana@example.com" },
+    { name: "Eve Wilson", phoneNumber: "+14155552675", email: "eve@example.com" },
+  ].map((c) => ({
+    tenantId,
+    ...c,
+    tags: ["demo"],
+    lifecycleStage: "LEAD" as const,
+  }));
 
   await tx.contact.createMany({ data: sampleContacts });
 
-  // 2. Create sample template
-  await tx.whatsAppTemplate.create({
+  // We need the first contact's id for the sample Lead (Lead.contactId is
+  // a required FK). createMany doesn't return ids, so look it up by
+  // the unique (tenantId, phoneNumber) we just inserted.
+  const firstContact = await tx.contact.findUnique({
+    where: {
+      tenantId_phoneNumber: {
+        tenantId,
+        phoneNumber: sampleContacts[0].phoneNumber,
+      },
+    },
+    select: { id: true },
+  });
+
+  // 2. Create sample template. Schema field is `bodyText`, not `body`.
+  //    Status starts APPROVED for demos so the campaign UI shows it as
+  //    sendable. Category is a free-text string ("MARKETING"/"OTP"/
+  //    "ACCOUNT_UPDATE" per schema comment).
+  const template = await tx.whatsAppTemplate.create({
     data: {
       tenantId,
       name: "Welcome Message",
-      body: "Hello {{name}}, welcome to our demo! 👋",
-      status: "APPROVED",
-      headerFormat: "TEXT",
-      headerText: "Welcome",
-      footerText: "Demo Message",
-      language: "en",
       category: "MARKETING",
-      source: "DEMO",
+      language: "en",
+      headerText: "Welcome",
+      bodyText: "Hello {{name}}, welcome to our demo! 👋",
+      footerText: "Demo Message",
+      status: "APPROVED",
     },
   });
 
-  // 3. Create sample campaign
+  // 3. Create sample campaign. Schema requires `templateId` (FK to the
+  //    template we just created), `type` (CampaignType enum), and
+  //    `targetContacts` as a JSON STRING (not an array). No `createdBy`
+  //    column.
   await tx.campaign.create({
     data: {
       tenantId,
@@ -409,24 +399,25 @@ async function seedDemoData(
       description: "Sample campaign for demonstration",
       type: "BROADCAST",
       status: "DRAFT",
-      createdBy: "demo",
-      targetList: [],
-      messageTemplate: "Welcome Message",
+      templateId: template.id,
+      targetContacts: JSON.stringify({ tags: ["demo"] }),
     },
   });
 
-  // 4. Create sample lead
-  await tx.lead.create({
-    data: {
-      tenantId,
-      firstName: "Sample Lead",
-      email: "lead@example.com",
-      phoneNumber: "+14155552680",
-      status: LeadStatus.NEW,
-      source: "DEMO",
-      assignedTeamId: null,
-    },
-  });
+  // 4. Create sample lead. Schema requires `contactId` + `title`;
+  //    `firstName`/`email`/`phoneNumber` live on the related Contact,
+  //    not on Lead itself. `assigneeId`/`teamId` are optional.
+  if (firstContact) {
+    await tx.lead.create({
+      data: {
+        tenantId,
+        contactId: firstContact.id,
+        title: "Sample demo lead",
+        description: "Pre-seeded lead so partner demos show a populated pipeline.",
+        status: LeadStatus.NEW,
+      },
+    });
+  }
 }
 
 /**

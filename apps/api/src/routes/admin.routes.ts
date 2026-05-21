@@ -12,6 +12,7 @@ import { requireRole } from "../middleware/rbac";
 import { pingRedis } from "../lib/redis";
 import {
   getAppointmentQueue,
+  getAnalyticsReportQueue,
   getCampaignQueue,
   getFlowQueue,
   getLeadFollowUpQueue,
@@ -95,6 +96,7 @@ function getManagedQueues() {
     getWebhookQueue(),
     getLeadFollowUpQueue(),
     getWabaTokenExpiryQueue(),
+    getAnalyticsReportQueue(),
   ];
 }
 

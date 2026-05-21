@@ -399,3 +399,27 @@ Format:
   - 9 new unit tests cover the helpers directly with the Anthropic SDK mocked: intent snap-to-unknown, in-list passthrough, empty-input short-circuit, intents-required validation, summary bullet capping + non-string filtering, value coercion (numbers stay numbers, nested objects → JSON string, nulls preserved), empty-text + empty-fields short-circuits. 71/71 backend tests green.
   - The 5 supporting handlers Codex shipped (`AI_TRANSLATE`, `AI_COMPLIANCE_CHECK`, `WAIT_FOR_REPLY`, `SWITCH`, `FILTER`) keep their existing inline implementations — they're either too simple to need typed helpers (translate / compliance) or have no AI surface at all (wait / switch / filter).
   - **Still deferred** from blueprint §6.4: `AI_RECOMMEND`, `AI_CHURN_PREDICT`, `AI_ROUTE_BEST_AGENT`. They each need real data inputs (purchase history, behavioral features, agent skill matrix) that we don't yet wire through the flow ctx — separate slices.
+
+---
+
+## ADR-026 — Knowledge Base: plain CRUD now, embeddings + retrieval as later slices
+
+- **Date**: 2026-05-21
+- **Status**: Accepted; T-051 slice 1 (blueprint §6.5)
+- **Context**: AI replies need to ground against per-tenant content — FAQs, service descriptions, hours, policies — not just the generic Claude prior. Two big risks if we ship everything at once: (a) the embeddings layer (chunking strategy, vector store choice, refresh job) makes the surface area unreviewable; (b) the retrieval helper changes prompt shape for AI_RESPONSE / AI_RECOMMEND, which would mask any bugs in the schema and CRUD. Three small slices beat one big bang.
+- **Decision**:
+  - **Slice 1 (this commit)**: pure CRUD + lifecycle. `KnowledgeBaseEntry` model with tenantId/title/content/summary/category/tags/source/status. Status enum is `DRAFT | PUBLISHED | ARCHIVED` — only `PUBLISHED` will be visible to the retrieval helper when slice 3 lands. New `KNOWLEDGE_BASE_MANAGE` permission so partners can scope KB editing to a sub-role without granting WABA / billing access.
+  - **Slice 2 (next)**: `embeddingVector` + `lastEmbeddedAt` + `embeddingModel` columns, batch embedder using Anthropic's embedding endpoint (or fall back to OpenAI), background job to embed on create/update.
+  - **Slice 3**: retrieval helper `retrieveRelevantEntries(tenantId, query, k=4)` + a new `AI_ANSWER_FROM_KB` flow node + integration into `AI_RESPONSE` to ground replies.
+  - **Schema choices**:
+    - `content` is a plain `String` (Prisma `Text` in Postgres). Slice 2 will chunk it on the fly for embedding; the raw text stays canonical.
+    - `tags` is `String[]` with server-side normalization (lowercase, trim, dedupe, max 20). Tag-based filtering is the simplest retrieval fallback if embeddings ever fail.
+    - `category` is an enum because the values are stable + frontend-rendered (UI filter chips); tags are open-ended.
+    - Status transitions are explicit (`/publish`, `/archive`, `/restore`) — `PATCH` never changes status, so an editor can update content on a published entry without an accidental demotion.
+  - **Validation lives in the service**, not just the route's Zod schema. The route is a transport layer; the service guards the same invariants when called from a future seeder / importer.
+  - **Idempotent lifecycle**: re-publishing a `PUBLISHED` entry or re-archiving an `ARCHIVED` one returns the row unchanged without an UPDATE call. Restore is the only way `ARCHIVED → PUBLISHED`; you can't republish directly (forces a content re-review).
+- **Consequences**:
+  - **22 new unit tests** cover the tenant-scoping rules (404 on cross-tenant access via `findFirst({where:{id, tenantId}})`), validation (title required, content size cap, unknown category, malformed URL), tag normalization, lifecycle transitions (DRAFT → PUBLISHED, idempotency, ARCHIVED → restore-required), and the empty-PATCH no-op. 124/124 total tests passing.
+  - Live verified: `GET /api/v1/knowledge-base` is gated by `requireAuth + requireTenantScope + requirePermission(KNOWLEDGE_BASE_MANAGE)` (401 unauth confirmed; 200 + create both work with an admin token).
+  - **Multi-tenant safety**: every public method (`getEntry`, `updateEntry`, `publishEntry`, `archiveEntry`, `restoreEntryToDraft`, `deleteEntry`) calls the shared `findScoped(tenantId, id)` helper before mutating — same fetch-then-mutate pattern as the rest of the codebase. Cross-tenant access returns 404, never the actual row.
+  - **Indexes**: `(tenantId, status)` + `(tenantId, category)` cover the two common list queries; full-text search uses `contains` for now and will switch to OpenSearch when T-112 lands.

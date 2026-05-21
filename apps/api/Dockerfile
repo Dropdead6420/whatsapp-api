@@ -45,7 +45,7 @@ RUN cd packages/db && npx tsc
 RUN cd apps/api && npx tsc
 
 # -----------------------------------------------------------------------------
-# runtime — slim image with prod deps + compiled dist
+# runtime — dev/runtime image with compiled packages + API source
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS runtime
 WORKDIR /app
@@ -64,7 +64,8 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=build --chown=nexaflow:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=nexaflow:nodejs /app/package.json ./package.json
 COPY --from=build --chown=nexaflow:nodejs /app/packages ./packages
-COPY --from=build --chown=nexaflow:nodejs /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=nexaflow:nodejs /app/apps/api/src ./apps/api/src
+COPY --from=build --chown=nexaflow:nodejs /app/apps/api/tsconfig.json ./apps/api/tsconfig.json
 COPY --from=build --chown=nexaflow:nodejs /app/apps/api/package.json ./apps/api/package.json
 
 USER nexaflow
@@ -73,6 +74,8 @@ EXPOSE 3001
 
 # Basic healthcheck against the public health endpoint.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget --quiet --spider http://localhost:3001/api/v1/health || exit 1
+  CMD wget --quiet --spider http://127.0.0.1:3001/api/v1/health || exit 1
 
-CMD ["node", "apps/api/dist/index.js"]
+# The API currently uses extensionless ESM imports that are valid through
+# tsx/bundler resolution but not through plain `node dist/*.js`.
+CMD ["./node_modules/.bin/tsx", "apps/api/src/index.ts"]

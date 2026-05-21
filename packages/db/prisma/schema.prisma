@@ -128,6 +128,8 @@ model Tenant {
   webhooks                 Webhook[]
   auditLogs                AuditLog[]
   aiUsage                  AiUsage[]
+  analyticsReports         AnalyticsReport[]
+  knowledgeBaseEntries     KnowledgeBaseEntry[]
   invoices                 Invoice[]
   wallet                   Wallet?
   walletTransactions       WalletTransaction[] @relation("TenantWalletTransactions")
@@ -267,6 +269,7 @@ model User {
   leads                    Lead[]           @relation("LeadAssignee")
   apiKeys                  ApiKey[]
   auditLogs                AuditLog[]
+  analyticsReports         AnalyticsReport[] @relation("AnalyticsReportCreator")
   walletTransactions       WalletTransaction[]
   oauthAccounts            OAuthAccount[]
 
@@ -1001,6 +1004,48 @@ model AiUsage {
   @@index([createdAt])
 }
 
+enum AnalyticsReportType {
+  CAMPAIGN_PERFORMANCE
+  LEAD_FUNNEL
+  CONTACT_GROWTH
+  AI_USAGE
+}
+
+enum AnalyticsReportFrequency {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model AnalyticsReport {
+  id                       String                   @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdById              String?
+  createdBy                User?                    @relation("AnalyticsReportCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  name                     String
+  type                     AnalyticsReportType
+  frequency                AnalyticsReportFrequency @default(NONE)
+  recipients               String[]                 @default([])
+  filters                  String?                  // JSON: { rangeDays, timezone, ... }
+
+  lastRunAt                DateTime?
+  nextRunAt                DateTime?
+  lastDeliveryStatus       String?
+  lastDeliveryError        String?
+
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+
+  @@index([tenantId])
+  @@index([type])
+  @@index([frequency])
+  @@index([nextRunAt])
+}
+
 // ============================================================================
 // AUDIT & SECURITY
 // ============================================================================
@@ -1224,12 +1269,70 @@ model DemoTenant {
   expiresAt          DateTime    // When demo should be auto-deleted
   renewalCount       Int         @default(0) // How many times renewed (max 2)
   lastRenewedAt      DateTime?   // When renewal last happened
-  
+
   sampleDataSeeded   Boolean     @default(false) // Tracks if sample data was created
-  
+
   createdAt          DateTime    @default(now())
-  
+
   @@index([createdByPartnerId])
   @@index([expiresAt])
   @@index([tenantId])
+}
+
+// ============================================================================
+// KNOWLEDGE BASE (T-051 slice 1)
+// ============================================================================
+//
+// Tenant-scoped knowledge entries. Slice 1 is plain CRUD — no embeddings,
+// no retrieval. Slice 2 adds embeddingVector + lastEmbeddedAt + a batch
+// embedder. Slice 3 adds a retrieval helper + a new AI_ANSWER_FROM_KB
+// flow node that grounds replies against published entries.
+
+enum KnowledgeBaseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum KnowledgeBaseCategory {
+  FAQ
+  SERVICE
+  PRODUCT
+  POLICY
+  HOURS
+  LOCATION
+  OTHER
+}
+
+model KnowledgeBaseEntry {
+  id           String                @id @default(cuid())
+  tenantId     String
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  title        String
+  // The actual knowledge text. Plain string for now — slice 2 chunks
+  // it before embedding. No JSON shape because every consumer wants the
+  // raw content.
+  content      String
+  // Optional short summary the model can use as a quick context line
+  // without loading the full content.
+  summary      String?
+  category     KnowledgeBaseCategory @default(FAQ)
+  tags         String[]              @default([])
+
+  // Provenance — where this came from.
+  source       String?               // "manual" | "url" | "file" | "import"
+  sourceUrl    String?               // when scraped from a URL
+
+  // Lifecycle. DRAFT → PUBLISHED → ARCHIVED. Only PUBLISHED entries are
+  // visible to the retrieval helper in slice 3.
+  status       KnowledgeBaseStatus   @default(DRAFT)
+  publishedAt  DateTime?
+  archivedAt   DateTime?
+
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, category])
 }

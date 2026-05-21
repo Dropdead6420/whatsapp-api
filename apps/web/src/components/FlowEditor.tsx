@@ -48,7 +48,7 @@ export interface NexaEdge {
   label?: string;
 }
 
-interface NodeTypeMeta {
+export interface NodeTypeMeta {
   type: string;
   label: string;
 }
@@ -84,6 +84,9 @@ const NODE_PILL_STYLES: Record<string, string> = {
   AI_EXTRACT_DATA: "bg-violet-500 text-white",
   AI_TRANSLATE: "bg-violet-500 text-white",
   AI_COMPLIANCE_CHECK: "bg-red-600 text-white",
+  AI_RECOMMEND: "bg-fuchsia-600 text-white",
+  AI_CHURN_PREDICT: "bg-amber-700 text-white",
+  AI_ROUTE_BEST_AGENT: "bg-sky-700 text-white",
 };
 
 function NexaNodeCard({
@@ -386,8 +389,22 @@ export function FlowEditor({
                                   }
                                 : type === "AI_COMPLIANCE_CHECK"
                                   ? { text: "{{aiSuggestion}}" }
-                                  : type === "WAIT_FOR_REPLY"
-                                    ? {}
+                                  : type === "AI_RECOMMEND"
+                                    ? {
+                                        context: "{{triggerText}}",
+                                        topK: 3,
+                                        outputVar: "aiRecommendations",
+                                      }
+                                    : type === "AI_CHURN_PREDICT"
+                                      ? { outputVar: "churnRisk" }
+                                      : type === "AI_ROUTE_BEST_AGENT"
+                                        ? {
+                                            ticketText: "{{triggerText}}",
+                                            preferences: "",
+                                            outputVar: "routedAgentId",
+                                          }
+                                        : type === "WAIT_FOR_REPLY"
+                                          ? {}
                                     : type === "SWITCH"
                                       ? {
                                           field: "triggerText",

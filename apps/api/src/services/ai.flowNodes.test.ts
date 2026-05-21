@@ -198,4 +198,147 @@ describe("ai.service AI flow-node helpers", () => {
       message: /at least one field/,
     });
   });
+
+  // -- generateRecommendations -----------------------------------------------
+
+  it("generateRecommendations: filters out ids not in the catalog (no inventing)", async () => {
+    mocks.create.mockResolvedValue(
+      jsonContent({
+        recommendations: [
+          { id: "service_haircut", name: "ignored", reasoning: "fits" },
+          { id: "service_INVENTED", name: "x", reasoning: "fits" }, // not in catalog
+          { id: "service_color", name: "y", reasoning: "fits" },
+        ],
+      }),
+    );
+    const { generateRecommendations } = await import("./ai.service");
+    const result = await generateRecommendations("t_1", {
+      context: "I want a haircut and color",
+      items: [
+        { id: "service_haircut", name: "Haircut" },
+        { id: "service_color", name: "Hair Coloring" },
+        { id: "service_massage", name: "Massage" },
+      ],
+    });
+    expect(result.recommendations).toHaveLength(2);
+    expect(result.recommendations.map((r) => r.id)).toEqual([
+      "service_haircut",
+      "service_color",
+    ]);
+    // Snap-to-catalog: name comes from the original item, not the model.
+    expect(result.recommendations[0].name).toBe("Haircut");
+  });
+
+  it("generateRecommendations: empty catalog or empty context short-circuits", async () => {
+    const { generateRecommendations } = await import("./ai.service");
+    const a = await generateRecommendations("t_1", {
+      context: "anything",
+      items: [],
+    });
+    const b = await generateRecommendations("t_1", {
+      context: "",
+      items: [{ id: "x", name: "X" }],
+    });
+    expect(a.recommendations).toEqual([]);
+    expect(b.recommendations).toEqual([]);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  // -- predictChurnRisk -----------------------------------------------------
+
+  it("predictChurnRisk: opted-out short-circuits to high without LLM", async () => {
+    const { predictChurnRisk } = await import("./ai.service");
+    const result = await predictChurnRisk("t_1", {
+      daysSinceLastInbound: 10,
+      daysSinceLastOutbound: 5,
+      totalInboundMessages: 3,
+      totalOutboundMessages: 5,
+      daysSinceCreated: 60,
+      hasOpenLead: false,
+      optedOut: true,
+    });
+    expect(result.riskScore).toBe(1);
+    expect(result.riskBand).toBe("high");
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("predictChurnRisk: brand-new contact short-circuits to medium baseline", async () => {
+    const { predictChurnRisk } = await import("./ai.service");
+    const result = await predictChurnRisk("t_1", {
+      daysSinceLastInbound: null,
+      daysSinceLastOutbound: null,
+      totalInboundMessages: 0,
+      totalOutboundMessages: 0,
+      daysSinceCreated: 0,
+      hasOpenLead: false,
+      optedOut: false,
+    });
+    expect(result.riskBand).toBe("medium");
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("predictChurnRisk: derives band from score correctly", async () => {
+    mocks.create.mockResolvedValue(
+      jsonContent({ riskScore: 0.8, reasoning: "Long silence, no open lead." }),
+    );
+    const { predictChurnRisk } = await import("./ai.service");
+    const result = await predictChurnRisk("t_1", {
+      daysSinceLastInbound: 45,
+      daysSinceLastOutbound: 30,
+      totalInboundMessages: 2,
+      totalOutboundMessages: 4,
+      daysSinceCreated: 120,
+      hasOpenLead: false,
+      optedOut: false,
+    });
+    expect(result.riskScore).toBe(0.8);
+    expect(result.riskBand).toBe("high");
+  });
+
+  // -- routeBestAgent --------------------------------------------------------
+
+  it("routeBestAgent: returns null when model picks an unknown agent id", async () => {
+    mocks.create.mockResolvedValue(
+      jsonContent({
+        agentId: "user_ghost", // not in input list
+        reasoning: "made-up",
+      }),
+    );
+    const { routeBestAgent } = await import("./ai.service");
+    const result = await routeBestAgent("t_1", {
+      ticketText: "billing issue",
+      agents: [
+        { id: "user_a", name: "Alice" },
+        { id: "user_b", name: "Bob" },
+      ],
+    });
+    expect(result.agentId).toBeNull();
+  });
+
+  it("routeBestAgent: short-circuits to null when no candidates", async () => {
+    const { routeBestAgent } = await import("./ai.service");
+    const a = await routeBestAgent("t_1", { ticketText: "anything", agents: [] });
+    const b = await routeBestAgent("t_1", {
+      ticketText: "",
+      agents: [{ id: "u_1", name: "X" }],
+    });
+    expect(a.agentId).toBeNull();
+    expect(b.agentId).toBeNull();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("routeBestAgent: accepts a valid agent id from the list", async () => {
+    mocks.create.mockResolvedValue(
+      jsonContent({ agentId: "user_b", reasoning: "Bob handles billing." }),
+    );
+    const { routeBestAgent } = await import("./ai.service");
+    const result = await routeBestAgent("t_1", {
+      ticketText: "I have a billing issue.",
+      agents: [
+        { id: "user_a", name: "Alice", skills: ["sales"] },
+        { id: "user_b", name: "Bob", skills: ["billing"] },
+      ],
+    });
+    expect(result.agentId).toBe("user_b");
+  });
 });

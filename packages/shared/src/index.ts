@@ -412,6 +412,21 @@ export enum SubscriptionStatus {
   EXPIRED = "EXPIRED",
 }
 
+// Scheduled analytics reports (Codex Phase 5+ — analyticsReport.service).
+export enum AnalyticsReportType {
+  CAMPAIGN_PERFORMANCE = "CAMPAIGN_PERFORMANCE",
+  LEAD_FUNNEL = "LEAD_FUNNEL",
+  CONTACT_GROWTH = "CONTACT_GROWTH",
+  AI_USAGE = "AI_USAGE",
+}
+
+export enum AnalyticsReportFrequency {
+  NONE = "NONE",
+  DAILY = "DAILY",
+  WEEKLY = "WEEKLY",
+  MONTHLY = "MONTHLY",
+}
+
 export interface Subscription {
   id: string;
   tenantId: string;
@@ -514,6 +529,7 @@ export const Permissions = {
   WABA_CONFIGURE: "waba:configure",
   API_KEYS_MANAGE: "api_keys:manage",
   PROVIDER_ROUTE_MANAGE: "provider_route:manage",
+  KNOWLEDGE_BASE_MANAGE: "knowledge_base:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
