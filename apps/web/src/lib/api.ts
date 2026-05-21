@@ -158,6 +158,14 @@ export async function requestPasswordReset(email: string): Promise<void> {
   );
 }
 
+export async function resendVerification(email: string): Promise<{ message: string }> {
+  return api.post<{ message: string }>(
+    "/api/v1/auth/resend-verification",
+    { email },
+    { auth: false },
+  );
+}
+
 export async function resetPassword(token: string, newPassword: string): Promise<void> {
   await api.post(
     "/api/v1/auth/reset-password",
