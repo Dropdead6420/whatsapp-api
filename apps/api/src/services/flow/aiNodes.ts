@@ -6,6 +6,14 @@ import {
   runTenantLlmJson,
   summarizeConversation,
 } from "../ai.service";
+import {
+  runAgent,
+  AgentConversationMessage,
+} from "../aiAgentRunner.service";
+import {
+  dispatchAgentTool,
+  ToolDispatchResult,
+} from "../aiAgentTool.service";
 import { FlowNode, NodeHandler, NodeRunResult } from "./types";
 
 function getConfig<T>(node: FlowNode, key: string, fallback?: T): T {
@@ -360,6 +368,134 @@ const aiRouteBestAgentHandler: NodeHandler = {
   },
 };
 
+// ----------------------------------------------------------------------------
+// AI_AGENT (T-052 slice 3) — runs a configured AiAgent against the live
+// conversation. Writes the reply to a flow variable (default `aiAgentReply`)
+// so a downstream MESSAGE node can send it. Dispatches the model's tool
+// calls through `dispatchAgentTool` and writes their outcomes to
+// `aiAgentToolResults`. Routes on the runner's `reason`:
+//
+//   ok                          -> node.next
+//   fallback_no_active_agent    -> node.branches.escalated || node.next
+//   fallback_no_llm_configured  -> node.branches.escalated || node.next
+//   fallback_llm_error          -> node.branches.escalated || node.next
+//   fallback_empty_user_message -> node.next  (nothing to escalate about)
+//
+// Tools are NOT sent over WhatsApp here — the agent's text reply is what
+// the customer sees. Tools mutate CRM state (CREATE_LEAD, ADD_TAG, etc.)
+// or hand off to existing flow nodes (SEND_TEMPLATE). Operators wire
+// AI_AGENT -> MESSAGE to send the reply.
+// ----------------------------------------------------------------------------
+const aiAgentHandler: NodeHandler = {
+  type: "AI_AGENT",
+  label: "Run AI agent",
+  async run(node, ctx): Promise<NodeRunResult> {
+    const agentId = getConfig<string>(node, "agentId", "");
+    if (!agentId) {
+      return {
+        nextNodeId: node.next ?? null,
+        trail: { skipped: "AI_AGENT missing agentId in config" },
+      };
+    }
+    const replyVar = getConfig<string>(node, "replyVar", "aiAgentReply");
+    const toolResultsVar = getConfig<string>(
+      node,
+      "toolResultsVar",
+      "aiAgentToolResults",
+    );
+    const reasonVar = getConfig<string>(node, "reasonVar", "aiAgentReason");
+
+    // Build the conversation snapshot from the live conversation, fall
+    // back to triggerText if no conversation is in scope.
+    let conversation: AgentConversationMessage[] = [];
+    if (ctx.conversationId) {
+      const rows = await prisma.message.findMany({
+        where: { conversationId: ctx.conversationId },
+        orderBy: { createdAt: "desc" },
+        take: getConfig<number>(node, "historyLookback", 12),
+        select: { direction: true, content: true },
+      });
+      conversation = rows.reverse().map((m) => ({
+        role: m.direction === "INBOUND" ? "user" : "assistant",
+        content: m.content,
+      }));
+    } else if (ctx.triggerText) {
+      conversation = [{ role: "user", content: ctx.triggerText }];
+    }
+
+    if (conversation.length === 0) {
+      return {
+        nextNodeId: node.next ?? null,
+        vars: { [reasonVar]: "fallback_empty_user_message" },
+        trail: { skipped: "no conversation messages" },
+      };
+    }
+
+    const result = await runAgent({
+      tenantId: ctx.tenantId,
+      agentId,
+      conversation,
+      context:
+        getConfig<Record<string, string> | undefined>(node, "context", undefined) ??
+        undefined,
+    });
+
+    const toolResults: ToolDispatchResult[] = [];
+    if (result.toolCalls.length > 0) {
+      // Dispatch each tool call sequentially. The agent.tools allowlist
+      // already filtered the runner's output; the dispatcher re-checks
+      // (defense-in-depth) so a custom caller can't bypass it. We pass
+      // an allowlist derived from the tool calls themselves — every
+      // call that reaches here was already validated by the runner.
+      const allowedTools = Array.from(
+        new Set(result.toolCalls.map((tc) => tc.tool)),
+      );
+      for (const call of result.toolCalls) {
+        const r = await dispatchAgentTool(
+          {
+            tenantId: ctx.tenantId,
+            contactId: ctx.contactId,
+            conversationId: ctx.conversationId,
+            allowedTools,
+          },
+          { tool: call.tool, arguments: call.arguments },
+        );
+        toolResults.push(r);
+      }
+    }
+
+    const escalateBranch =
+      node.branches?.escalated ?? node.branches?.fallback ?? node.next ?? null;
+    const nextNodeId = result.escalated ? escalateBranch : node.next ?? null;
+
+    return {
+      nextNodeId,
+      vars: {
+        [replyVar]: result.reply ?? "",
+        [toolResultsVar]: toolResults,
+        [reasonVar]: result.reason,
+        aiAgentEscalated: result.escalated,
+        aiAgentEscalationBehavior: result.escalationBehavior,
+        aiAgentCitations: result.citations,
+        aiAgentProviderUsed: result.providerUsed,
+        aiAgentModelUsed: result.modelUsed,
+      },
+      trail: {
+        reason: result.reason,
+        escalated: result.escalated,
+        toolCalls: toolResults.map((r) => ({
+          tool: r.tool,
+          ok: r.ok,
+          ...(r.ok ? {} : { error: r.error }),
+        })),
+        citations: result.citations.length,
+        provider: result.providerUsed,
+        model: result.modelUsed,
+      },
+    };
+  },
+};
+
 export const aiFlowNodeHandlers: Record<string, NodeHandler> = {
   AI_CLASSIFY_INTENT: aiClassifyIntentHandler,
   AI_SUMMARIZE: aiSummarizeHandler,
@@ -369,6 +505,7 @@ export const aiFlowNodeHandlers: Record<string, NodeHandler> = {
   AI_RECOMMEND: aiRecommendHandler,
   AI_CHURN_PREDICT: aiChurnPredictHandler,
   AI_ROUTE_BEST_AGENT: aiRouteBestAgentHandler,
+  AI_AGENT: aiAgentHandler,
   WAIT_FOR_REPLY: waitForReplyHandler,
   SWITCH: switchHandler,
   FILTER: filterHandler,
