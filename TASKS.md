@@ -20,7 +20,13 @@ _(none)_
 
 ## Next up
 
-### T-051 — AI Knowledge Base (next P1 AI slice)
+### T-052 — AI Agent Builder (slice 2: runtime)
+- Slice 1 (schema + service + CRUD API + RBAC) shipped 2026-05-23 (ADR-025).
+- Slice 2: `aiAgentRunner.service.ts` — `{tenantId, agentId, conversation} → {reply, toolCalls?, escalated?}`. Grounds against KB via `retrieveKnowledge`. Wallet-billed.
+- Slice 3: `AI_AGENT` flow node + inbound-routing fallback so unhandled DMs auto-dispatch to a tenant's default agent.
+
+### T-051 — AI Knowledge Base ✅ shipped (slice 1 + embedding/retrieval)
+- Slice 1 (CRUD + lifecycle) shipped 2026-05-22; embedding + retrieval landed in the same release (`knowledgeBaseEmbedding.service.ts`).
 - Schema `KnowledgeBase` + CRUD API + RAG hook for AI agents
 
 ### T-060 — Event-driven flow triggers ✅ shipped (2026-05-20)
@@ -142,6 +148,8 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-052 AI Agent Builder slice 1** — `AiAgent` Prisma model (status DRAFT/ACTIVE/DISABLED/ARCHIVED, fallback ESCALATE/SEND_TEMPLATE/SILENT), `aiAgent.service.ts` with provider+model allowlist enforced at write-time, `/api/v1/ai-agents` CRUD + lifecycle endpoints (publish/disable/archive/delete) behind `aiAgents` feature flag + new `AI_AGENT_MANAGE` permission. KB-scope is a JSON column (no join table for 1–4 agents × ~30 entries). 15 new service tests; 16/16 files, 92/92 tests green. See ADR-025.
+- ✅ **T-051 AI Knowledge Base** — schema (KnowledgeBaseEntry + category/status enums), CRUD + lifecycle service, `/api/v1/knowledge-base` routes, `KNOWLEDGE_BASE_MANAGE` permission, `knowledgeBase` feature flag, `/knowledge-base` dashboard page. Embedding service (`knowledgeBaseEmbedding.service.ts`) with OpenAI + local-hash fallback, BullMQ worker, retrieval helper wired into AI nodes for grounding. SSRF guard utility shared between webhook nodes + future KB ingest URLs.
 - ✅ **T-011 SSRF guard** for flow WEBHOOK nodes — blocks private IPs, localhost, metadata hosts; DNS verify with timeout.
 - ✅ **T-060b Flow trigger UI** — dropdown + keyword/tag editor on `/flows` detail panel.
 - ✅ **T-050b AI workflow nodes** — `AI_RECOMMEND`, `AI_CHURN_PREDICT`, `AI_ROUTE_BEST_AGENT`.

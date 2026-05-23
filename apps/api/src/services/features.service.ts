@@ -21,6 +21,7 @@ export type FeatureKey =
   | "leadScoring"     // AI lead scoring (/api/v1/ai/score-contact)
   | "followUpRecommendations" // AI follow-up recommendations on leads
   | "knowledgeBase"  // Tenant AI knowledge base + retrieval
+  | "aiAgents"       // AI Agent Builder (T-052) — configurable agents that auto-handle conversations
   | "replySuggest"    // AI reply suggestions (/api/v1/ai/reply-suggestions)
   | "sentiment"       // AI sentiment (/api/v1/ai/sentiment)
   | "autopilot"       // Campaign autopilot (/api/v1/ai/autopilot/*)
@@ -37,6 +38,7 @@ export const ALL_FEATURES: FeatureKey[] = [
   "leadScoring",
   "followUpRecommendations",
   "knowledgeBase",
+  "aiAgents",
   "replySuggest",
   "sentiment",
   "autopilot",
@@ -54,6 +56,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   leadScoring: "AI Lead Scoring",
   followUpRecommendations: "AI Follow-up Recommendations",
   knowledgeBase: "AI Knowledge Base",
+  aiAgents: "AI Agent Builder",
   replySuggest: "AI Reply Suggestions",
   sentiment: "AI Sentiment Analysis",
   autopilot: "Campaign Autopilot",

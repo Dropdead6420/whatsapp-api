@@ -129,6 +129,7 @@ model Tenant {
   auditLogs                AuditLog[]
   aiUsage                  AiUsage[]
   knowledgeBaseEntries     KnowledgeBaseEntry[]
+  aiAgents                 AiAgent[]
   invoices                 Invoice[]
   wallet                   Wallet?
   walletTransactions       WalletTransaction[] @relation("TenantWalletTransactions")
@@ -1052,6 +1053,71 @@ model KnowledgeBaseEntry {
   @@index([tenantId, category])
   @@index([tenantId, updatedAt])
   @@index([tenantId, lastEmbeddedAt])
+}
+
+// ============================================================================
+// AI AGENT BUILDER (T-052)
+// ============================================================================
+
+enum AiAgentStatus {
+  DRAFT
+  ACTIVE
+  DISABLED
+  ARCHIVED
+}
+
+enum AiAgentFallback {
+  ESCALATE_TO_HUMAN
+  SEND_TEMPLATE
+  SILENT
+}
+
+model AiAgent {
+  id                       String           @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name                     String
+  description              String?
+  // Persona / system prompt — the agent's instructions, sent as the
+  // system message on every LLM call. Distinct from `description`
+  // (operator-facing label) so we can iterate on persona without
+  // confusing UX copy.
+  persona                  String
+
+  // Model selection — provider + model name. Validated against an
+  // allowlist in the service layer so a bad PATCH can't pick a
+  // model we don't actually support.
+  provider                 String           @default("openai")  // "openai" | "anthropic"
+  model                    String           @default("gpt-4o-mini")
+  temperature              Float            @default(0.7)
+  maxTokens                Int              @default(800)
+
+  // Knowledge base scope — JSON: { categories: string[], tags: string[], topK: number }
+  // Empty arrays mean "no restriction" within the tenant; topK caps the
+  // number of KB entries injected into the prompt (default 5).
+  knowledgeScope           Json             @default("{}")
+
+  // Tools the agent is allowed to invoke. Stored as a list of tool
+  // keys (CREATE_LEAD, ADD_TAG, BOOK_APPOINTMENT, TRANSFER_TO_HUMAN,
+  // SEND_TEMPLATE). The runtime walks this list when registering
+  // function-calling tools with the LLM.
+  tools                    String[]         @default([])
+
+  fallbackBehavior         AiAgentFallback  @default(ESCALATE_TO_HUMAN)
+  // If fallbackBehavior=SEND_TEMPLATE, which template to send.
+  fallbackTemplateId       String?
+
+  status                   AiAgentStatus    @default(DRAFT)
+  publishedAt              DateTime?
+  disabledAt               DateTime?
+  archivedAt               DateTime?
+
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, updatedAt])
 }
 
 // ============================================================================

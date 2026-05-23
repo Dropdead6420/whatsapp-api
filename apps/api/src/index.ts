@@ -42,6 +42,7 @@ import partnerRoutes from "./routes/partner.routes";
 import flowTemplatesRoutes from "./routes/flow-templates.routes";
 import whitelabelRoutes from "./routes/whitelabel.routes";
 import knowledgeBaseRoutes from "./routes/knowledge-base.routes";
+import aiAgentsRoutes from "./routes/ai-agents.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -227,6 +228,7 @@ app.use("/api/v1/partner/demo", demoRoutes);
 app.use("/api/v1/partner/whitelabel", whitelabelRoutes);
 app.use("/api/v1/flow-templates", flowTemplatesRoutes);
 app.use("/api/v1/knowledge-base", knowledgeBaseRoutes);
+app.use("/api/v1/ai-agents", aiAgentsRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
