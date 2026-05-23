@@ -20,11 +20,14 @@ _(none)_
 
 ## Next up
 
-### T-052 — AI Agent Builder (slice 4: inbound routing + editor palette)
+### T-052 — AI Agent Builder ✅ runtime complete; UI follow-ups pending
 - Slice 1 (schema + service + CRUD API + RBAC) shipped 2026-05-23 (ADR-025).
 - Slice 2 (`aiAgentRunner.service.ts` + `POST /:id/test` endpoint) shipped 2026-05-23 (ADR-026).
 - Slice 3 (`AI_AGENT` flow node + `aiAgentTool.service.ts` dispatch for all 7 tools) shipped 2026-05-23 (ADR-027).
-- Slice 4 (next): inbound-routing fallback — needs `AiAgent.isDefault` flag + tenant-level "auto-reply when no flow triggers" setting. Plus React Flow editor palette entry for `AI_AGENT` with active-agents picker.
+- Slice 4 (`AiAgent.isDefault` + `Tenant.aiAgentAutoReply` + inbound-routing fallback + `/settings` + `/set-default` / `/clear-default` endpoints) shipped 2026-05-23 (ADR-028).
+- Follow-ups (frontend, scoped separately):
+  - React Flow editor palette entry for `AI_AGENT` with active-agents picker.
+  - `/ai-agents` Next.js dashboard page (list + create/edit + set-default toggle + auto-reply switch).
 
 ### T-051 — AI Knowledge Base ✅ shipped (slice 1 + embedding/retrieval)
 - Slice 1 (CRUD + lifecycle) shipped 2026-05-22; embedding + retrieval landed in the same release (`knowledgeBaseEmbedding.service.ts`).
@@ -149,6 +152,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-052 AI Agent Builder slice 4** — `AiAgent.isDefault` flag (one-per-tenant invariant via transactional demote-others-then-promote-self), `Tenant.aiAgentAutoReply` master switch, `aiAgentInbound.service.maybeRunDefaultAgentReply` reuses the MESSAGE-node send gauntlet (throttle + wallet + WABA + opt-out + token decrypt), 10-variant `reason` union for observability, last-resort routing (keyword flow → message_received flow → AI auto-reply), tool dispatch is fire-and-forget during inbound to keep reply latency low, new `/api/v1/ai-agents/settings`, `/:id/set-default`, `/:id/clear-default` endpoints. 22 new tests; 20/20 files, 156/156 tests green. See ADR-028.
 - ✅ **T-052 AI Agent Builder slice 3** — `AI_AGENT` flow node (writes reply to var, dispatches tool calls, routes on `result.reason` with single `escalated` branch synonym `fallback`), `aiAgentTool.service.ts` dispatcher for 7 tools (CREATE_LEAD/ADD_TAG/BOOK_APPOINTMENT/TRANSFER_TO_HUMAN/SEND_TEMPLATE/LOOKUP_CONTACT/LOOKUP_ORDER) with defense-in-depth allowlist enforcement, schema-field name forgiveness (`description||notes`, `scheduledAt||startAt`), and controlled not-implemented for unmapped surfaces. 27 new tests; 19/19 files, 134/134 tests green. See ADR-027.
 - ✅ **T-052 AI Agent Builder slice 2** — `aiAgentRunner.service.ts` (stateless `runAgent` → `{reply, toolCalls, citations, escalated, escalationBehavior, reason, modelUsed, providerUsed}`), KB grounding looped across multiple `knowledgeScope.categories`, cross-vendor provider fallback (configured-but-wrong key swaps to the other provider rather than 500-ing), wallet debit only on successful LLM response, permissive tool-JSON extraction (fenced + bare), `POST /api/v1/ai-agents/:id/test` endpoint for operator persona iteration. 15 new tests; 17/17 files, 107/107 tests green. See ADR-026.
 - ✅ **T-052 AI Agent Builder slice 1** — `AiAgent` Prisma model (status DRAFT/ACTIVE/DISABLED/ARCHIVED, fallback ESCALATE/SEND_TEMPLATE/SILENT), `aiAgent.service.ts` with provider+model allowlist enforced at write-time, `/api/v1/ai-agents` CRUD + lifecycle endpoints (publish/disable/archive/delete) behind `aiAgents` feature flag + new `AI_AGENT_MANAGE` permission. KB-scope is a JSON column (no join table for 1–4 agents × ~30 entries). 15 new service tests; 16/16 files, 92/92 tests green. See ADR-025.

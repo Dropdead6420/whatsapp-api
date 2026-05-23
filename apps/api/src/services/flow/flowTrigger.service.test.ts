@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   startFlowRun: vi.fn(),
   findFlowForInbound: vi.fn(),
+  maybeRunDefaultAgentReply: vi.fn(),
 }));
 
 vi.mock("@nexaflow/db", () => ({
@@ -16,6 +17,13 @@ vi.mock("@nexaflow/db", () => ({
 vi.mock("./engine", () => ({
   startFlowRun: mocks.startFlowRun,
   findFlowForInbound: mocks.findFlowForInbound,
+}));
+
+// T-052 slice 4: the AI-agent inbound fallback is exercised by its own
+// test file; here we stub it to default-skip so it doesn't pollute the
+// existing flow-trigger assertions.
+vi.mock("../aiAgentInbound.service", () => ({
+  maybeRunDefaultAgentReply: mocks.maybeRunDefaultAgentReply,
 }));
 
 describe("tagsAdded", () => {
@@ -88,9 +96,13 @@ describe("dispatchInboundMessageFlows", () => {
     mocks.findFlowForInbound.mockResolvedValue(null);
     mocks.findMany.mockResolvedValue([{ id: "mr-1", triggerKeywords: [] }]);
     mocks.startFlowRun.mockResolvedValue("run-1");
+    mocks.maybeRunDefaultAgentReply.mockResolvedValue({
+      fired: false,
+      reason: "skipped_autoreply_off",
+    });
   });
 
-  it("uses keyword flow when matched", async () => {
+  it("uses keyword flow when matched (skips event triggers AND ai fallback)", async () => {
     mocks.findFlowForInbound.mockResolvedValue("kw-flow");
     const { dispatchInboundMessageFlows } = await import("./flowTrigger.service");
 
@@ -105,5 +117,45 @@ describe("dispatchInboundMessageFlows", () => {
       expect.objectContaining({ flowId: "kw-flow" }),
     );
     expect(mocks.findMany).not.toHaveBeenCalled();
+    // Keyword match short-circuits — the AI fallback must NOT run.
+    expect(mocks.maybeRunDefaultAgentReply).not.toHaveBeenCalled();
+  });
+
+  it("skips AI fallback when message_received flow fires", async () => {
+    mocks.findFlowForInbound.mockResolvedValue(null);
+    mocks.findMany.mockResolvedValue([{ id: "mr-1", triggerKeywords: [] }]);
+    const { dispatchInboundMessageFlows } = await import("./flowTrigger.service");
+
+    await dispatchInboundMessageFlows({
+      tenantId: "t1",
+      contactId: "c1",
+      conversationId: "conv-1",
+      text: "hello",
+    });
+
+    expect(mocks.startFlowRun).toHaveBeenCalledTimes(1);
+    // A flow fired — AI fallback must NOT run.
+    expect(mocks.maybeRunDefaultAgentReply).not.toHaveBeenCalled();
+  });
+
+  it("falls through to AI fallback when no keyword AND no event-triggered flow matches", async () => {
+    mocks.findFlowForInbound.mockResolvedValue(null);
+    mocks.findMany.mockResolvedValue([]); // no message_received flow
+    const { dispatchInboundMessageFlows } = await import("./flowTrigger.service");
+
+    await dispatchInboundMessageFlows({
+      tenantId: "t1",
+      contactId: "c1",
+      conversationId: "conv-1",
+      text: "anything",
+    });
+
+    expect(mocks.maybeRunDefaultAgentReply).toHaveBeenCalledTimes(1);
+    expect(mocks.maybeRunDefaultAgentReply.mock.calls[0][0]).toMatchObject({
+      tenantId: "t1",
+      contactId: "c1",
+      conversationId: "conv-1",
+      text: "anything",
+    });
   });
 });

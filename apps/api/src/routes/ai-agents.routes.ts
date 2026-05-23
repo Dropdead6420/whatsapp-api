@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
+import { prisma } from "@nexaflow/db";
 import { ApiError, ErrorCodes, Permissions } from "@nexaflow/shared";
 import {
   requireAuth,
@@ -11,12 +12,14 @@ import { requireFeature } from "../services/features.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   archiveAgent,
+  clearDefaultAgent,
   createAgent,
   deleteAgent,
   disableAgent,
   getAgent,
   listAgents,
   publishAgent,
+  setDefaultAgent,
   updateAgent,
 } from "../services/aiAgent.service";
 import { runAgent } from "../services/aiAgentRunner.service";
@@ -61,6 +64,62 @@ const createSchema = z.object({
 });
 
 const updateSchema = createSchema.partial();
+
+// GET /api/v1/ai-agents/settings — tenant-level AI agent settings.
+// Currently just the master auto-reply switch; future settings (per-
+// hour quotas, allowed-tools overrides) plug in here. Defined BEFORE
+// /:id so Express routing doesn't catch "settings" as an id.
+router.get(
+  "/settings",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId! },
+        select: { aiAgentAutoReply: true },
+      });
+      res.json({
+        success: true,
+        data: { aiAgentAutoReply: tenant?.aiAgentAutoReply ?? false },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// PATCH /api/v1/ai-agents/settings — toggle the auto-reply master
+// switch. Audit-logged. The default-agent presence check happens in
+// the webhook handler (slice 4b) — flipping this on without a default
+// configured is a deliberate no-op so the operator can stage the
+// rollout: set up the agent, mark it default, then flip auto-reply.
+const settingsSchema = z.object({
+  aiAgentAutoReply: z.boolean(),
+});
+router.patch(
+  "/settings",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = settingsSchema.parse(req.body);
+      const updated = await prisma.tenant.update({
+        where: { id: req.tenantId! },
+        data: { aiAgentAutoReply: body.aiAgentAutoReply },
+        select: { aiAgentAutoReply: true },
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "Tenant",
+        resourceId: req.tenantId!,
+        newValues: { aiAgentAutoReply: updated.aiAgentAutoReply },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: updated });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /api/v1/ai-agents
 router.get(
@@ -204,6 +263,56 @@ router.post(
         resource: "AiAgent",
         resourceId: agent.id,
         newValues: { lifecycle: "ARCHIVED" },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: agent });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/ai-agents/:id/set-default — mark this agent as the
+// tenant's default. Combined with Tenant.aiAgentAutoReply=true, this
+// makes the agent answer inbound DMs that don't trigger any other flow.
+// Demotes any prior default in the same tenant transactionally.
+router.post(
+  "/:id/set-default",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const agent = await setDefaultAgent(req.tenantId!, req.params.id);
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "AiAgent",
+        resourceId: agent.id,
+        newValues: { isDefault: true },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: agent });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/ai-agents/:id/clear-default — explicit demotion. Distinct
+// endpoint instead of accepting `{isDefault: false}` on the PATCH route
+// because lifecycle-style transitions stay together (and the PATCH body
+// already ignores fields not in its schema).
+router.post(
+  "/:id/clear-default",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const agent = await clearDefaultAgent(req.tenantId!, req.params.id);
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "AiAgent",
+        resourceId: agent.id,
+        newValues: { isDefault: false },
         ...extractRequestMeta(req),
       });
       res.json({ success: true, data: agent });

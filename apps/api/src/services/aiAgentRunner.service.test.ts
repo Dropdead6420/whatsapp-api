@@ -56,6 +56,7 @@ const baseAgent = {
   tools: [],
   fallbackBehavior: "ESCALATE_TO_HUMAN",
   fallbackTemplateId: null,
+  isDefault: false,
   status: "ACTIVE",
   publishedAt: new Date(),
   disabledAt: null,

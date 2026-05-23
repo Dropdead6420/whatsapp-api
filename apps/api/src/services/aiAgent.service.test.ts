@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   aiAgentFindFirst: vi.fn(),
   aiAgentCreate: vi.fn(),
   aiAgentUpdate: vi.fn(),
+  aiAgentUpdateMany: vi.fn(),
   aiAgentDelete: vi.fn(),
   $transaction: vi.fn(),
 }));
@@ -18,6 +19,7 @@ vi.mock("@nexaflow/db", () => ({
       findFirst: mocks.aiAgentFindFirst,
       create: mocks.aiAgentCreate,
       update: mocks.aiAgentUpdate,
+      updateMany: mocks.aiAgentUpdateMany,
       delete: mocks.aiAgentDelete,
     },
     $transaction: mocks.$transaction,
@@ -26,8 +28,11 @@ vi.mock("@nexaflow/db", () => ({
 
 import {
   archiveAgent,
+  clearDefaultAgent,
   createAgent,
   deleteAgent,
+  getDefaultAgent,
+  setDefaultAgent,
   disableAgent,
   getAgent,
   listAgents,
@@ -53,6 +58,7 @@ function dbAgent(overrides: Record<string, unknown> = {}) {
     tools: [],
     fallbackBehavior: "ESCALATE_TO_HUMAN",
     fallbackTemplateId: null,
+    isDefault: false,
     status: "DRAFT",
     publishedAt: null,
     disabledAt: null,
@@ -243,5 +249,113 @@ describe("aiAgent.service", () => {
     expect(mocks.aiAgentDelete.mock.calls[0][0]).toEqual({
       where: { id: "agent_1" },
     });
+  });
+
+  // ----- T-052 slice 4: default-agent helpers -----
+
+  // setDefaultAgent uses the callback form of $transaction. The default
+  // mock implementation (array form) doesn't match, so we provide one
+  // that hands a fake `tx` with the same shape as the prisma client to
+  // the callback.
+  function bindTxCallback() {
+    mocks.$transaction.mockImplementation(async (cb: unknown) => {
+      const tx = {
+        aiAgent: {
+          updateMany: mocks.aiAgentUpdateMany,
+          update: mocks.aiAgentUpdate,
+        },
+      };
+      return (cb as (tx: typeof tx) => Promise<unknown>)(tx);
+    });
+  }
+
+  it("setDefaultAgent refuses to promote a non-ACTIVE agent", async () => {
+    mocks.aiAgentFindFirst.mockResolvedValue(
+      dbAgent({ status: "DRAFT", isDefault: false }),
+    );
+    await expect(setDefaultAgent("tenant_1", "agent_1")).rejects.toThrow(
+      /Only ACTIVE agents/,
+    );
+    expect(mocks.aiAgentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("setDefaultAgent is idempotent when already default", async () => {
+    mocks.aiAgentFindFirst.mockResolvedValue(
+      dbAgent({ status: "ACTIVE", isDefault: true }),
+    );
+    const out = await setDefaultAgent("tenant_1", "agent_1");
+    expect(out.isDefault).toBe(true);
+    expect(mocks.$transaction).not.toHaveBeenCalled();
+    expect(mocks.aiAgentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("setDefaultAgent demotes all OTHER defaults in the tenant inside one transaction", async () => {
+    mocks.aiAgentFindFirst.mockResolvedValue(
+      dbAgent({ status: "ACTIVE", isDefault: false }),
+    );
+    mocks.aiAgentUpdateMany.mockResolvedValue({ count: 1 });
+    mocks.aiAgentUpdate.mockResolvedValue(
+      dbAgent({ status: "ACTIVE", isDefault: true }),
+    );
+    bindTxCallback();
+
+    const out = await setDefaultAgent("tenant_1", "agent_1");
+    expect(out.isDefault).toBe(true);
+
+    // Demote-others ran first; promote-self ran after.
+    expect(mocks.aiAgentUpdateMany).toHaveBeenCalledWith({
+      where: { tenantId: "tenant_1", isDefault: true, id: { not: "agent_1" } },
+      data: { isDefault: false },
+    });
+    expect(mocks.aiAgentUpdate).toHaveBeenCalledWith({
+      where: { id: "agent_1" },
+      data: { isDefault: true },
+    });
+    const demoteOrder = mocks.aiAgentUpdateMany.mock.invocationCallOrder[0];
+    const promoteOrder = mocks.aiAgentUpdate.mock.invocationCallOrder[0];
+    expect(demoteOrder).toBeLessThan(promoteOrder);
+  });
+
+  it("clearDefaultAgent flips isDefault=false on the targeted agent", async () => {
+    mocks.aiAgentFindFirst.mockResolvedValue(
+      dbAgent({ status: "ACTIVE", isDefault: true }),
+    );
+    mocks.aiAgentUpdate.mockResolvedValue(
+      dbAgent({ status: "ACTIVE", isDefault: false }),
+    );
+    const out = await clearDefaultAgent("tenant_1", "agent_1");
+    expect(out.isDefault).toBe(false);
+    expect(mocks.aiAgentUpdate).toHaveBeenCalledWith({
+      where: { id: "agent_1" },
+      data: { isDefault: false },
+    });
+  });
+
+  it("clearDefaultAgent is idempotent when already not-default", async () => {
+    mocks.aiAgentFindFirst.mockResolvedValue(
+      dbAgent({ status: "ACTIVE", isDefault: false }),
+    );
+    await clearDefaultAgent("tenant_1", "agent_1");
+    expect(mocks.aiAgentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("getDefaultAgent returns null when no active default exists", async () => {
+    mocks.aiAgentFindFirst.mockResolvedValue(null);
+    const out = await getDefaultAgent("tenant_1");
+    expect(out).toBeNull();
+    expect(mocks.aiAgentFindFirst.mock.calls[0][0].where).toEqual({
+      tenantId: "tenant_1",
+      isDefault: true,
+      status: "ACTIVE",
+    });
+  });
+
+  it("getDefaultAgent returns the public-shape agent when one exists", async () => {
+    mocks.aiAgentFindFirst.mockResolvedValue(
+      dbAgent({ status: "ACTIVE", isDefault: true }),
+    );
+    const out = await getDefaultAgent("tenant_1");
+    expect(out?.id).toBe("agent_1");
+    expect(out?.isDefault).toBe(true);
   });
 });

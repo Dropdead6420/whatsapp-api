@@ -69,6 +69,7 @@ export interface AiAgentPublic {
   tools: string[];
   fallbackBehavior: AiAgentFallback;
   fallbackTemplateId: string | null;
+  isDefault: boolean;
   status: AiAgentStatus;
   publishedAt: string | null;
   disabledAt: string | null;
@@ -125,6 +126,7 @@ function toPublic(entry: {
   tools: string[];
   fallbackBehavior: AiAgentFallback;
   fallbackTemplateId: string | null;
+  isDefault: boolean;
   status: AiAgentStatus;
   publishedAt: Date | null;
   disabledAt: Date | null;
@@ -146,6 +148,7 @@ function toPublic(entry: {
     tools: entry.tools,
     fallbackBehavior: entry.fallbackBehavior,
     fallbackTemplateId: entry.fallbackTemplateId,
+    isDefault: entry.isDefault,
     status: entry.status,
     publishedAt: entry.publishedAt?.toISOString() ?? null,
     disabledAt: entry.disabledAt?.toISOString() ?? null,
@@ -617,6 +620,81 @@ export async function deleteAgent(
 ): Promise<void> {
   await findScoped(tenantId, agentId);
   await prisma.aiAgent.delete({ where: { id: agentId } });
+}
+
+// ----------------------------------------------------------------------------
+// Default-agent management (T-052 slice 4)
+//
+// Exactly one agent per tenant can be `isDefault: true`. We enforce the
+// invariant inside a transaction by demoting all OTHER agents in the
+// tenant before promoting the target. The whole demote+promote is a
+// single atomic operation — no transient state where two agents are
+// both default (the inbound webhook would otherwise pick one at random).
+//
+// Only ACTIVE agents can be marked default. Marking a DRAFT/DISABLED/
+// ARCHIVED agent default would be operationally confusing: the inbound
+// fallback path (slice 4b) only ever consults the active default, so
+// the operator's intent ("I want this answering DMs") would silently
+// fail. Refuse at write time instead.
+// ----------------------------------------------------------------------------
+
+export async function setDefaultAgent(
+  tenantId: string,
+  agentId: string,
+): Promise<AiAgentPublic> {
+  const target = await findScoped(tenantId, agentId);
+  if (target.status !== ("ACTIVE" as AiAgentStatus)) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "Only ACTIVE agents can be set as default. Publish the agent first.",
+    );
+  }
+  if (target.isDefault) return toPublic(target); // idempotent
+  const updated = await prisma.$transaction(async (tx) => {
+    // Demote any previously-default agent in this tenant. updateMany
+    // handles the race window where a peer write set another default
+    // milliseconds before us; updateMany + isolation level READ COMMITTED
+    // (Postgres default) means the conflicting row's lock blocks us
+    // until the peer finishes, then we demote both and promote ours.
+    await tx.aiAgent.updateMany({
+      where: { tenantId, isDefault: true, id: { not: agentId } },
+      data: { isDefault: false },
+    });
+    return tx.aiAgent.update({
+      where: { id: agentId },
+      data: { isDefault: true },
+    });
+  });
+  return toPublic(updated);
+}
+
+export async function clearDefaultAgent(
+  tenantId: string,
+  agentId: string,
+): Promise<AiAgentPublic> {
+  const target = await findScoped(tenantId, agentId);
+  if (!target.isDefault) return toPublic(target); // idempotent
+  const updated = await prisma.aiAgent.update({
+    where: { id: agentId },
+    data: { isDefault: false },
+  });
+  return toPublic(updated);
+}
+
+/**
+ * Returns the tenant's active default agent, or null if none is set.
+ * Used by the inbound-webhook fallback (slice 4b) — DRAFT/DISABLED/
+ * ARCHIVED default agents are filtered out so an in-flight disable
+ * takes effect immediately for inbound traffic.
+ */
+export async function getDefaultAgent(
+  tenantId: string,
+): Promise<AiAgentPublic | null> {
+  const agent = await prisma.aiAgent.findFirst({
+    where: { tenantId, isDefault: true, status: "ACTIVE" },
+  });
+  return agent ? toPublic(agent) : null;
 }
 
 export const __test__ = {

@@ -1,5 +1,6 @@
 import { prisma } from "@nexaflow/db";
 import { findFlowForInbound, startFlowRun } from "./engine";
+import { maybeRunDefaultAgentReply } from "../aiAgentInbound.service";
 
 /** Matches `ChatbotFlow.trigger` string values. */
 export type FlowTriggerType =
@@ -20,9 +21,9 @@ export async function dispatchFlowTriggers(args: {
   /** For tag_added: the tag that was newly applied. */
   tag?: string;
   initialVars?: Record<string, unknown>;
-}): Promise<void> {
+}): Promise<number> {
   if (args.trigger === "keyword") {
-    return;
+    return 0;
   }
 
   try {
@@ -60,13 +61,24 @@ export async function dispatchFlowTriggers(args: {
       });
       started += 1;
     }
+    return started;
   } catch (err) {
     console.error(`[flow-trigger:${args.trigger}]`, err);
+    return 0;
   }
 }
 
 /**
- * Inbound WhatsApp: keyword flow first, else any active message_received flow.
+ * Inbound WhatsApp:
+ *   1. Keyword flow match → start run.
+ *   2. Otherwise, active `message_received` flow → start run(s).
+ *   3. Otherwise, if `Tenant.aiAgentAutoReply` and a default AI agent
+ *      is configured → run the agent and send its reply.
+ *
+ * Step 3 is the T-052 slice 4 fallback. It only fires when steps 1+2
+ * matched nothing, so an operator who's set up an explicit flow keeps
+ * the predictable scripted path; the AI is the "if nothing else, just
+ * answer" net.
  */
 export async function dispatchInboundMessageFlows(args: {
   tenantId: string;
@@ -87,13 +99,30 @@ export async function dispatchInboundMessageFlows(args: {
       return;
     }
 
-    await dispatchFlowTriggers({
+    const eventRuns = await dispatchFlowTriggers({
       tenantId: args.tenantId,
       trigger: "message_received",
       contactId: args.contactId,
       conversationId: args.conversationId,
       triggerText: args.text,
     });
+    if (eventRuns > 0) return;
+
+    // Nothing matched — try the default-agent auto-reply.
+    const ai = await maybeRunDefaultAgentReply({
+      tenantId: args.tenantId,
+      contactId: args.contactId,
+      conversationId: args.conversationId,
+      text: args.text,
+    });
+    if (!ai.fired) {
+      // Log the skip reason at debug level; this is the most common
+      // codepath for tenants who haven't opted into auto-reply, so we
+      // don't want to spam at info.
+      if (process.env.AI_AGENT_LOG_SKIPS === "true") {
+        console.log(`[ai-agent:inbound] skip=${ai.reason}`);
+      }
+    }
   } catch (err) {
     console.error("[flow-trigger:inbound]", err);
   }

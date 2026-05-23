@@ -110,6 +110,12 @@ model Tenant {
   campaignLimit            Int              @default(100)
   featuresEnabled          String?          // JSON: { chatbot, ads, creative_studio, ... }
 
+  // T-052 slice 4: master switch for inbound auto-reply via the
+  // tenant's default AiAgent. Off by default so tenants opt in
+  // explicitly; flipping this on without a default agent set is a
+  // no-op (the webhook checks both).
+  aiAgentAutoReply         Boolean          @default(false)
+
   // Inbox / support SLA — minutes from inbound to first agent reply
   slaMinutes               Int              @default(30)
 
@@ -1108,6 +1114,12 @@ model AiAgent {
   // If fallbackBehavior=SEND_TEMPLATE, which template to send.
   fallbackTemplateId       String?
 
+  // T-052 slice 4: when true AND Tenant.aiAgentAutoReply is also true,
+  // this agent answers inbound DMs that don't trigger any other flow.
+  // Only one default per tenant; the service layer enforces by demoting
+  // any prior default inside a transaction.
+  isDefault                Boolean          @default(false)
+
   status                   AiAgentStatus    @default(DRAFT)
   publishedAt              DateTime?
   disabledAt               DateTime?
@@ -1118,6 +1130,9 @@ model AiAgent {
 
   @@index([tenantId, status])
   @@index([tenantId, updatedAt])
+  // Composite index for the inbound fallback lookup
+  // (find the active default agent for a tenant).
+  @@index([tenantId, isDefault, status])
 }
 
 // ============================================================================
