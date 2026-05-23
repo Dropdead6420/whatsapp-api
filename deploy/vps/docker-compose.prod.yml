@@ -1,0 +1,168 @@
+# NexaFlow API — Hostinger VPS production stack
+#
+# Single-host deployment. Runs API + 8 BullMQ workers + Postgres + Redis
+# + Caddy reverse proxy with auto-SSL. The Next.js web frontend stays on
+# Vercel.
+#
+# Layout:
+#   caddy  :80/:443  →  api  :3001  (internal)
+#   api    →  postgres :5432  (internal)
+#   api    →  redis    :6379  (internal)
+#   worker (same image, APP_MODE=worker, no public ports)
+#
+# Bring up: docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# Logs:    docker compose -f docker-compose.prod.yml logs -f api worker
+# Update:  docker compose -f docker-compose.prod.yml pull && \
+#          docker compose -f docker-compose.prod.yml up -d
+# Migrate: docker compose -f docker-compose.prod.yml run --rm api \
+#          node node_modules/prisma/build/index.js migrate deploy \
+#          --schema packages/db/prisma/schema.prisma
+
+name: nexaflow
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"      # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # ACME certs + state — DO NOT lose this volume
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+      API_UPSTREAM: api:3001
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [internal]
+
+  api:
+    # Pinned to the codex/nexaflow-v2-platform branch image until you
+    # merge to main and switch to :latest. Override by setting IMAGE_TAG.
+    image: ghcr.io/dropdead6420/nexaflow-api:${IMAGE_TAG:-codex-nexaflow-v2-platform}
+    restart: unless-stopped
+    environment:
+      # Boot mode
+      NODE_ENV: production
+      APP_MODE: api
+      PORT: "3001"
+      # Behind Caddy + Cloudflare/etc — trust the first proxy hop.
+      TRUST_PROXY: "1"
+      # CORS — Caddy + the API both need this to be the Vercel URL.
+      WEB_URL: ${WEB_URL}
+      # Wired by the compose network
+      DATABASE_URL: postgresql://nexaflow:${POSTGRES_PASSWORD}@postgres:5432/nexaflow
+      REDIS_URL: redis://redis:6379
+      # Secrets — populate via .env.production (NEVER commit real values)
+      JWT_SECRET: ${JWT_SECRET}
+      TENANT_TOKEN_ENCRYPTION_KEY: ${TENANT_TOKEN_ENCRYPTION_KEY}
+      # Meta — required for WhatsApp; can be placeholders during initial bring-up
+      META_APP_ID: ${META_APP_ID:-placeholder}
+      META_APP_SECRET: ${META_APP_SECRET:-placeholder}
+      WHATSAPP_WEBHOOK_TOKEN: ${WHATSAPP_WEBHOOK_TOKEN:-placeholder}
+      META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID:-placeholder}
+      META_BUSINESS_ACCOUNT_ID: ${META_BUSINESS_ACCOUNT_ID:-placeholder}
+      # AI providers — leave blank to disable
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Observability — leave blank to disable
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_TRACES_SAMPLE_RATE: "0.1"
+      # Rate limit knobs
+      API_RATE_LIMIT_MAX: "300"
+      PUBLIC_BOOKING_RATE_LIMIT_MAX: "20"
+      WALLET_BILLING_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks: [internal]
+
+  worker:
+    image: ghcr.io/dropdead6420/nexaflow-api:${IMAGE_TAG:-codex-nexaflow-v2-platform}
+    restart: unless-stopped
+    environment:
+      # Same env as api except APP_MODE flips to worker. The 8 BullMQ
+      # workers (campaign, appointment, flow, SLA, webhook retry, lead
+      # follow-up, WABA token expiry, KB embedding) all run here.
+      NODE_ENV: production
+      APP_MODE: worker
+      DATABASE_URL: postgresql://nexaflow:${POSTGRES_PASSWORD}@postgres:5432/nexaflow
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      TENANT_TOKEN_ENCRYPTION_KEY: ${TENANT_TOKEN_ENCRYPTION_KEY}
+      META_APP_ID: ${META_APP_ID:-placeholder}
+      META_APP_SECRET: ${META_APP_SECRET:-placeholder}
+      WHATSAPP_WEBHOOK_TOKEN: ${WHATSAPP_WEBHOOK_TOKEN:-placeholder}
+      META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID:-placeholder}
+      META_BUSINESS_ACCOUNT_ID: ${META_BUSINESS_ACCOUNT_ID:-placeholder}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      WALLET_BILLING_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexaflow
+      POSTGRES_USER: nexaflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # 50% of RAM for shared_buffers is the Postgres default-ish; for
+      # an 8GB VPS that's ~256MB which is fine for low/medium traffic.
+      # Tune via PGTUNE-style config if you outgrow it.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexaflow -d nexaflow"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+    # No published port — only the api + worker on the internal network
+    # can talk to it. If you need psql access from your laptop, use
+    # `docker compose exec postgres psql -U nexaflow nexaflow` instead.
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ requires noeviction so jobs don't get silently dropped
+    # under memory pressure.
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks: [internal]
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge

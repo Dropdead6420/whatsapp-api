@@ -1,0 +1,51 @@
+# NexaFlow API — Caddy reverse proxy
+#
+# Caddy auto-provisions Let's Encrypt certs the first time the domain
+# resolves to this VPS. State (cert + ACME account) is in the caddy_data
+# Docker volume — never delete that volume or you'll re-issue from scratch
+# (Let's Encrypt has rate limits).
+#
+# `{$DOMAIN}` and `{$API_UPSTREAM}` come from docker-compose env.
+
+# Main API host — point your DNS A-record `api.yourdomain.com` at the VPS IP.
+{$DOMAIN} {
+	# Auto-SSL via Let's Encrypt. Caddy handles HTTP-01 challenge on :80
+	# and serves the cert on :443. No manual cert config needed.
+	encode gzip zstd
+
+	# Forward real client IP + protocol to Express so `req.ip` and
+	# `req.protocol` reflect the browser, not the proxy.
+	header_up X-Forwarded-Proto {scheme}
+	header_up X-Forwarded-For {remote_host}
+	header_up X-Real-IP {remote_host}
+
+	# Strict transport security — once a browser sees this, all future
+	# visits force HTTPS even if a user types http://.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# Sensible security defaults. Most are no-ops for an API but cheap.
+	header X-Content-Type-Options "nosniff"
+	header X-Frame-Options "DENY"
+	header Referrer-Policy "no-referrer-when-downgrade"
+
+	# Meta webhooks send a large-ish JSON payload; bump the upstream
+	# read timeout to handle slow uploads (rare but happens).
+	reverse_proxy {$API_UPSTREAM} {
+		# Health-check the upstream every 10s. Caddy will mark it
+		# unhealthy and return 502 if /live stops responding.
+		health_uri /live
+		health_interval 10s
+		health_timeout 3s
+
+		# WebSocket support for Socket.io realtime layer.
+		header_up Connection {>Connection}
+		header_up Upgrade {>Upgrade}
+	}
+
+	# Caddy logs in JSON to stdout — Docker captures them.
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}
