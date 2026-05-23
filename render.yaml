@@ -1,0 +1,204 @@
+# NexaFlow API — Render Blueprint
+# https://render.com/docs/blueprint-spec
+#
+# One file. Render reads this and provisions:
+#   - 1 web service (API + Socket.io realtime, public HTTPS)
+#   - 1 background worker (8 BullMQ workers)
+#   - 1 managed Postgres (DATABASE_URL auto-wired)
+#   - 1 managed Key Value / Redis (REDIS_URL auto-wired)
+#
+# To deploy:
+#   1. Push this file to GitHub (already done if you're on codex/nexaflow-v2-platform).
+#   2. Render dashboard -> "New" -> "Blueprint" -> connect Dropdead6420/whatsapp-api
+#      -> select branch codex/nexaflow-v2-platform -> apply.
+#   3. Set the secrets listed under `envVars` with `sync: false` in the
+#      Render dashboard (JWT_SECRET, TENANT_TOKEN_ENCRYPTION_KEY, Meta creds, etc).
+#   4. After first deploy, run migrations from the API service's Shell tab:
+#        node node_modules/prisma/build/index.js migrate deploy \
+#          --schema packages/db/prisma/schema.prisma
+#   5. In Vercel project settings, add NEXT_PUBLIC_API_URL pointing at the
+#      Render API URL (e.g. https://nexaflow-api.onrender.com) and redeploy
+#      the Vercel project.
+#
+# Full walkthrough: docs/DEPLOY_RENDER.md
+
+databases:
+  - name: nexaflow-db
+    # Free plan is fine for dev/staging; bump to "starter" or higher for prod.
+    plan: free
+    region: oregon
+    databaseName: nexaflow
+    user: nexaflow
+
+services:
+  # --------------------------------------------------------------------------
+  # API — HTTP + Socket.io realtime (APP_MODE=api)
+  # Same Docker image as the worker; APP_MODE env flips behavior.
+  # --------------------------------------------------------------------------
+  - type: web
+    name: nexaflow-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: free  # 512MB / sleeps after 15min idle. Upgrade to "starter" ($7/mo) for prod (no sleep + more RAM).
+    region: oregon
+    branch: codex/nexaflow-v2-platform
+    healthCheckPath: /api/v1/ready
+    autoDeploy: true
+    envVars:
+      - key: APP_MODE
+        value: api
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: API_RATE_LIMIT_MAX
+        value: "300"
+      - key: PUBLIC_BOOKING_RATE_LIMIT_MAX
+        value: "20"
+      - key: WALLET_BILLING_ENABLED
+        value: "false"
+
+      # Update this after the first deploy if your Vercel URL differs.
+      - key: WEB_URL
+        value: https://whatsapp-api-ruddy-alpha.vercel.app
+
+      # ------ Auto-wired by Render from the database + redis declarations ------
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexaflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: nexaflow-redis
+          property: connectionString
+
+      # ------ Generated once on first deploy, then reused across re-deploys ------
+      # `generateValue: true` makes Render generate a strong random value
+      # (32 bytes, base64) the first time. You can't read it back via the
+      # API; only the running service sees it. Perfect for JWT_SECRET +
+      # the tenant token encryption key.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TENANT_TOKEN_ENCRYPTION_KEY
+        generateValue: true
+
+      # ------ Manual secrets — set in the Render dashboard after blueprint apply ------
+      # `sync: false` tells Render "this is a secret; the user fills it in
+      # via the dashboard, and it's never synced from the YAML."
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WHATSAPP_WEBHOOK_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_BUSINESS_ACCOUNT_ID
+        sync: false
+
+      # ------ Optional — leave blank in the dashboard to disable the feature ------
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.1"
+
+  # --------------------------------------------------------------------------
+  # Workers — BullMQ scan jobs + dispatch (APP_MODE=worker)
+  # No public ports; same image as the API.
+  # --------------------------------------------------------------------------
+  - type: worker
+    name: nexaflow-worker
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: starter  # background workers can't run on free tier — they need to stay warm
+    region: oregon
+    branch: codex/nexaflow-v2-platform
+    autoDeploy: true
+    envVars:
+      - key: APP_MODE
+        value: worker
+      - key: NODE_ENV
+        value: production
+      - key: WALLET_BILLING_ENABLED
+        value: "false"
+
+      # Workers don't serve HTTP, but they still need the same DB / Redis
+      # / encryption key the API uses. Reference the API's vars so they
+      # stay in sync without us having to maintain two copies.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexaflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: nexaflow-redis
+          property: connectionString
+
+      # JWT + encryption keys: pull from the API service so both sides
+      # share the same value. (Workers verify JWTs from queue jobs and
+      # decrypt tenant tokens to call Meta on the tenant's behalf.)
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: JWT_SECRET
+      - key: TENANT_TOKEN_ENCRYPTION_KEY
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: TENANT_TOKEN_ENCRYPTION_KEY
+
+      # Meta + AI creds — same pattern; workers send WhatsApp messages
+      # so they need the Meta secret to call the Graph API.
+      - key: META_APP_ID
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: META_APP_ID
+      - key: META_APP_SECRET
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: META_APP_SECRET
+      - key: WHATSAPP_WEBHOOK_TOKEN
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: WHATSAPP_WEBHOOK_TOKEN
+      - key: OPENAI_API_KEY
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: OPENAI_API_KEY
+      - key: ANTHROPIC_API_KEY
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: ANTHROPIC_API_KEY
+      - key: SENTRY_DSN
+        fromService:
+          type: web
+          name: nexaflow-api
+          envVarKey: SENTRY_DSN
+
+  # --------------------------------------------------------------------------
+  # Redis (Key Value) — shared by API + worker
+  # --------------------------------------------------------------------------
+  - type: keyvalue
+    name: nexaflow-redis
+    plan: free  # 25MB. Bump to "starter" once BullMQ depth grows.
+    region: oregon
+    # Allow ALL Render services in your account to connect (least friction).
+    # Tighten this in production by listing only the API + worker IPs.
+    ipAllowList: []
+    # Required: a maxmemory policy. BullMQ needs reliable enqueue, so use
+    # noeviction (errors on OOM instead of dropping keys).
+    maxmemoryPolicy: noeviction
