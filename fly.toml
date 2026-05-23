@@ -1,0 +1,103 @@
+# NexaFlow API — Fly.io deployment manifest
+#
+# Pairs with the Vercel-hosted Next.js web (whatsapp-api-ruddy-alpha.vercel.app).
+# After the first deploy, set Vercel's NEXT_PUBLIC_API_URL to this app's
+# public hostname (e.g. https://nexaflow-api.fly.dev) and redeploy the
+# Vercel project so the browser bundle picks it up.
+#
+# Two-process layout — same image, different APP_MODE:
+#   - app:    HTTP + Socket.io realtime           (APP_MODE=api,    public)
+#   - worker: 8 BullMQ workers + repeat jobs      (APP_MODE=worker, internal)
+#
+# The split lets you scale HTTP and workers independently:
+#   fly scale count app=3 worker=2
+#
+# First-time setup (run from this directory):
+#
+#   1. Create the app           : fly apps create nexaflow-api
+#   2. Provision Postgres       : fly postgres create --name nexaflow-db --region iad
+#   3. Attach Postgres          : fly postgres attach nexaflow-db --app nexaflow-api
+#                                  (this sets DATABASE_URL automatically)
+#   4. Provision Redis          : fly redis create   --name nexaflow-redis --region iad
+#   5. Attach Redis             : fly redis attach   nexaflow-redis --app nexaflow-api
+#                                  (this sets REDIS_URL automatically)
+#   6. Set app secrets          : bash scripts/fly-secrets.sh   (see that file)
+#   7. Run migrations           : fly ssh console --app nexaflow-api -C \
+#                                   "node node_modules/prisma/build/index.js migrate deploy \
+#                                    --schema packages/db/prisma/schema.prisma"
+#   8. Deploy                   : fly deploy --remote-only
+#   9. Verify                   : curl https://nexaflow-api.fly.dev/api/v1/ready
+#
+# Update Vercel:
+#   - In Vercel project settings -> Environment Variables, add:
+#       NEXT_PUBLIC_API_URL = https://nexaflow-api.fly.dev
+#     for "Production" + "Preview" + "Development" environments.
+#   - Trigger a redeploy (env-var changes alone don't rebuild the bundle).
+
+app = "nexaflow-api"
+primary_region = "iad"  # change to your closest: bom (Mumbai), sin (Singapore), fra (Frankfurt), nrt (Tokyo)
+
+[build]
+  dockerfile = "apps/api/Dockerfile"
+
+[env]
+  # Static config baked into every machine. Secrets (DB URL, JWT, Meta
+  # creds, encryption key) live in `fly secrets` and override anything
+  # set here. NEVER put real secrets in [env].
+  NODE_ENV = "production"
+  PORT = "3001"
+  API_RATE_LIMIT_MAX = "300"
+  PUBLIC_BOOKING_RATE_LIMIT_MAX = "20"
+  # Replace once you point a custom domain at the web side.
+  WEB_URL = "https://whatsapp-api-ruddy-alpha.vercel.app"
+  # Wallet billing stays off until you've set up Razorpay/Stripe.
+  WALLET_BILLING_ENABLED = "false"
+
+# Same binary; the inline APP_MODE flips which subset boots.
+# /bin/sh runs because the runtime stage of apps/api/Dockerfile is alpine.
+[processes]
+  app    = "sh -c 'APP_MODE=api    node apps/api/dist/index.js'"
+  worker = "sh -c 'APP_MODE=worker node apps/api/dist/index.js'"
+
+# ---- HTTP service (only the `app` process gets public ports) ----
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = false          # WebSocket + worker continuity require warm machines
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+  # Liveness — process is up
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "2s"
+    path = "/live"
+
+  # Readiness — Postgres + Redis are reachable
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/v1/ready"
+
+# ---- VM sizing ----
+# Start small (256MB is enough for the Node process at low load).
+# Scale up with: fly scale memory 1024 --process-group app
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["worker"]
