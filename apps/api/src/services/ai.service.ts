@@ -8,6 +8,7 @@ import {
 } from "@nexaflow/shared";
 import { prisma } from "@nexaflow/db";
 import { assertCanAffordAi, debitAi } from "./billing.service";
+import { retrieveKnowledge } from "./knowledgeBaseEmbedding.service";
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-20241022";
 
@@ -321,10 +322,38 @@ export async function suggestReplies(
         `${m.direction === "INBOUND" ? args.contactName : args.businessName}: ${m.content}`,
     )
     .join("\n");
+  const latestInbound =
+    [...args.conversationContext]
+      .reverse()
+      .find((m) => m.direction === "INBOUND")?.content ?? transcript;
+  let knowledgeContext = "";
+  try {
+    const knowledge = await retrieveKnowledge(tenantId, {
+      query: latestInbound,
+      limit: 3,
+    });
+    if (knowledge.results.length > 0) {
+      knowledgeContext = knowledge.results
+        .map((item, index) => {
+          const body = item.summary || item.snippet || item.content.slice(0, 280);
+          return `${index + 1}. ${item.title} (${item.category}, score ${item.score}): ${body}`;
+        })
+        .join("\n");
+    }
+  } catch (err) {
+    console.warn(
+      "[ai] knowledge-base retrieval skipped",
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   const prompt = [
     `Business: ${args.businessName}`,
     args.languageHint ? `Reply language: ${args.languageHint}` : "Reply language: match the customer's language",
+    "",
+    knowledgeContext
+      ? `Approved knowledge base facts:\n${knowledgeContext}`
+      : "Approved knowledge base facts: none found. Do not invent prices, policies, timings, or commitments.",
     "",
     "Conversation so far:",
     transcript,
@@ -341,7 +370,7 @@ export async function suggestReplies(
     tenantId,
     feature: "reply_suggestions",
     system:
-      "You assist a human support agent. Match the customer's tone. Never hallucinate facts about the business. Output strict JSON.",
+      "You assist a human support agent. Match the customer's tone. Use approved knowledge base facts when relevant, and never hallucinate facts about the business. Output strict JSON.",
     prompt,
     maxTokens: 600,
     temperature: 0.6,

@@ -1,4 +1,5 @@
 import { prisma } from "@nexaflow/db";
+import { UserRole } from "@nexaflow/shared";
 import {
   classifyIntent,
   extractStructuredData,
@@ -281,12 +282,93 @@ const filterHandler: NodeHandler = {
   },
 };
 
+const aiRecommendHandler: NodeHandler = {
+  type: "AI_RECOMMEND",
+  label: "AI recommend action",
+  async run(node, ctx): Promise<NodeRunResult> {
+    const parsed = await runTenantLlmJson<{ action: string; message?: string }>({
+      tenantId: ctx.tenantId,
+      feature: "flow_recommend",
+      prompt: `Context: ${JSON.stringify(ctx.vars)}\nLast message: ${ctx.triggerText ?? ""}\nReturn {"action":"send_message|assign_agent|create_lead|wait","message":"optional copy"}`,
+      maxTokens: 200,
+    });
+    const outVar = getConfig<string>(node, "outputVar", "aiRecommendation");
+    return {
+      nextNodeId: node.next ?? null,
+      vars: { [outVar]: parsed },
+      trail: { action: parsed.action },
+    };
+  },
+};
+
+const aiChurnPredictHandler: NodeHandler = {
+  type: "AI_CHURN_PREDICT",
+  label: "AI churn risk",
+  async run(node, ctx): Promise<NodeRunResult> {
+    const parsed = await runTenantLlmJson<{ risk: string; score: number }>({
+      tenantId: ctx.tenantId,
+      feature: "flow_churn_predict",
+      prompt: `Estimate churn risk (low|medium|high) and score 0-1 from:\n${JSON.stringify(ctx.vars)}\nReturn {"risk":"low|medium|high","score":0.0}`,
+      maxTokens: 120,
+    });
+    const high = parsed.risk === "high" || parsed.score >= 0.7;
+    const goto = high
+      ? node.branches?.high ?? node.next ?? null
+      : node.branches?.low ?? node.next ?? null;
+    return {
+      nextNodeId: goto,
+      vars: { churnRisk: parsed.risk, churnScore: parsed.score },
+      trail: parsed,
+    };
+  },
+};
+
+const aiRouteBestAgentHandler: NodeHandler = {
+  type: "AI_ROUTE_BEST_AGENT",
+  label: "AI route to agent",
+  async run(node, ctx): Promise<NodeRunResult> {
+    const agents = await prisma.user.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        role: { in: [UserRole.AGENT, UserRole.TEAM_LEAD] },
+        status: "ACTIVE",
+      },
+      select: { id: true, name: true },
+      take: 20,
+    });
+    if (agents.length === 0) {
+      return { nextNodeId: node.next ?? null, trail: { skipped: "no agents" } };
+    }
+    const parsed = await runTenantLlmJson<{ agentId: string }>({
+      tenantId: ctx.tenantId,
+      feature: "flow_route_agent",
+      prompt: `Pick best agent id for this conversation.\nAgents: ${JSON.stringify(agents)}\nContext: ${JSON.stringify(ctx.vars)}\nReturn {"agentId":"<id>"}`,
+      maxTokens: 80,
+    });
+    const agentId = agents.find((a) => a.id === parsed.agentId)?.id ?? agents[0].id;
+    if (ctx.conversationId) {
+      await prisma.conversation.update({
+        where: { id: ctx.conversationId },
+        data: { agentId },
+      });
+    }
+    return {
+      nextNodeId: node.next ?? null,
+      vars: { routedAgentId: agentId },
+      trail: { agentId },
+    };
+  },
+};
+
 export const aiFlowNodeHandlers: Record<string, NodeHandler> = {
   AI_CLASSIFY_INTENT: aiClassifyIntentHandler,
   AI_SUMMARIZE: aiSummarizeHandler,
   AI_EXTRACT_DATA: aiExtractDataHandler,
   AI_TRANSLATE: aiTranslateHandler,
   AI_COMPLIANCE_CHECK: aiComplianceCheckHandler,
+  AI_RECOMMEND: aiRecommendHandler,
+  AI_CHURN_PREDICT: aiChurnPredictHandler,
+  AI_ROUTE_BEST_AGENT: aiRouteBestAgentHandler,
   WAIT_FOR_REPLY: waitForReplyHandler,
   SWITCH: switchHandler,
   FILTER: filterHandler,

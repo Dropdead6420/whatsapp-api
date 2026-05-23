@@ -288,6 +288,39 @@ export async function recordApiRequestLog(input: {
   }
 }
 
+export async function getApiUsageSummary(tenantId: string): Promise<{
+  totalLast7Days: number;
+  byDay: Array<{ date: string; count: number; errors: number }>;
+}> {
+  const since = new Date();
+  since.setDate(since.getDate() - 6);
+  since.setHours(0, 0, 0, 0);
+
+  const logs = await prisma.apiRequestLog.findMany({
+    where: { tenantId, createdAt: { gte: since } },
+    select: { createdAt: true, statusCode: true },
+  });
+
+  const byDay = new Map<string, { count: number; errors: number }>();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(since);
+    d.setDate(since.getDate() + i);
+    byDay.set(d.toISOString().slice(0, 10), { count: 0, errors: 0 });
+  }
+  for (const log of logs) {
+    const key = log.createdAt.toISOString().slice(0, 10);
+    const row = byDay.get(key);
+    if (!row) continue;
+    row.count += 1;
+    if (log.statusCode >= 400) row.errors += 1;
+  }
+
+  return {
+    totalLast7Days: logs.length,
+    byDay: [...byDay.entries()].map(([date, v]) => ({ date, ...v })),
+  };
+}
+
 export async function listApiRequestLogs(input: {
   tenantId: string;
   apiKeyId: string;

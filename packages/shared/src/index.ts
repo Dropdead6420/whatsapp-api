@@ -514,6 +514,7 @@ export const Permissions = {
   WABA_CONFIGURE: "waba:configure",
   API_KEYS_MANAGE: "api_keys:manage",
   PROVIDER_ROUTE_MANAGE: "provider_route:manage",
+  KNOWLEDGE_BASE_MANAGE: "knowledge_base:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
@@ -552,6 +553,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.WALLET_VIEW,
     Permissions.WABA_CONFIGURE,
     Permissions.API_KEYS_MANAGE,
+    Permissions.KNOWLEDGE_BASE_MANAGE,
     Permissions.CONVERSATION_READ,
     Permissions.CONVERSATION_REPLY,
     Permissions.LEAD_UPDATE,
@@ -562,6 +564,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.CONTACT_CREATE,
     Permissions.CONTACT_IMPORT,
     Permissions.CONTACT_READ,
+    Permissions.KNOWLEDGE_BASE_MANAGE,
     Permissions.CONVERSATION_READ,
     Permissions.CONVERSATION_REPLY,
     Permissions.LEAD_UPDATE,

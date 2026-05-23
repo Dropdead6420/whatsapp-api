@@ -15,6 +15,7 @@ import {
   getCampaignQueue,
   getFlowQueue,
   getLeadFollowUpQueue,
+  getKnowledgeBaseEmbeddingQueue,
   getSlaQueue,
   getWabaTokenExpiryQueue,
   getWebhookQueue,
@@ -95,6 +96,7 @@ function getManagedQueues() {
     getWebhookQueue(),
     getLeadFollowUpQueue(),
     getWabaTokenExpiryQueue(),
+    getKnowledgeBaseEmbeddingQueue(),
   ];
 }
 

@@ -20,6 +20,9 @@ _(none)_
 
 ## Next up
 
+### T-051 — AI Knowledge Base (next P1 AI slice)
+- Schema `KnowledgeBase` + CRUD API + RAG hook for AI agents
+
 ### T-060 — Event-driven flow triggers ✅ shipped (2026-05-20)
 - **Priority**: P1
 - **Blueprint**: Claude FINAL PDF — Workflow triggers
@@ -62,13 +65,13 @@ The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None 
 - T-143 **Android mobile app** — Phase 7 of the FINAL PDF. Inbox, notifications (FCM), replies, lead pipeline, quick campaigns, booking calendar, AI reply button. Read-only on the API side; no new backend surface beyond push token registration.
 
 ### Compliance + safety
-- T-010 Tenant suspension at request layer — `Tenant.status !== ACTIVE` blocks every authenticated request, not just login
-- T-011 SSRF protection on flow WEBHOOK node — deny RFC1918, link-local, cloud-metadata IPs
+- T-010 Tenant suspension at request layer — ✅ already enforced in `requireAuth` auth-context cache
+- T-011 SSRF protection on flow WEBHOOK node — ✅ shipped (`ssrfGuard.ts`)
 - T-012 Per-account login throttle (currently only IP-level)
 - T-013 Encrypt `Tenant.wabaAccessToken` at rest
 
 ### Wallet
-- T-020 Low-balance alerts (email + in-app)
+- T-020b Low-balance email alerts (in-app banner shipped on dashboard)
 - T-021 Auto-recharge config
 - T-022 Postpaid credit line with billing cycle
 - T-023 Daily reconciliation worker — recompute balance from ledger sum, alert on drift
@@ -87,7 +90,7 @@ The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None 
 - T-043 Module enable/disable matrix UI (currently flag toggles per-tenant)
 
 ### AI (blueprint §6)
-- T-050b Remaining AI workflow nodes: `AI_RECOMMEND`, `AI_CHURN_PREDICT`, `AI_ROUTE_BEST_AGENT` (classify/summarize/extract/translate/compliance shipped)
+- T-050b Remaining AI workflow nodes — ✅ shipped (RECOMMEND, CHURN_PREDICT, ROUTE_BEST_AGENT)
 - T-051 AI Knowledge Base — schema, content sources, RAG index
 - T-052 AI Agent Builder — `AiAgent` model + visual builder + runtime
 - T-053 SuperAdmin AI — Platform Monitor, Compliance Auditor, Support Copilot, Revenue Intelligence
@@ -139,6 +142,12 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-011 SSRF guard** for flow WEBHOOK nodes — blocks private IPs, localhost, metadata hosts; DNS verify with timeout.
+- ✅ **T-060b Flow trigger UI** — dropdown + keyword/tag editor on `/flows` detail panel.
+- ✅ **T-050b AI workflow nodes** — `AI_RECOMMEND`, `AI_CHURN_PREDICT`, `AI_ROUTE_BEST_AGENT`.
+- ✅ **Business profile manager** — `PATCH /whatsapp/config/profile` pushes about/vertical to Meta; edit form on `/whatsapp-settings`.
+- ✅ **T-020 wallet low-balance alert** — `GET /wallets/alerts` + dashboard banner.
+- ✅ **Developer API usage chart** — `GET /api-keys/usage-summary` + 7-day bar on `/developer`.
 - ✅ **T-030 Partner portal** — `/api/v1/partner/*` (dashboard, customers CRUD, team list/invite) + `/partner/*` UI (dashboard, customers, team). WHITE_LABEL_ADMIN lands on `/partner/dashboard`.
 - ✅ **T-140 Agent portal** — `/agent/inbox`, `/agent/leads`; API auto-scopes conversations/leads to assignee for `AGENT`; `AgentShell` nav.
 - ✅ **T-050 / T-062 workflow nodes** — `AI_CLASSIFY_INTENT`, `AI_SUMMARIZE`, `AI_EXTRACT_DATA`, `AI_TRANSLATE`, `AI_COMPLIANCE_CHECK`, `WAIT_FOR_REPLY`, `SWITCH`, `FILTER` + inbound resume via `flowWait.service.ts`.

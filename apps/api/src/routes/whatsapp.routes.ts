@@ -500,6 +500,48 @@ router.post(
 // Pull the WhatsApp Business Profile from Meta (display name, vertical,
 // about) and persist on the tenant. Auto-runs at the tail of Embedded
 // Signup; this route is the manual refresh path for operators.
+const profileUpdateSchema = z.object({
+  about: z.string().max(512).optional(),
+  vertical: z.string().max(80).optional(),
+});
+
+router.patch(
+  "/config/profile",
+  requirePermission(Permissions.WABA_CONFIGURE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = profileUpdateSchema.parse(req.body);
+      if (body.about === undefined && body.vertical === undefined) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "Provide about and/or vertical to update.",
+        );
+      }
+      const { updateWhatsAppBusinessProfile } = await import(
+        "../services/metaSignup.service"
+      );
+      const profile = await updateWhatsAppBusinessProfile({
+        tenantId: req.tenantId!,
+        about: body.about,
+        vertical: body.vertical,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "WhatsAppBusinessProfile",
+        resourceId: req.tenantId!,
+        newValues: { about: body.about, vertical: body.vertical },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: profile });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.post(
   "/config/sync-profile",
   requirePermission(Permissions.WABA_CONFIGURE),

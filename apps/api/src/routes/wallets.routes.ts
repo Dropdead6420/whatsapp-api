@@ -18,6 +18,7 @@ import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   adjustWallet,
   ensureWallet,
+  getWalletAlertStatus,
   transferWalletCredits,
   updateWalletSettings,
 } from "../services/wallet.service";
@@ -117,6 +118,26 @@ function parseTransactionMetadata(value: string | null) {
     return null;
   }
 }
+
+// GET /api/v1/wallets/alerts — low-balance signal for dashboard (T-020)
+router.get(
+  "/alerts",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      if (!req.tenantId) {
+        throw new ApiError(
+          ErrorCodes.MULTI_TENANT_VIOLATION,
+          400,
+          "Tenant context required.",
+        );
+      }
+      const alert = await getWalletAlertStatus(req.tenantId);
+      res.json({ success: true, data: alert });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /api/v1/wallets
 router.get("/", async (req: RequestWithAuth, res: Response, next: NextFunction) => {

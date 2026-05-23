@@ -14,6 +14,7 @@ import {
   FlowRuntimeError,
 } from "./types";
 import { aiFlowNodeHandlers } from "./aiNodes";
+import { assertSafeOutboundUrl } from "../../lib/ssrfGuard";
 
 // ----------------------------------------------------------------------------
 // Variable interpolation helper — replaces {{var.path}} in strings.
@@ -560,6 +561,7 @@ const webhookHandler: NodeHandler = {
 
     try {
       const url = interpolate(cfg.url, ctx.vars);
+      await assertSafeOutboundUrl(url);
       const interpolatedBody =
         typeof cfg.body === "string"
           ? interpolate(cfg.body, ctx.vars)

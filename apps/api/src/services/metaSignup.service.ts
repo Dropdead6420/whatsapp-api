@@ -398,3 +398,53 @@ export async function syncWhatsAppBusinessProfile(args: {
     syncedAt: syncedAt.toISOString(),
   };
 }
+
+/** Push about/vertical to Meta then re-sync (business profile manager). */
+export async function updateWhatsAppBusinessProfile(args: {
+  tenantId: string;
+  about?: string;
+  vertical?: string;
+}): Promise<BusinessProfileResult> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: args.tenantId },
+    select: { wabaPhoneNumber: true, wabaAccessToken: true },
+  });
+  if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "WhatsApp must be connected before updating the business profile.",
+    );
+  }
+  const { decryptTokenIfNeeded } = await import("../lib/tokenCrypto");
+  const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+  if (!accessToken) {
+    throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "Access token failed to decrypt.");
+  }
+
+  const body: Record<string, string> = { messaging_product: "whatsapp" };
+  if (args.about !== undefined) body.about = args.about.slice(0, 512);
+  if (args.vertical !== undefined) body.vertical = args.vertical.slice(0, 80);
+
+  const res = await fetch(
+    `${META_GRAPH_BASE}/${encodeURIComponent(tenant.wabaPhoneNumber)}/whatsapp_business_profile`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+  if (!res.ok) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      res.status || 502,
+      data.error?.message ?? `Meta profile update failed (${res.status})`,
+    );
+  }
+
+  return syncWhatsAppBusinessProfile({ tenantId: args.tenantId });
+}

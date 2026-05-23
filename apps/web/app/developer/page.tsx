@@ -33,6 +33,11 @@ interface ApiRequestLog {
   createdAt: string;
 }
 
+interface ApiUsageSummary {
+  totalLast7Days: number;
+  byDay: Array<{ date: string; count: number; errors: number }>;
+}
+
 function formatDate(value: string | null): string {
   if (!value) return "Never";
   return new Date(value).toLocaleString();
@@ -95,6 +100,7 @@ export default function DeveloperPage() {
   const [createdSecret, setCreatedSecret] = useState<CreatedApiKey | null>(null);
   const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
   const [logs, setLogs] = useState<ApiRequestLog[]>([]);
+  const [usage, setUsage] = useState<ApiUsageSummary | null>(null);
 
   async function refresh() {
     try {
@@ -107,7 +113,13 @@ export default function DeveloperPage() {
   }
 
   useEffect(() => {
-    if (user) void refresh();
+    if (user) {
+      void refresh();
+      api
+        .get<ApiUsageSummary>("/api/v1/api-keys/usage-summary")
+        .then(setUsage)
+        .catch(() => setUsage(null));
+    }
   }, [user]);
 
   useEffect(() => {
@@ -173,6 +185,33 @@ export default function DeveloperPage() {
         </div>
       </div>
 
+      {usage && (
+        <div className="mb-5 rounded-md border border-slate-200 bg-white p-4 text-sm shadow-sm">
+          <div className="font-semibold text-slate-950">API usage (7 days)</div>
+          <p className="mt-1 text-xs text-slate-500">
+            {usage.totalLast7Days} requests across all keys
+          </p>
+          <div className="mt-3 flex items-end gap-1 h-24">
+            {usage.byDay.map((d) => {
+              const max = Math.max(...usage.byDay.map((x) => x.count), 1);
+              const h = Math.round((d.count / max) * 100);
+              return (
+                <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
+                  <div
+                    className="w-full rounded-t bg-emerald-500"
+                    style={{ height: `${Math.max(h, 4)}%` }}
+                    title={`${d.count} calls, ${d.errors} errors`}
+                  />
+                  <span className="text-[9px] text-slate-400">
+                    {d.date.slice(5)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mb-5 grid gap-5 lg:grid-cols-[1fr,360px]">
         <section className="rounded-md border border-slate-200 bg-white p-4 text-sm shadow-sm">
           <div className="font-semibold text-slate-950">Public API v1</div>
@@ -222,6 +261,16 @@ export default function DeveloperPage() {
             logged and limited per key.
           </p>
         </section>
+      </div>
+
+      <div className="mb-5 rounded-md border border-slate-200 bg-white p-4 text-sm shadow-sm">
+        <div className="font-semibold text-slate-950">Sandbox endpoint</div>
+        <div className="mt-2 rounded-md bg-slate-950 p-3 font-mono text-xs text-white">
+          GET {apiBaseForDisplay()}/api/public/v1/status
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          Send the API key as <span className="font-mono">Authorization: Bearer</span> or <span className="font-mono">X-NexaFlow-API-Key</span>. The request will appear in the selected key logs.
+        </p>
       </div>
 
       {err && (

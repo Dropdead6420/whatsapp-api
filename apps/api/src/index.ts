@@ -41,6 +41,7 @@ import demoRoutes from "./routes/demo.routes";
 import partnerRoutes from "./routes/partner.routes";
 import flowTemplatesRoutes from "./routes/flow-templates.routes";
 import whitelabelRoutes from "./routes/whitelabel.routes";
+import knowledgeBaseRoutes from "./routes/knowledge-base.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -63,6 +64,10 @@ import {
   startWabaTokenExpiryWorker,
   stopWabaTokenExpiryWorker,
 } from "./services/wabaTokenExpiry.service";
+import {
+  startKnowledgeBaseEmbeddingWorker,
+  stopKnowledgeBaseEmbeddingWorker,
+} from "./services/knowledgeBaseEmbedding.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -88,15 +93,43 @@ const PUBLIC_BOOKING_RATE_LIMIT_MAX = Number(
   process.env.PUBLIC_BOOKING_RATE_LIMIT_MAX ?? 20,
 );
 
+function getAllowedWebOrigins(): string[] {
+  const origins = [
+    process.env.WEB_URL ?? "http://localhost:3000",
+    ...(process.env.WEB_ORIGINS ?? "").split(","),
+  ];
+  return Array.from(new Set(origins.map((origin) => origin.trim()).filter(Boolean)));
+}
+
+const allowedWebOrigins = getAllowedWebOrigins();
+
 app.set("trust proxy", 1);
 app.use(helmet());
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (
+    origin &&
+    allowedWebOrigins.includes(origin) &&
+    req.headers["access-control-request-private-network"] === "true"
+  ) {
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+  }
+  next();
+});
 
 // RED metrics — runs before all route handlers so it captures every
 // request, including 404s and rate-limited bounces.
 app.use(httpMetricsMiddleware);
 app.use(
   cors({
-    origin: process.env.WEB_URL ?? "http://localhost:3000",
+    origin(origin, callback) {
+      if (!origin || allowedWebOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin ${origin} is not allowed by CORS`));
+    },
     credentials: true,
   }),
 );
@@ -193,6 +226,7 @@ app.use("/api/v1/partner", partnerRoutes);
 app.use("/api/v1/partner/demo", demoRoutes);
 app.use("/api/v1/partner/whitelabel", whitelabelRoutes);
 app.use("/api/v1/flow-templates", flowTemplatesRoutes);
+app.use("/api/v1/knowledge-base", knowledgeBaseRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
@@ -218,6 +252,7 @@ async function startWorkers(): Promise<void> {
   await startWebhookWorker();
   await startLeadFollowUpWorker();
   await startWabaTokenExpiryWorker();
+  await startKnowledgeBaseEmbeddingWorker();
 }
 
 function stopWorkers(): void {
@@ -228,6 +263,7 @@ function stopWorkers(): void {
   stopWebhookWorker();
   stopLeadFollowUpWorker();
   stopWabaTokenExpiryWorker();
+  stopKnowledgeBaseEmbeddingWorker();
 }
 
 if (START_HTTP) {

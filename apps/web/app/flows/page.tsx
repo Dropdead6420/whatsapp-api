@@ -41,6 +41,15 @@ interface FlowRun {
   error: string | null;
 }
 
+const FLOW_TRIGGERS = [
+  { value: "keyword", label: "Keyword (WhatsApp)" },
+  { value: "message_received", label: "Any inbound message" },
+  { value: "lead_created", label: "Lead created" },
+  { value: "tag_added", label: "Tag added to contact" },
+  { value: "appointment_booked", label: "Appointment booked" },
+  { value: "manual", label: "Manual / API only" },
+] as const;
+
 const STARTER_FLOW = {
   name: "Price inquiry auto-reply",
   description: "Replies when a customer asks about prices.",
@@ -79,6 +88,9 @@ export default function FlowsPage() {
   const [testRunStatus, setTestRunStatus] = useState<string | null>(null);
   const [templates, setTemplates] = useState<FlowTemplate[]>([]);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [triggerDraft, setTriggerDraft] = useState("");
+  const [keywordsDraft, setKeywordsDraft] = useState("");
+  const [savingTrigger, setSavingTrigger] = useState(false);
 
   async function refresh() {
     try {
@@ -125,6 +137,8 @@ export default function FlowsPage() {
       ]);
       setDetail(d);
       setRuns(r);
+      setTriggerDraft(d.trigger);
+      setKeywordsDraft(d.triggerKeywords.join(", "));
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Detail load failed");
     }
@@ -140,6 +154,29 @@ export default function FlowsPage() {
   useEffect(() => {
     if (selectedId) loadDetail(selectedId);
   }, [selectedId]);
+
+  async function saveTriggerSettings() {
+    if (!detail) return;
+    setSavingTrigger(true);
+    setErr(null);
+    try {
+      const triggerKeywords = keywordsDraft
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean);
+      await api.patch(`/api/v1/flows/${detail.id}`, {
+        trigger: triggerDraft,
+        triggerKeywords,
+      });
+      await refresh();
+      await loadDetail(detail.id);
+      setTestRunStatus("Trigger settings saved.");
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Save failed");
+    } finally {
+      setSavingTrigger(false);
+    }
+  }
 
   async function toggleActive(f: FlowSummary) {
     try {
@@ -313,11 +350,7 @@ export default function FlowsPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <h2 className="text-lg font-semibold">{detail.name}</h2>
-                    <p className="text-sm text-slate-500">
-                      Trigger: <b>{detail.trigger}</b>
-                      {detail.triggerKeywords.length > 0 &&
-                        ` · keywords: ${detail.triggerKeywords.join(", ")}`}
-                    </p>
+                    <p className="text-sm text-slate-500">{detail.description}</p>
                   </div>
                   <div className="flex gap-2">
                     <Link
@@ -355,6 +388,51 @@ export default function FlowsPage() {
                     {testRunStatus}
                   </div>
                 )}
+
+                <div className="mt-4 rounded-md border border-slate-100 bg-slate-50 p-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Trigger settings
+                  </h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm">
+                      <span className="text-slate-600">When to start</span>
+                      <select
+                        className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                        value={triggerDraft}
+                        onChange={(e) => setTriggerDraft(e.target.value)}
+                      >
+                        {FLOW_TRIGGERS.map((t) => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {(triggerDraft === "keyword" || triggerDraft === "tag_added") && (
+                      <label className="block text-sm sm:col-span-2">
+                        <span className="text-slate-600">
+                          {triggerDraft === "tag_added"
+                            ? "Tags (comma-separated, empty = any tag)"
+                            : "Keywords (comma-separated)"}
+                        </span>
+                        <input
+                          className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                          value={keywordsDraft}
+                          onChange={(e) => setKeywordsDraft(e.target.value)}
+                          placeholder="book, price, vip"
+                        />
+                      </label>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void saveTriggerSettings()}
+                    disabled={savingTrigger}
+                    className="mt-3 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {savingTrigger ? "Saving…" : "Save trigger"}
+                  </button>
+                </div>
 
                 <div className="mt-4">
                   <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">

@@ -1,0 +1,14 @@
+.env
+.env.*
+node_modules
+apps/*/node_modules
+packages/*/node_modules
+apps/web/.next
+apps/api/dist
+packages/*/dist
+.turbo
+coverage
+logs
+*.log
+docker-compose.yml
+packages/db/prisma/migrations

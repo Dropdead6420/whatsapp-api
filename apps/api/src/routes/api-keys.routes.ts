@@ -10,6 +10,7 @@ import { requirePermission } from "../middleware/rbac";
 import { requireFeature } from "../services/features.service";
 import {
   createApiKey,
+  getApiUsageSummary,
   listApiRequestLogs,
   listApiKeys,
   revokeApiKey,
@@ -37,6 +38,18 @@ const updateSchema = z.object({
   rateLimit: z.number().int().min(60).max(10_000).optional(),
   expiresAt: z.string().datetime().nullable().optional(),
 });
+
+router.get(
+  "/usage-summary",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const summary = await getApiUsageSummary(req.tenantId!);
+      res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.get(
   "/",

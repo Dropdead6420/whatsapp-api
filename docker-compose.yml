@@ -8,13 +8,25 @@ x-api-env: &api-env
   DATABASE_URL_POOLED: postgresql://nexaflow:nexaflow@pgbouncer:5432/nexaflow_dev?pgbouncer=true
   REDIS_URL: redis://redis:6379
   ELASTICSEARCH_URL: http://elasticsearch:9200
-  WEB_URL: http://localhost:3000
+  WEB_URL: ${WEB_URL:-http://localhost:3000}
+  WEB_ORIGINS: ${WEB_ORIGINS:-}
   API_URL: http://localhost:3001
   JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
   TENANT_TOKEN_ENCRYPTION_KEY: ${TENANT_TOKEN_ENCRYPTION_KEY:-dev_tenant_encryption_master_key_change_in_prod}
   WALLET_BILLING_ENABLED: ${WALLET_BILLING_ENABLED:-false}
   WHATSAPP_MESSAGE_COST_CREDITS: ${WHATSAPP_MESSAGE_COST_CREDITS:-1}
   AI_CALL_COST_CREDITS: ${AI_CALL_COST_CREDITS:-1}
+  EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-noreply@nexaflow.ai}
+  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-NexaFlow AI}
+  EMAIL_STRICT_DELIVERY: ${EMAIL_STRICT_DELIVERY:-false}
 
 services:
   postgres:

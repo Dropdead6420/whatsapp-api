@@ -143,6 +143,9 @@ export default function WhatsAppSettingsPage() {
   const [syncingProfile, setSyncingProfile] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [resubscribing, setResubscribing] = useState(false);
+  const [profileAbout, setProfileAbout] = useState("");
+  const [profileVertical, setProfileVertical] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   async function resubscribeWebhook() {
     setResubscribing(true);
@@ -246,6 +249,8 @@ export default function WhatsAppSettingsPage() {
       setConfig(data);
       setWabaId(data.wabaId ?? "");
       setPhoneNumberId(data.phoneNumberId ?? "");
+      setProfileAbout(data.businessAbout ?? "");
+      setProfileVertical(data.businessVertical ?? "");
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Failed to load WhatsApp settings");
     }
@@ -295,6 +300,25 @@ export default function WhatsAppSettingsPage() {
       setErr(e instanceof ApiClientError ? e.message : "Sync failed");
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function saveBusinessProfile(event: FormEvent) {
+    event.preventDefault();
+    setSavingProfile(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      await api.patch<BusinessProfileResult>("/api/v1/whatsapp/config/profile", {
+        about: profileAbout.trim(),
+        vertical: profileVertical.trim(),
+      });
+      await loadConfig();
+      setNotice("Business profile updated on Meta.");
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Profile update failed");
+    } finally {
+      setSavingProfile(false);
     }
   }
 
@@ -508,34 +532,43 @@ export default function WhatsAppSettingsPage() {
                 {syncingProfile ? "Syncing..." : "Sync from Meta"}
               </button>
             </div>
-            <dl className="mt-4 space-y-3 text-sm">
-              <div className="flex items-center justify-between gap-4">
-                <dt className="text-slate-500">Display name</dt>
-                <dd className="text-right font-medium text-slate-700">
-                  {config?.businessName ?? "—"}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <dt className="text-slate-500">Vertical</dt>
-                <dd className="text-right font-medium text-slate-700">
-                  {config?.businessVertical ?? "—"}
-                </dd>
-              </div>
-              {config?.businessAbout && (
-                <div>
-                  <dt className="text-slate-500">About</dt>
-                  <dd className="mt-1 text-slate-700">{config.businessAbout}</dd>
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
-                <dt>Last synced</dt>
-                <dd>
-                  {config?.businessProfileSyncedAt
-                    ? new Date(config.businessProfileSyncedAt).toLocaleString()
-                    : "never"}
-                </dd>
-              </div>
-            </dl>
+            <p className="mt-2 text-xs text-slate-500">
+              Display name: <b>{config?.businessName ?? "—"}</b> (synced from Meta)
+            </p>
+            <form onSubmit={saveBusinessProfile} className="mt-4 space-y-3">
+              <label className="block text-sm">
+                <span className="text-slate-600">Vertical</span>
+                <input
+                  className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                  value={profileVertical}
+                  onChange={(e) => setProfileVertical(e.target.value)}
+                  disabled={!config?.hasAccessToken}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-slate-600">About</span>
+                <textarea
+                  className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
+                  rows={3}
+                  value={profileAbout}
+                  onChange={(e) => setProfileAbout(e.target.value)}
+                  disabled={!config?.hasAccessToken}
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={savingProfile || !config?.hasAccessToken}
+                className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              >
+                {savingProfile ? "Saving…" : "Save to Meta"}
+              </button>
+            </form>
+            <p className="mt-3 text-xs text-slate-500">
+              Last synced:{" "}
+              {config?.businessProfileSyncedAt
+                ? new Date(config.businessProfileSyncedAt).toLocaleString()
+                : "never"}
+            </p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-5">

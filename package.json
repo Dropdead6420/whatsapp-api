@@ -24,6 +24,7 @@
   "author": "Sidharth Kumar",
   "license": "MIT",
   "devDependencies": {
+    "next": "^14.2.35",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "styled-jsx": "5.1.1",

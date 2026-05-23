@@ -31,9 +31,17 @@ interface DashboardSummary {
   };
 }
 
+interface WalletAlert {
+  balanceCredits: number;
+  lowBalanceThreshold: number;
+  isLow: boolean;
+  isEmpty: boolean;
+}
+
 export default function DashboardPage() {
   const { user, features, loading, signOut } = useAuth({ required: true });
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [walletAlert, setWalletAlert] = useState<WalletAlert | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -41,6 +49,12 @@ export default function DashboardPage() {
       .get<DashboardSummary>("/api/v1/analytics/summary")
       .then(setSummary)
       .catch(() => setSummary(null));
+    if (user.role === "BUSINESS_ADMIN" || user.role === "TEAM_LEAD") {
+      api
+        .get<WalletAlert | null>("/api/v1/wallets/alerts")
+        .then(setWalletAlert)
+        .catch(() => setWalletAlert(null));
+    }
   }, [user]);
 
   if (loading || !user) {
@@ -59,6 +73,17 @@ export default function DashboardPage() {
             : "Today's snapshot of your campaigns and conversations."}
         </p>
       </header>
+
+      {walletAlert?.isLow && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Wallet balance is low ({walletAlert.balanceCredits} credits, threshold{" "}
+          {walletAlert.lowBalanceThreshold}).{" "}
+          <a href="/wallets" className="font-medium underline">
+            Recharge credits
+          </a>
+          {walletAlert.isEmpty ? " — sending may be blocked." : "."}
+        </div>
+      )}
 
       {user.role === "SUPER_ADMIN" && <SuperAdminCards summary={summary} />}
       {(user.role === "BUSINESS_ADMIN" || user.role === "TEAM_LEAD") && (

@@ -3,12 +3,13 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { login, ApiClientError } from "../../../src/lib/api";
+import { login, resendVerification, ApiClientError } from "../../../src/lib/api";
 import { roleHome } from "../../../src/hooks/useAuth";
 
 interface LoginError {
   message: string;
   hint?: string;
+  canResendVerification?: boolean;
 }
 
 // Map server-side ApiClientError codes to user-facing copy. Falling back
@@ -28,7 +29,8 @@ function explainLoginError(err: unknown): LoginError {
       case "EMAIL_NOT_VERIFIED":
         return {
           message: "Please verify your email before logging in.",
-          hint: "Check your inbox for the verification link — or sign up again to resend.",
+          hint: "Check your inbox for the verification link, or send a fresh one below.",
+          canResendVerification: true,
         };
       case "FORBIDDEN":
         return { message: err.message };
@@ -50,11 +52,14 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<LoginError | null>(null);
+  const [resendDone, setResendDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setResendDone(null);
     setBusy(true);
     try {
       const { user } = await login(email.trim(), password);
@@ -63,6 +68,20 @@ export default function LoginPage() {
       setError(explainLoginError(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onResendVerification() {
+    setError(null);
+    setResendDone(null);
+    setResendBusy(true);
+    try {
+      const { message } = await resendVerification(email.trim());
+      setResendDone(message);
+    } catch (err) {
+      setError(explainLoginError(err));
+    } finally {
+      setResendBusy(false);
     }
   }
 
@@ -111,6 +130,22 @@ export default function LoginPage() {
             {error.hint && (
               <div className="mt-1 text-xs text-red-600/80">{error.hint}</div>
             )}
+            {error.canResendVerification && (
+              <button
+                type="button"
+                onClick={onResendVerification}
+                disabled={resendBusy || !email.trim()}
+                className="mt-3 block font-medium text-red-800 underline disabled:opacity-60"
+              >
+                {resendBusy ? "Sending..." : "Resend verification email"}
+              </button>
+            )}
+          </div>
+        )}
+
+        {resendDone && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+            {resendDone}
           </div>
         )}
 

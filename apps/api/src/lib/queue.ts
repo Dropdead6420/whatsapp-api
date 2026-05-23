@@ -16,6 +16,7 @@ export const QueueNames = {
   WEBHOOK_DELIVERY: "webhook-delivery",
   LEAD_FOLLOWUP_DISPATCH: "lead-followup-dispatch",
   WABA_TOKEN_EXPIRY: "waba-token-expiry",
+  KNOWLEDGE_BASE_EMBEDDING: "knowledge-base-embedding",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -47,6 +48,9 @@ interface WebhookDeliveryData {
 export type WebhookJobData = WebhookDeliveryData;
 
 export type WabaTokenExpiryJobData = { kind: "scan" };
+export type KnowledgeBaseEmbeddingJobData =
+  | { tenantId: string; entryId: string }
+  | { kind: "embed-stale"; tenantId: string; limit: number };
 
 const queueSingletons = new Map<string, Queue>();
 
@@ -98,6 +102,12 @@ export function getWabaTokenExpiryQueue(): Queue<WabaTokenExpiryJobData> {
 
 export function getLeadFollowUpQueue(): Queue<LeadFollowUpJobData> {
   return makeQueue<LeadFollowUpJobData>(QueueNames.LEAD_FOLLOWUP_DISPATCH);
+}
+
+export function getKnowledgeBaseEmbeddingQueue(): Queue<KnowledgeBaseEmbeddingJobData> {
+  return makeQueue<KnowledgeBaseEmbeddingJobData>(
+    QueueNames.KNOWLEDGE_BASE_EMBEDDING,
+  );
 }
 
 // Test/shutdown helper. Closes the singleton + all registered workers.

@@ -68,6 +68,10 @@ const verifyEmailSchema = z.object({
   token: z.string().min(1),
 });
 
+const resendVerificationSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});
+
 // ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
@@ -122,6 +126,24 @@ function parseBody<T>(schema: z.ZodType<T>, body: unknown): T {
   return result.data;
 }
 
+async function sendFreshVerificationEmail(user: {
+  id: string;
+  email: string;
+  tenantId: string | null;
+}): Promise<void> {
+  const { raw, hash } = authService.generateUrlSafeToken();
+  await prisma.emailVerificationToken.create({
+    data: {
+      userId: user.id,
+      tenantId: user.tenantId,
+      tokenHash: hash,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
+  const verifyUrl = `${WEB_URL}/verify-email?token=${raw}`;
+  await sendEmail(buildVerifyEmailEmail(user.email, verifyUrl));
+}
+
 // ----------------------------------------------------------------------------
 // POST /api/v1/auth/signup
 // Creates a new tenant + business admin user, sends verification email.
@@ -139,17 +161,7 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
         existing.status === UserStatus.PENDING_EMAIL_VERIFICATION &&
         existing.tenantId
       ) {
-        const { raw, hash } = authService.generateUrlSafeToken();
-        await prisma.emailVerificationToken.create({
-          data: {
-            userId: existing.id,
-            tenantId: existing.tenantId,
-            tokenHash: hash,
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-          },
-        });
-        const verifyUrl = `${WEB_URL}/verify-email?token=${raw}`;
-        await sendEmail(buildVerifyEmailEmail(existing.email, verifyUrl));
+        await sendFreshVerificationEmail(existing);
         res.status(200).json({
           success: true,
           data: {
@@ -190,18 +202,7 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
       return { tenant, user };
     });
 
-    const { raw, hash } = authService.generateUrlSafeToken();
-    await prisma.emailVerificationToken.create({
-      data: {
-        userId: user.id,
-        tenantId: tenant.id,
-        tokenHash: hash,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
-    });
-
-    const verifyUrl = `${WEB_URL}/verify-email?token=${raw}`;
-    await sendEmail(buildVerifyEmailEmail(user.email, verifyUrl));
+    await sendFreshVerificationEmail(user);
 
     const meta = extractRequestMeta(req);
     await logAudit({
@@ -226,6 +227,47 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
     next(err);
   }
 });
+
+// ----------------------------------------------------------------------------
+// POST /api/v1/auth/resend-verification
+// Sends a fresh verification email for pending accounts.
+// ----------------------------------------------------------------------------
+
+router.post(
+  "/resend-verification",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email } = parseBody(resendVerificationSchema, req.body);
+      const user = await prisma.user.findFirst({
+        where: { email: email.toLowerCase() },
+      });
+
+      if (user?.status === UserStatus.PENDING_EMAIL_VERIFICATION) {
+        await sendFreshVerificationEmail(user);
+        if (user.tenantId) {
+          await logAudit({
+            tenantId: user.tenantId,
+            userId: user.id,
+            action: "EMAIL_VERIFICATION_RESENT",
+            resource: "User",
+            resourceId: user.id,
+            ...extractRequestMeta(req),
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          message:
+            "If the account is waiting for verification, a fresh email has been sent.",
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ----------------------------------------------------------------------------
 // POST /api/v1/auth/login

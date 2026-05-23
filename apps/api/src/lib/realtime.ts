@@ -20,6 +20,14 @@ import { getAuthContext } from "./redis";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 const REDIS_CLUSTER_URLS = process.env.REDIS_CLUSTER_URLS;
 
+function getAllowedWebOrigins(): string[] {
+  const origins = [
+    process.env.WEB_URL ?? "http://localhost:3000",
+    ...(process.env.WEB_ORIGINS ?? "").split(","),
+  ];
+  return Array.from(new Set(origins.map((origin) => origin.trim()).filter(Boolean)));
+}
+
 export type RealtimeEvent =
   | "message:received"
   | "message:sent"
@@ -68,7 +76,7 @@ export async function attachRealtime(server: HttpServer): Promise<void> {
 
   io = new SocketIOServer(server, {
     cors: {
-      origin: process.env.WEB_URL ?? "http://localhost:3000",
+      origin: getAllowedWebOrigins(),
       credentials: true,
     },
     path: "/realtime",

@@ -84,6 +84,9 @@ const NODE_PILL_STYLES: Record<string, string> = {
   AI_EXTRACT_DATA: "bg-violet-500 text-white",
   AI_TRANSLATE: "bg-violet-500 text-white",
   AI_COMPLIANCE_CHECK: "bg-red-600 text-white",
+  AI_RECOMMEND: "bg-violet-500 text-white",
+  AI_CHURN_PREDICT: "bg-fuchsia-600 text-white",
+  AI_ROUTE_BEST_AGENT: "bg-cyan-700 text-white",
 };
 
 function NexaNodeCard({

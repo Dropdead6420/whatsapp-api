@@ -236,6 +236,29 @@ export async function transferWalletCredits(input: {
   );
 }
 
+export interface WalletAlertStatus {
+  balanceCredits: number;
+  lowBalanceThreshold: number;
+  billingMode: WalletBillingMode;
+  isLow: boolean;
+  isEmpty: boolean;
+}
+
+export async function getWalletAlertStatus(
+  tenantId: string,
+): Promise<WalletAlertStatus | null> {
+  const wallet = await prisma.wallet.findUnique({ where: { tenantId } });
+  if (!wallet) return null;
+  const isLow = wallet.balanceCredits <= wallet.lowBalanceThreshold;
+  return {
+    balanceCredits: wallet.balanceCredits,
+    lowBalanceThreshold: wallet.lowBalanceThreshold,
+    billingMode: wallet.billingMode as unknown as WalletBillingMode,
+    isLow,
+    isEmpty: wallet.balanceCredits <= 0,
+  };
+}
+
 export async function updateWalletSettings(input: {
   tenantId: string;
   status?: WalletStatus;
