@@ -19,6 +19,7 @@ import {
   publishAgent,
   updateAgent,
 } from "../services/aiAgent.service";
+import { runAgent } from "../services/aiAgentRunner.service";
 
 // T-052 slice 1: CRUD + lifecycle endpoints for the AI Agent Builder.
 // Slice 2 owns the runtime (agent run loop with KB grounding + tool
@@ -206,6 +207,47 @@ router.post(
         ...extractRequestMeta(req),
       });
       res.json({ success: true, data: agent });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/ai-agents/:id/test — test-drive an agent without
+// touching production conversations. Operators paste a sample
+// conversation, the runner executes against the configured agent
+// (must be ACTIVE) and returns the reply + KB citations + tool calls.
+// Wallet-billed exactly like a real run so prompt iteration costs are
+// visible.
+const testSchema = z.object({
+  conversation: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().min(1).max(8_000),
+      }),
+    )
+    .min(1)
+    .max(50),
+  context: z.record(z.string()).optional(),
+});
+
+router.post(
+  "/:id/test",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = testSchema.parse(req.body);
+      const result = await runAgent({
+        tenantId: req.tenantId!,
+        agentId: req.params.id,
+        conversation: body.conversation,
+        context: body.context,
+      });
+      // No audit log for test runs — they don't change state, and an
+      // operator iterating on a persona shouldn't pollute the audit
+      // trail with dozens of entries. The AiUsage row is the financial
+      // record (wallet was debited inside runAgent).
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }

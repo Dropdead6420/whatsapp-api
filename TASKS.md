@@ -20,10 +20,10 @@ _(none)_
 
 ## Next up
 
-### T-052 — AI Agent Builder (slice 2: runtime)
+### T-052 — AI Agent Builder (slice 3: flow node + inbound routing)
 - Slice 1 (schema + service + CRUD API + RBAC) shipped 2026-05-23 (ADR-025).
-- Slice 2: `aiAgentRunner.service.ts` — `{tenantId, agentId, conversation} → {reply, toolCalls?, escalated?}`. Grounds against KB via `retrieveKnowledge`. Wallet-billed.
-- Slice 3: `AI_AGENT` flow node + inbound-routing fallback so unhandled DMs auto-dispatch to a tenant's default agent.
+- Slice 2 (`aiAgentRunner.service.ts` + `POST /:id/test` endpoint) shipped 2026-05-23 (ADR-026).
+- Slice 3 (next): `AI_AGENT` flow node that takes `{agentId}` from `node.config` and calls `runAgent`; tool-call dispatch table mapping CREATE_LEAD / ADD_TAG / BOOK_APPOINTMENT / TRANSFER_TO_HUMAN / SEND_TEMPLATE / LOOKUP_CONTACT / LOOKUP_ORDER to existing services; inbound-routing fallback in `whatsappWebhook.service` so unhandled DMs auto-dispatch to a tenant's default agent.
 
 ### T-051 — AI Knowledge Base ✅ shipped (slice 1 + embedding/retrieval)
 - Slice 1 (CRUD + lifecycle) shipped 2026-05-22; embedding + retrieval landed in the same release (`knowledgeBaseEmbedding.service.ts`).
@@ -148,6 +148,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### May 2026
+- ✅ **T-052 AI Agent Builder slice 2** — `aiAgentRunner.service.ts` (stateless `runAgent` → `{reply, toolCalls, citations, escalated, escalationBehavior, reason, modelUsed, providerUsed}`), KB grounding looped across multiple `knowledgeScope.categories`, cross-vendor provider fallback (configured-but-wrong key swaps to the other provider rather than 500-ing), wallet debit only on successful LLM response, permissive tool-JSON extraction (fenced + bare), `POST /api/v1/ai-agents/:id/test` endpoint for operator persona iteration. 15 new tests; 17/17 files, 107/107 tests green. See ADR-026.
 - ✅ **T-052 AI Agent Builder slice 1** — `AiAgent` Prisma model (status DRAFT/ACTIVE/DISABLED/ARCHIVED, fallback ESCALATE/SEND_TEMPLATE/SILENT), `aiAgent.service.ts` with provider+model allowlist enforced at write-time, `/api/v1/ai-agents` CRUD + lifecycle endpoints (publish/disable/archive/delete) behind `aiAgents` feature flag + new `AI_AGENT_MANAGE` permission. KB-scope is a JSON column (no join table for 1–4 agents × ~30 entries). 15 new service tests; 16/16 files, 92/92 tests green. See ADR-025.
 - ✅ **T-051 AI Knowledge Base** — schema (KnowledgeBaseEntry + category/status enums), CRUD + lifecycle service, `/api/v1/knowledge-base` routes, `KNOWLEDGE_BASE_MANAGE` permission, `knowledgeBase` feature flag, `/knowledge-base` dashboard page. Embedding service (`knowledgeBaseEmbedding.service.ts`) with OpenAI + local-hash fallback, BullMQ worker, retrieval helper wired into AI nodes for grounding. SSRF guard utility shared between webhook nodes + future KB ingest URLs.
 - ✅ **T-011 SSRF guard** for flow WEBHOOK nodes — blocks private IPs, localhost, metadata hosts; DNS verify with timeout.
