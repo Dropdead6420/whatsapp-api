@@ -1,38 +1,43 @@
-# NexaFlow API — Caddy reverse proxy
+# NexaFlow — Caddy reverse proxy (single VPS, all-in-one)
 #
-# Caddy auto-provisions Let's Encrypt certs the first time the domain
-# resolves to this VPS. State (cert + ACME account) is in the caddy_data
-# Docker volume — never delete that volume or you'll re-issue from scratch
-# (Let's Encrypt has rate limits).
+# Two vhosts, both with auto-SSL via Let's Encrypt. Caddy picks the cert
+# via SNI on :443. State (cert + ACME account) lives in the caddy_data
+# Docker volume — losing that volume means re-issuing from scratch and
+# you'll burn through Let's Encrypt rate limits.
 #
-# `{$DOMAIN}` and `{$API_UPSTREAM}` come from docker-compose env.
+# `{$DOMAIN_API}`, `{$DOMAIN_WEB}`, `{$API_UPSTREAM}`, `{$WEB_UPSTREAM}`
+# come from docker-compose env (see .env.production).
 
-# Main API host — point your DNS A-record `api.yourdomain.com` at the VPS IP.
-{$DOMAIN} {
-	# Auto-SSL via Let's Encrypt. Caddy handles HTTP-01 challenge on :80
-	# and serves the cert on :443. No manual cert config needed.
+# Reusable defaults — shared headers + log config — for both vhosts.
+(common) {
 	encode gzip zstd
-
-	# Forward real client IP + protocol to Express so `req.ip` and
-	# `req.protocol` reflect the browser, not the proxy.
 	header_up X-Forwarded-Proto {scheme}
 	header_up X-Forwarded-For {remote_host}
 	header_up X-Real-IP {remote_host}
-
-	# Strict transport security — once a browser sees this, all future
-	# visits force HTTPS even if a user types http://.
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
-
-	# Sensible security defaults. Most are no-ops for an API but cheap.
 	header X-Content-Type-Options "nosniff"
-	header X-Frame-Options "DENY"
 	header Referrer-Policy "no-referrer-when-downgrade"
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}
 
-	# Meta webhooks send a large-ish JSON payload; bump the upstream
-	# read timeout to handle slow uploads (rare but happens).
+# -----------------------------------------------------------------------------
+# API — api.medscrub.in
+# -----------------------------------------------------------------------------
+{$DOMAIN_API} {
+	import common
+
+	# Express APIs are loaded inside <script>, never in an iframe — DENY
+	# X-Frame-Options is safe + protects against clickjacking on any
+	# auth-related routes that mistakenly accept GETs.
+	header X-Frame-Options "DENY"
+
 	reverse_proxy {$API_UPSTREAM} {
-		# Health-check the upstream every 10s. Caddy will mark it
-		# unhealthy and return 502 if /live stops responding.
+		# Health-check the API upstream every 10s. Caddy returns 502
+		# automatically if /live stops responding.
 		health_uri /live
 		health_interval 10s
 		health_timeout 3s
@@ -41,11 +46,25 @@
 		header_up Connection {>Connection}
 		header_up Upgrade {>Upgrade}
 	}
+}
 
-	# Caddy logs in JSON to stdout — Docker captures them.
-	log {
-		output stdout
-		format json
-		level INFO
+# -----------------------------------------------------------------------------
+# Web — medscrub.in + www.medscrub.in
+#
+# Two-line block at the top sends www → apex (cleaner SEO, single canonical
+# host). Caddy issues one cert covering both names automatically.
+# -----------------------------------------------------------------------------
+{$DOMAIN_WEB}, www.{$DOMAIN_WEB} {
+	import common
+
+	# Send www → apex with a 308 (preserves method, unlike 301/302).
+	# Comment this block out if you'd rather keep both hosts served.
+	@www host www.{$DOMAIN_WEB}
+	redir @www https://{$DOMAIN_WEB}{uri} 308
+
+	reverse_proxy {$WEB_UPSTREAM} {
+		health_uri /
+		health_interval 10s
+		health_timeout 3s
 	}
 }

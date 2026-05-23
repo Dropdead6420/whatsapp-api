@@ -1,14 +1,18 @@
-# NexaFlow API — Hostinger VPS production stack
+# NexaFlow — Hostinger VPS production stack (single host, all-in-one).
 #
-# Single-host deployment. Runs API + 8 BullMQ workers + Postgres + Redis
-# + Caddy reverse proxy with auto-SSL. The Next.js web frontend stays on
-# Vercel.
+# Runs API + 8 BullMQ workers + Next.js web + Postgres + Redis + Caddy
+# reverse proxy with auto-SSL — everything on one VPS, no Vercel.
 #
 # Layout:
-#   caddy  :80/:443  →  api  :3001  (internal)
+#   caddy  :80/:443/:443/udp  ─┬─→  api  :3001  (DOMAIN_API)
+#                              └─→  web  :3000  (DOMAIN_WEB)
 #   api    →  postgres :5432  (internal)
 #   api    →  redis    :6379  (internal)
-#   worker (same image, APP_MODE=worker, no public ports)
+#   worker (same image as api, APP_MODE=worker, no public ports)
+#   web    is built locally on the VPS so NEXT_PUBLIC_API_URL gets baked
+#          into the bundle correctly (Next.js inlines public env at build
+#          time, not runtime — pre-built GHCR images would point at the
+#          wrong host).
 #
 # Bring up: docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 # Logs:    docker compose -f docker-compose.prod.yml logs -f api worker
@@ -33,10 +37,14 @@ services:
       - caddy_data:/data       # ACME certs + state — DO NOT lose this volume
       - caddy_config:/config
     environment:
-      DOMAIN: ${DOMAIN}
+      DOMAIN_API: ${DOMAIN_API}
+      DOMAIN_WEB: ${DOMAIN_WEB}
       API_UPSTREAM: api:3001
+      WEB_UPSTREAM: web:3000
     depends_on:
       api:
+        condition: service_healthy
+      web:
         condition: service_healthy
     networks: [internal]
 
@@ -52,8 +60,9 @@ services:
       PORT: "3001"
       # Behind Caddy + Cloudflare/etc — trust the first proxy hop.
       TRUST_PROXY: "1"
-      # CORS — Caddy + the API both need this to be the Vercel URL.
-      WEB_URL: ${WEB_URL}
+      # CORS — must match the web origin. Set by bootstrap.sh to
+      # https://${DOMAIN_WEB} (or set WEB_URL manually to override).
+      WEB_URL: ${WEB_URL:-https://${DOMAIN_WEB}}
       # Wired by the compose network
       DATABASE_URL: postgresql://nexaflow:${POSTGRES_PASSWORD}@postgres:5432/nexaflow
       REDIS_URL: redis://redis:6379
@@ -83,6 +92,33 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3001/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    networks: [internal]
+
+  web:
+    # Built locally on the VPS so NEXT_PUBLIC_API_URL is correct.
+    # Next.js inlines `NEXT_PUBLIC_*` at build time — a pre-built image
+    # from GHCR would have whatever URL was set in the CI runner (none),
+    # which would default to localhost. So we build here, once per
+    # deploy, with the right value.
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://${DOMAIN_API}
+    image: nexaflow-web:local
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # The runtime env is harmless overrides; the BAKED-IN value from
+      # the build arg is what the browser actually uses.
+      NEXT_PUBLIC_API_URL: https://${DOMAIN_API}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
       interval: 15s
       timeout: 3s
       retries: 10
