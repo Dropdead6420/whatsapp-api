@@ -39,6 +39,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/ai-segment", label: "Smart Segments", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "smartSegment" },
       { href: "/ai-studio", label: "Copy Studio", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "aiStudio" },
       { href: "/knowledge-base", label: "Knowledge Base", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "knowledgeBase" },
+      { href: "/ai-agents", label: "AI Agents", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "aiAgents" },
       { href: "/flows", label: "Flows", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "flows" },
     ],
   },

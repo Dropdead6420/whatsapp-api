@@ -87,6 +87,10 @@ const NODE_PILL_STYLES: Record<string, string> = {
   AI_RECOMMEND: "bg-violet-500 text-white",
   AI_CHURN_PREDICT: "bg-fuchsia-600 text-white",
   AI_ROUTE_BEST_AGENT: "bg-cyan-700 text-white",
+  // T-052 — full agent (KB-grounded reply + tool dispatch). Distinct
+  // gradient so operators see it as "the big one" in the palette,
+  // not just another AI_* node.
+  AI_AGENT: "bg-gradient-to-r from-violet-700 to-fuchsia-600 text-white",
 };
 
 function NexaNodeCard({
@@ -389,16 +393,29 @@ export function FlowEditor({
                                   }
                                 : type === "AI_COMPLIANCE_CHECK"
                                   ? { text: "{{aiSuggestion}}" }
-                                  : type === "WAIT_FOR_REPLY"
-                                    ? {}
-                                    : type === "SWITCH"
-                                      ? {
-                                          field: "triggerText",
-                                          branches: { default: "" },
-                                        }
-                                      : type === "FILTER"
-                                        ? { requireTag: "" }
-                                        : {};
+                                  : type === "AI_AGENT"
+                                    ? {
+                                        // agentId left blank — operator picks
+                                        // it via the config drawer (we don't
+                                        // ship an agent picker dropdown in the
+                                        // JSON editor yet, so the node ships
+                                        // with a placeholder + comment).
+                                        agentId: "",
+                                        replyVar: "aiAgentReply",
+                                        toolResultsVar: "aiAgentToolResults",
+                                        reasonVar: "aiAgentReason",
+                                        historyLookback: 12,
+                                      }
+                                    : type === "WAIT_FOR_REPLY"
+                                      ? {}
+                                      : type === "SWITCH"
+                                        ? {
+                                            field: "triggerText",
+                                            branches: { default: "" },
+                                          }
+                                        : type === "FILTER"
+                                          ? { requireTag: "" }
+                                          : {};
       const position = { x: 200, y: 200 + nodeCounter.current * 30 };
       const newNode: NexaNode = {
         id: newId,
