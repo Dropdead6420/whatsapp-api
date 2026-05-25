@@ -29,6 +29,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     items: [
       { href: "/dashboard", label: "Overview", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD"] },
+      { href: "/onboarding", label: "Get started", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/inbox", label: "Inbox", roles: ["AGENT", "TEAM_LEAD", "BUSINESS_ADMIN"] },
     ],
   },

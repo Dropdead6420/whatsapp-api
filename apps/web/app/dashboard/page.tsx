@@ -38,10 +38,17 @@ interface WalletAlert {
   isEmpty: boolean;
 }
 
+interface OnboardingSummary {
+  completedSteps: number;
+  totalSteps: number;
+  completed: boolean;
+}
+
 export default function DashboardPage() {
   const { user, features, loading, signOut } = useAuth({ required: true });
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [walletAlert, setWalletAlert] = useState<WalletAlert | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingSummary | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -54,6 +61,12 @@ export default function DashboardPage() {
         .get<WalletAlert | null>("/api/v1/wallets/alerts")
         .then(setWalletAlert)
         .catch(() => setWalletAlert(null));
+      // Onboarding banner — fetch the same status the /onboarding page
+      // uses, just trimmed for the dashboard's needs.
+      api
+        .get<OnboardingSummary>("/api/v1/onboarding/status")
+        .then(setOnboarding)
+        .catch(() => setOnboarding(null));
     }
   }, [user]);
 
@@ -82,6 +95,30 @@ export default function DashboardPage() {
             Recharge credits
           </a>
           {walletAlert.isEmpty ? " — sending may be blocked." : "."}
+        </div>
+      )}
+
+      {onboarding && !onboarding.completed && (
+        <div className="mb-6 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              Get started — <strong>{onboarding.completedSteps} of {onboarding.totalSteps}</strong> setup steps complete.
+            </span>
+            <a
+              href="/onboarding"
+              className="rounded-md bg-emerald-700 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-800"
+            >
+              Continue setup →
+            </a>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100">
+            <div
+              className="h-full rounded-full bg-emerald-600 transition-all"
+              style={{
+                width: `${Math.round((onboarding.completedSteps / onboarding.totalSteps) * 100)}%`,
+              }}
+            />
+          </div>
         </div>
       )}
 
