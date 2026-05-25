@@ -903,3 +903,264 @@ export async function extractStructuredData(
   }
   return out;
 }
+
+// ============================================================================
+// T-055: WhatsApp template AI helpers (generation + approval prediction)
+//
+// Meta's WABA template approval is the bottleneck for any marketing flow.
+// Two helpers here:
+//   - generateWhatsAppTemplate: produces 3 variants of a template
+//     (header/body/footer) tailored to the tenant's industry + goal,
+//     conforming to Meta's category rules so they actually pass review.
+//   - predictTemplateApproval: scores 0..1 the likelihood a given
+//     template gets approved, returning concrete reasons so an operator
+//     can fix issues before submitting (Meta only tells you AFTER the
+//     fact).
+//
+// Both are wallet-billed via the existing callLlmJson plumbing.
+// ============================================================================
+
+export type TemplateCategory = "MARKETING" | "UTILITY" | "AUTHENTICATION";
+
+export interface TemplateVariant {
+  headerText: string | null;
+  bodyText: string;
+  footerText: string | null;
+  rationale: string;
+}
+
+export interface GenerateTemplateInput {
+  industry: string;
+  goal: string;
+  language?: string;
+  category?: TemplateCategory;
+  /** Tone hint — friendly, formal, urgent, etc. */
+  tone?: string;
+  /** Operator-provided examples of past wins, used as few-shot context. */
+  samples?: string[];
+  /** Variable placeholders the operator wants supported (e.g. "name", "orderId"). */
+  placeholders?: string[];
+}
+
+// Meta's hard limits per spec — enforced here so the model can't return
+// a body the operator can't actually submit. We don't bother enforcing
+// in the prompt; we trim post-hoc.
+const META_HEADER_MAX = 60;
+const META_BODY_MAX = 1024;
+const META_FOOTER_MAX = 60;
+
+function clampString(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length > max ? trimmed.slice(0, max - 1) + "…" : trimmed;
+}
+
+/**
+ * Generate 3 Meta-compliant WhatsApp template variants for a goal.
+ *
+ * Returns an array of {headerText, bodyText, footerText, rationale}.
+ * bodyText is required; header/footer are optional (null when absent).
+ * The rationale explains why this variant fits — used in the UI so
+ * operators understand the trade-offs without re-reading Meta's docs.
+ */
+export async function generateWhatsAppTemplate(
+  tenantId: string,
+  input: GenerateTemplateInput,
+): Promise<TemplateVariant[]> {
+  const language = (input.language ?? "en").trim() || "en";
+  const category: TemplateCategory = input.category ?? "MARKETING";
+  const tone = (input.tone ?? "friendly, concise").trim();
+  const samples = (input.samples ?? [])
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.length <= 1024)
+    .slice(0, 5);
+  const placeholders = (input.placeholders ?? [])
+    .filter((p): p is string => typeof p === "string")
+    .map((p) => p.trim())
+    .filter((p) => /^[A-Za-z][A-Za-z0-9_]*$/.test(p))
+    .slice(0, 10);
+
+  const placeholderLine =
+    placeholders.length > 0
+      ? `Supported placeholders (use as {{1}}, {{2}}, ... and explain mapping in rationale): ${placeholders.join(", ")}.`
+      : "Do NOT use any {{N}} placeholders unless the goal explicitly needs personalization.";
+
+  const samplesBlock =
+    samples.length > 0
+      ? `\nOperator-provided past examples (match this voice):\n${samples
+          .map((s, i) => `${i + 1}. ${s}`)
+          .join("\n")}\n`
+      : "";
+
+  const prompt = `Generate exactly 3 distinct WhatsApp Business message template variants for category ${category} in language ${language}.
+
+Industry: ${input.industry || "general business"}
+Goal:     ${input.goal || "drive engagement"}
+Tone:     ${tone}
+${placeholderLine}${samplesBlock}
+
+Meta's hard limits:
+- header: at most 60 chars, plain text only, no emoji at the start
+- body: at most 1024 chars, must NOT contain promotional emoji walls, link-shortened URLs, or all-caps shouting
+- footer: at most 60 chars, optional, no URLs
+
+Return JSON with shape:
+{
+  "variants": [
+    {
+      "headerText": "..." | null,
+      "bodyText": "...",
+      "footerText": "..." | null,
+      "rationale": "<one sentence explaining why this variant fits>"
+    },
+    ... 2 more ...
+  ]
+}
+
+Each variant must be MEANINGFULLY DIFFERENT (different angle / hook / CTA), not three rewordings.`;
+
+  const parsed = await callLlmJson<{ variants: unknown }>({
+    tenantId,
+    feature: "template_ai_generate",
+    system:
+      "You are a senior WhatsApp Business marketing strategist. You know Meta's WABA template policy by heart and craft copy that passes review on the first try.",
+    prompt,
+    maxTokens: 1_400,
+    temperature: 0.7,
+  });
+
+  if (!Array.isArray(parsed?.variants)) return [];
+
+  const variants: TemplateVariant[] = [];
+  for (const raw of parsed.variants) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const bodyText = clampString(r.bodyText, META_BODY_MAX);
+    if (!bodyText) continue; // body is the only required field
+    variants.push({
+      headerText: clampString(r.headerText, META_HEADER_MAX),
+      bodyText,
+      footerText: clampString(r.footerText, META_FOOTER_MAX),
+      rationale:
+        clampString(r.rationale, 200) ??
+        "Generated variant — operator should review before submitting.",
+    });
+    if (variants.length >= 3) break;
+  }
+  return variants;
+}
+
+export interface PredictApprovalInput {
+  category: TemplateCategory;
+  language?: string;
+  headerText?: string | null;
+  bodyText: string;
+  footerText?: string | null;
+}
+
+export interface PredictApprovalResult {
+  score: number; // 0..1
+  verdict: "likely_approve" | "uncertain" | "likely_reject";
+  reasons: string[];
+}
+
+/**
+ * Score how likely Meta is to approve this template, with concrete
+ * reasons. Operator runs this BEFORE submitting so they can fix
+ * issues (Meta only tells you reasons after rejection).
+ *
+ * The score is bucketed into three verdicts so the UI can render a
+ * traffic-light badge without operators having to interpret raw numbers.
+ */
+export async function predictTemplateApproval(
+  tenantId: string,
+  input: PredictApprovalInput,
+): Promise<PredictApprovalResult> {
+  const body = (input.bodyText ?? "").trim();
+  if (!body) {
+    return {
+      score: 0,
+      verdict: "likely_reject",
+      reasons: ["bodyText is empty"],
+    };
+  }
+  if (body.length > META_BODY_MAX) {
+    return {
+      score: 0,
+      verdict: "likely_reject",
+      reasons: [`bodyText exceeds ${META_BODY_MAX} chars (got ${body.length})`],
+    };
+  }
+
+  const prompt = `Score this WhatsApp Business template's likelihood of passing Meta's review.
+
+Category:    ${input.category}
+Language:    ${input.language ?? "en"}
+Header:      ${input.headerText?.trim() || "(none)"}
+Body:        ${body}
+Footer:      ${input.footerText?.trim() || "(none)"}
+
+Common rejection reasons:
+- promotional content classified as UTILITY (or vice versa)
+- aggressive CTAs ("click NOW", "limited time")
+- shortened URLs (bit.ly, t.co, tinyurl)
+- excessive emoji or all-caps shouting
+- placeholder count doesn't match category (UTILITY typically 1-3, MARKETING 0-2)
+- mentions of competitor brand names
+- claims of guaranteed results, financial promises, or medical advice
+
+Return JSON:
+{
+  "score": <0..1 float — probability Meta approves on first submit>,
+  "verdict": "likely_approve" | "uncertain" | "likely_reject",
+  "reasons": ["specific reason 1", "specific reason 2", ...]
+}
+
+Be concrete. "Wording is fine" is not a reason — name the policy each item touches.`;
+
+  const parsed = await callLlmJson<{
+    score: unknown;
+    verdict: unknown;
+    reasons: unknown;
+  }>({
+    tenantId,
+    feature: "template_ai_predict_approval",
+    system:
+      "You are a WhatsApp Business template reviewer with deep knowledge of Meta's WABA policy. You score templates the way an actual Meta reviewer would, citing specific policy rules.",
+    prompt,
+    maxTokens: 600,
+    temperature: 0,
+  });
+
+  let score =
+    typeof parsed?.score === "number" && Number.isFinite(parsed.score)
+      ? Math.min(1, Math.max(0, parsed.score))
+      : 0.5;
+  const reasons = Array.isArray(parsed?.reasons)
+    ? parsed.reasons
+        .filter((r): r is string => typeof r === "string")
+        .map((r) => r.trim())
+        .filter((r) => r.length > 0)
+        .slice(0, 8)
+    : [];
+
+  // Snap verdict to the score even if the model returned an inconsistent one
+  // — the score is the source of truth, verdict is for display.
+  let verdict: PredictApprovalResult["verdict"];
+  if (score >= 0.75) verdict = "likely_approve";
+  else if (score >= 0.4) verdict = "uncertain";
+  else verdict = "likely_reject";
+
+  // Hard-fail when reasons are empty for non-approve verdicts — the
+  // operator needs SOMETHING to act on. Synthesize a generic reason
+  // rather than silently passing through.
+  if (verdict !== "likely_approve" && reasons.length === 0) {
+    reasons.push(
+      "Model couldn't articulate a specific concern — review category fit and CTA strength manually before submitting.",
+    );
+  }
+
+  return { score: Number(score.toFixed(3)), verdict, reasons };
+}
