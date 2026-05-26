@@ -16,6 +16,7 @@ interface Appointment {
   source: string;
   confirmationSentAt: string | null;
   reminderSentAt: string | null;
+  postVisitSentAt: string | null;
   contact: { id: string; name: string; phoneNumber: string };
   service: { id: string; name: string; priceInPaisa: number };
 }
@@ -159,6 +160,7 @@ export default function AppointmentsPage() {
                     <th className="px-4 py-2">Service</th>
                     <th className="px-4 py-2">Status</th>
                     <th className="px-4 py-2">Reminder</th>
+                    <th className="px-4 py-2">Post-visit</th>
                     <th className="px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -196,6 +198,15 @@ export default function AppointmentsPage() {
                           : a.status === "CONFIRMED"
                             ? "auto-sent 24h before"
                             : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {a.postVisitSentAt
+                          ? `sent ${new Date(a.postVisitSentAt).toLocaleTimeString()}`
+                          : a.status === "COMPLETED"
+                            ? "queued"
+                            : a.status === "CONFIRMED"
+                              ? "after visit"
+                              : "—"}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {user.role !== "AGENT" && (

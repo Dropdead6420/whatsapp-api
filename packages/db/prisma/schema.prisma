@@ -1283,6 +1283,11 @@ model Appointment {
 
   confirmationSentAt  DateTime?
   reminderSentAt      DateTime?
+  // PRD §3.3.9: post-visit follow-up (review/feedback ask). Stamped
+  // by the appointment worker once we've sent it, so the next scan
+  // skips the row. Decoupled from `completedAt` so an operator who
+  // manually back-dates a completion doesn't trigger a stale message.
+  postVisitSentAt     DateTime?
   completedAt         DateTime?
   cancelledAt         DateTime?
 
@@ -1293,6 +1298,7 @@ model Appointment {
   @@index([contactId])
   @@index([status])
   @@index([reminderSentAt])
+  @@index([postVisitSentAt])
 }
 
 // ============================================================================
