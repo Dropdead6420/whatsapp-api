@@ -518,6 +518,7 @@ export const Permissions = {
   AI_AGENT_MANAGE: "ai_agent:manage",
   SUPPORT_TICKET_VIEW: "support_ticket:view",
   SUPPORT_TICKET_MANAGE: "support_ticket:manage",
+  DRIP_SEQUENCE_MANAGE: "drip_sequence:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
@@ -565,6 +566,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.LEAD_UPDATE,
     Permissions.SUPPORT_TICKET_VIEW,
     Permissions.SUPPORT_TICKET_MANAGE,
+    Permissions.DRIP_SEQUENCE_MANAGE,
   ],
   [UserRole.TEAM_LEAD]: [
     Permissions.CAMPAIGN_CREATE,

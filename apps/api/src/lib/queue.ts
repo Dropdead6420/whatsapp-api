@@ -18,6 +18,7 @@ export const QueueNames = {
   WABA_TOKEN_EXPIRY: "waba-token-expiry",
   KNOWLEDGE_BASE_EMBEDDING: "knowledge-base-embedding",
   WALLET_RECONCILIATION: "wallet-reconciliation",
+  DRIP_DISPATCH: "drip-dispatch",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -53,6 +54,7 @@ export type KnowledgeBaseEmbeddingJobData =
   | { tenantId: string; entryId: string }
   | { kind: "embed-stale"; tenantId: string; limit: number };
 export type WalletReconciliationJobData = { kind: "scan" };
+export type DripJobData = { kind: "scan" };
 
 const queueSingletons = new Map<string, Queue>();
 
@@ -116,6 +118,10 @@ export function getWalletReconciliationQueue(): Queue<WalletReconciliationJobDat
   return makeQueue<WalletReconciliationJobData>(
     QueueNames.WALLET_RECONCILIATION,
   );
+}
+
+export function getDripQueue(): Queue<DripJobData> {
+  return makeQueue<DripJobData>(QueueNames.DRIP_DISPATCH);
 }
 
 // Test/shutdown helper. Closes the singleton + all registered workers.

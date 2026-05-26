@@ -171,6 +171,8 @@ model Tenant {
   demoTenant               DemoTenant?
   createdDemos             DemoTenant[] @relation("DemoCreatedBy")
   supportTickets           SupportTicket[]
+  dripSequences            DripSequence[]
+  dripEnrollments          DripEnrollment[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -413,6 +415,7 @@ model Contact {
   conversations            Conversation[]
   leads                    Lead[]
   appointments             Appointment[]
+  dripEnrollments          DripEnrollment[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -1473,4 +1476,99 @@ model SupportTicketMessage {
   createdAt    DateTime                @default(now())
 
   @@index([ticketId, createdAt])
+}
+
+// ============================================================================
+// DRIP SEQUENCES (Phase 3)
+// Multi-step WhatsApp campaigns triggered by contact events. Each sequence
+// has an ordered list of steps; each step is a template send + a delay
+// before the next one. Enrollments track each contact's progress.
+// ============================================================================
+
+enum DripSequenceStatus {
+  DRAFT     // operator is still authoring; no enrollments accepted
+  ACTIVE    // accepting new enrollments; existing ones progress
+  PAUSED    // existing enrollments freeze; no new ones accepted
+  ARCHIVED  // hidden from UI; nothing happens
+}
+
+enum DripSequenceTrigger {
+  // Slice 1 ships MANUAL only — operator/API explicitly enrolls each
+  // contact. Slice 2 will add the CONTACT_CREATED + TAG_ADDED hooks.
+  MANUAL
+  CONTACT_CREATED
+  TAG_ADDED
+}
+
+enum DripEnrollmentStatus {
+  RUNNING    // making progress through steps
+  COMPLETED  // finished the final step
+  CANCELLED  // operator pulled them out
+  FAILED     // unrecoverable error mid-sequence
+}
+
+model DripSequence {
+  id              String                @id @default(cuid())
+  tenantId        String
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name            String
+  description     String?
+  status          DripSequenceStatus    @default(DRAFT)
+  trigger         DripSequenceTrigger   @default(MANUAL)
+  // When trigger=TAG_ADDED, the tag that activates enrollment.
+  triggerTag      String?
+
+  // Ordered list of steps. Stored as JSON so we can iterate without
+  // a join — each step is small and the list is short. Shape:
+  //   [{ delayHours: number, templateId: string, languageCode?: string,
+  //      bodyParams?: string[] }]
+  // Validated at the route layer (zod).
+  steps           Json                  @default("[]")
+
+  enrollments     DripEnrollment[]
+
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([tenantId, status])
+  @@index([trigger, status])
+}
+
+model DripEnrollment {
+  id              String                @id @default(cuid())
+  // Denormalized for fast tenant-scoped reads + a tenantId index on
+  // the scan-worker query.
+  tenantId        String
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  sequenceId      String
+  sequence        DripSequence          @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  contactId       String
+  contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  // Index into DripSequence.steps[] for the NEXT step to fire. When
+  // the worker fires step N, it advances to N+1; if N+1 == steps.length
+  // the enrollment is marked COMPLETED.
+  currentStep     Int                   @default(0)
+  status          DripEnrollmentStatus  @default(RUNNING)
+
+  // Scan-worker wakeup driver: find RUNNING rows where nextStepAt <= now.
+  nextStepAt      DateTime?
+  lastStepAt      DateTime?
+
+  sentCount       Int                   @default(0)
+  failedCount     Int                   @default(0)
+  // Set when status moves to FAILED — what went wrong on the last send.
+  lastError       String?
+
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  // One enrollment per contact per sequence — re-enrolling a contact
+  // is an explicit operator action (cancel-then-enroll), not a silent
+  // double-send.
+  @@unique([sequenceId, contactId])
+  @@index([tenantId, status])
+  @@index([status, nextStepAt])
 }

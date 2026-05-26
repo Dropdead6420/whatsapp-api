@@ -44,6 +44,7 @@ import whitelabelRoutes from "./routes/whitelabel.routes";
 import knowledgeBaseRoutes from "./routes/knowledge-base.routes";
 import aiAgentsRoutes from "./routes/ai-agents.routes";
 import onboardingRoutes from "./routes/onboarding.routes";
+import dripSequencesRoutes from "./routes/drip-sequences.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -82,6 +83,10 @@ import {
   startAutoRechargeWorker,
   stopAutoRechargeWorker,
 } from "./services/autoRecharge.service";
+import {
+  startDripWorker,
+  stopDripWorker,
+} from "./services/dripSequence.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -243,6 +248,7 @@ app.use("/api/v1/flow-templates", flowTemplatesRoutes);
 app.use("/api/v1/knowledge-base", knowledgeBaseRoutes);
 app.use("/api/v1/ai-agents", aiAgentsRoutes);
 app.use("/api/v1/onboarding", onboardingRoutes);
+app.use("/api/v1/drip-sequences", dripSequencesRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
@@ -272,6 +278,7 @@ async function startWorkers(): Promise<void> {
   await startWalletReconciliationWorker();
   await startWalletAlertsWorker();
   await startAutoRechargeWorker();
+  await startDripWorker();
 }
 
 function stopWorkers(): void {
@@ -286,6 +293,7 @@ function stopWorkers(): void {
   stopWalletReconciliationWorker();
   stopWalletAlertsWorker();
   stopAutoRechargeWorker();
+  stopDripWorker();
 }
 
 if (START_HTTP) {
