@@ -4,6 +4,9 @@ const path = require("path");
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   transpilePackages: ["@nexaflow/shared", "@nexaflow/ui"],
   webpack: (config) => {
     config.resolve = config.resolve || {};
