@@ -269,6 +269,95 @@ export async function listEnrollments(args: {
 }
 
 // ----------------------------------------------------------------------------
+// Auto-enrollment hooks (slice 2). Called from contact-mutation paths to
+// drop a contact into any sequence whose trigger matches. Both helpers are
+// tolerant — a failure in this path should never block the contact write
+// that called us. Worst case we log + drop.
+// ----------------------------------------------------------------------------
+
+async function safeEnroll(args: {
+  tenantId: string;
+  sequenceId: string;
+  contactId: string;
+  reason: string;
+}): Promise<void> {
+  try {
+    await enrollContact(args);
+  } catch (err) {
+    console.warn(
+      `[drip] auto-enroll skipped (${args.reason}) sequence=${args.sequenceId} contact=${args.contactId}: ${(err as Error).message}`,
+    );
+  }
+}
+
+/**
+ * Fires after a Contact (or batch) is created in the tenant. Enrolls each
+ * contact in every ACTIVE sequence whose trigger=CONTACT_CREATED.
+ *
+ * Note: this runs synchronously inside the request that created the
+ * contact. The work is O(sequences × contacts) DB writes; with sub-100
+ * sequences per tenant and bulk imports already bounded by their batch
+ * size, this is fine. If a tenant ever has a huge sequence catalog +
+ * bulk-imports, move this onto its own queue.
+ */
+export async function enrollContactsForCreatedTrigger(
+  tenantId: string,
+  contactIds: string[],
+): Promise<void> {
+  if (contactIds.length === 0) return;
+  const sequences = await prisma.dripSequence.findMany({
+    where: {
+      tenantId,
+      status: DripSequenceStatus.ACTIVE,
+      trigger: DripSequenceTrigger.CONTACT_CREATED,
+    },
+    select: { id: true },
+  });
+  if (sequences.length === 0) return;
+  for (const seq of sequences) {
+    for (const contactId of contactIds) {
+      await safeEnroll({
+        tenantId,
+        sequenceId: seq.id,
+        contactId,
+        reason: "CONTACT_CREATED",
+      });
+    }
+  }
+}
+
+/**
+ * Fires after a Contact's tags array gained new entries. Enrolls the
+ * contact in every ACTIVE sequence whose trigger=TAG_ADDED + triggerTag
+ * matches one of the newly-added tags.
+ */
+export async function enrollContactForAddedTags(args: {
+  tenantId: string;
+  contactId: string;
+  addedTags: string[];
+}): Promise<void> {
+  if (args.addedTags.length === 0) return;
+  const sequences = await prisma.dripSequence.findMany({
+    where: {
+      tenantId: args.tenantId,
+      status: DripSequenceStatus.ACTIVE,
+      trigger: DripSequenceTrigger.TAG_ADDED,
+      triggerTag: { in: args.addedTags },
+    },
+    select: { id: true, triggerTag: true },
+  });
+  if (sequences.length === 0) return;
+  for (const seq of sequences) {
+    await safeEnroll({
+      tenantId: args.tenantId,
+      sequenceId: seq.id,
+      contactId: args.contactId,
+      reason: `TAG_ADDED:${seq.triggerTag}`,
+    });
+  }
+}
+
+// ----------------------------------------------------------------------------
 // Dispatch — fires the current step for one enrollment, then schedules the
 // next or marks COMPLETED.
 // ----------------------------------------------------------------------------

@@ -10,6 +10,10 @@ import {
 import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { dispatchFlowTriggers, tagsAdded } from "../services/flow/flowTrigger.service";
+import {
+  enrollContactForAddedTags,
+  enrollContactsForCreatedTrigger,
+} from "../services/dripSequence.service";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope);
@@ -217,6 +221,18 @@ router.post(
         ...extractRequestMeta(req),
       });
 
+      // Drip auto-enrollment: contact-created trigger + tag-added for any
+      // tags supplied at creation. Both are no-throw helpers; failures log
+      // but don't bubble up.
+      void enrollContactsForCreatedTrigger(req.tenantId!, [contact.id]);
+      if (contact.tags.length > 0) {
+        void enrollContactForAddedTags({
+          tenantId: req.tenantId!,
+          contactId: contact.id,
+          addedTags: contact.tags,
+        });
+      }
+
       res.status(201).json({ success: true, data: contact });
     } catch (err) {
       next(err);
@@ -284,12 +300,20 @@ router.patch(
         ...extractRequestMeta(req),
       });
       if (body.tags) {
-        for (const tag of tagsAdded(existing.tags, updated.tags)) {
+        const added = tagsAdded(existing.tags, updated.tags);
+        for (const tag of added) {
           void dispatchFlowTriggers({
             tenantId: req.tenantId!,
             trigger: "tag_added",
             contactId: updated.id,
             tag,
+          });
+        }
+        if (added.length > 0) {
+          void enrollContactForAddedTags({
+            tenantId: req.tenantId!,
+            contactId: updated.id,
+            addedTags: added,
           });
         }
       }
@@ -371,6 +395,40 @@ router.post(
         newValues: { count: result.count, source: "bulk-import" },
         ...extractRequestMeta(req),
       });
+
+      // Drip auto-enrollment. createMany doesn't return rows, so fetch the
+      // freshly-inserted contacts back by phone number to feed into the
+      // contact-created and tag-added triggers. This is best-effort; we
+      // never block the import response on it.
+      if (result.count > 0) {
+        void (async () => {
+          try {
+            const created = await prisma.contact.findMany({
+              where: {
+                tenantId: req.tenantId!,
+                phoneNumber: { in: toCreate.map((c) => c.phoneNumber) },
+              },
+              select: { id: true, tags: true },
+            });
+            const createdIds = created.map((c) => c.id);
+            await enrollContactsForCreatedTrigger(req.tenantId!, createdIds);
+            for (const c of created) {
+              if (c.tags.length > 0) {
+                await enrollContactForAddedTags({
+                  tenantId: req.tenantId!,
+                  contactId: c.id,
+                  addedTags: c.tags,
+                });
+              }
+            }
+          } catch (err) {
+            console.warn(
+              "[contacts/bulk-import] drip auto-enroll skipped:",
+              (err as Error).message,
+            );
+          }
+        })();
+      }
 
       res.status(201).json({
         success: true,
