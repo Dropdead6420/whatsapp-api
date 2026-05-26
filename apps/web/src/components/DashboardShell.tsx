@@ -75,6 +75,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/plans", label: "Plans & Add-ons", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/support", label: "Support Tickets", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD", "AGENT"] },
+      { href: "/missing-features", label: "🔮 Labs & Backlog", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD", "AGENT"] },
       { href: "/design-system", label: "🎨 UI Design System", roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD", "AGENT"] },
     ],
   },
