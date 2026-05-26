@@ -1,0 +1,14 @@
+{
+  "extends": "eslint:recommended",
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2020": true
+  },
+  "rules": {
+    "no-unused-vars": "off",
+    "no-undef": "off",
+    "@next/next/no-img-element": "off",
+    "react-hooks/exhaustive-deps": "off"
+  }
+}
