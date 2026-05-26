@@ -2,21 +2,35 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import type { AuthUserPublic } from "@nexaflow/shared";
+import { api } from "../lib/api";
 
-interface MenuConfig {
-  Dashboard?: string;
-  Customers?: string;
-  Wallet?: string;
-  Whitelabel?: string;
-  Theme?: string;
-  Menu?: string;
-  Products?: string;
-  Tickets?: string;
-  Channels?: string;
-  AI?: string;
-  Team?: string;
+interface MenuItemOverride {
+  label?: string;
+  icon?: string;
+  enabled: boolean;
+}
+
+type MenuConfig = Partial<
+  Record<
+    | "Dashboard"
+    | "Customers"
+    | "Wallet"
+    | "Whitelabel"
+    | "Theme"
+    | "Menu"
+    | "Products"
+    | "Tickets"
+    | "Channels"
+    | "AI"
+    | "Team",
+    MenuItemOverride
+  >
+>;
+
+interface ServerMenuConfig {
+  items: Array<{ key: string; label: string; icon: string; enabled: boolean }>;
 }
 
 export function PartnerShell({
@@ -37,19 +51,40 @@ export function PartnerShell({
   const [brandName, setBrandName] = useState<string>("Partner Portal");
   const [primaryColor, setPrimaryColor] = useState<string>("#6366f1"); // Indigo
 
-  useEffect(() => {
-    // Load branding, theme, and custom menus
-    const storedTheme = localStorage.getItem("nexaflow_theme") as any;
-    if (storedTheme) setTheme(storedTheme);
-    
-    const storedMenu = localStorage.getItem("nexaflow_menu_config");
-    if (storedMenu) {
-      try {
-        setMenuConfig(JSON.parse(storedMenu));
-      } catch {
+  const loadMenuConfig = useCallback(async () => {
+    try {
+      const data = await api.get<ServerMenuConfig | null>(
+        "/api/v1/partner/menu-config",
+      );
+      if (data?.items) {
+        const next: MenuConfig = {};
+        for (const item of data.items) {
+          (next as Record<string, MenuItemOverride>)[item.key] = {
+            label: item.label,
+            icon: item.icon,
+            enabled: item.enabled,
+          };
+        }
+        setMenuConfig(next);
+      } else {
         setMenuConfig({});
       }
+    } catch {
+      // Non-fatal: shell renders default labels.
+      setMenuConfig({});
     }
+  }, []);
+
+  useEffect(() => {
+    const storedTheme = localStorage.getItem("nexaflow_theme") as
+      | "dark"
+      | "light"
+      | "glass"
+      | "sunset"
+      | null;
+    if (storedTheme) setTheme(storedTheme);
+
+    void loadMenuConfig();
 
     const storedLogo = localStorage.getItem("nexaflow_brand_logo");
     if (storedLogo) setBrandLogo(storedLogo);
@@ -59,7 +94,12 @@ export function PartnerShell({
 
     const storedColor = localStorage.getItem("nexaflow_brand_primary");
     if (storedColor) setPrimaryColor(storedColor);
-  }, []);
+
+    // /partner/menu dispatches this after a successful save.
+    const handler = () => void loadMenuConfig();
+    window.addEventListener("nexaflow-menu-change", handler);
+    return () => window.removeEventListener("nexaflow-menu-change", handler);
+  }, [loadMenuConfig]);
 
   const toggleTheme = () => {
     const themes: ("dark" | "light" | "glass" | "sunset")[] = ["dark", "light", "glass", "sunset"];
@@ -71,19 +111,36 @@ export function PartnerShell({
     window.dispatchEvent(new Event("nexaflow-theme-change"));
   };
 
-  const navItems = [
-    { href: "/partner/dashboard", label: menuConfig.Dashboard || "Dashboard", icon: "📊" },
-    { href: "/partner/customers", label: menuConfig.Customers || "Customers", icon: "👥" },
-    { href: "/partner/wallet", label: menuConfig.Wallet || "Wallet & Recharge", icon: "💳" },
-    { href: "/partner/whitelabel", label: menuConfig.Whitelabel || "White-label Setup", icon: "🏷️" },
-    { href: "/partner/theme", label: menuConfig.Theme || "Theme Builder", icon: "🎨" },
-    { href: "/partner/menu", label: menuConfig.Menu || "UI/Menu Manager", icon: "⚙️" },
-    { href: "/partner/products", label: menuConfig.Products || "Product Manager", icon: "📦" },
-    { href: "/partner/tickets", label: menuConfig.Tickets || "Support Tickets", icon: "🎫" },
-    { href: "/partner/channels", label: menuConfig.Channels || "WhatsApp Channels", icon: "💬" },
-    { href: "/partner/ai", label: menuConfig.AI || "AI Growth Center", icon: "✦" },
-    { href: "/partner/team", label: menuConfig.Team || "Team Status", icon: "🏢" },
+  const DEFAULT_NAV: Array<{
+    key: keyof MenuConfig;
+    href: string;
+    label: string;
+    icon: string;
+  }> = [
+    { key: "Dashboard", href: "/partner/dashboard", label: "Dashboard", icon: "📊" },
+    { key: "Customers", href: "/partner/customers", label: "Customers", icon: "👥" },
+    { key: "Wallet", href: "/partner/wallet", label: "Wallet & Recharge", icon: "💳" },
+    { key: "Whitelabel", href: "/partner/whitelabel", label: "White-label Setup", icon: "🏷️" },
+    { key: "Theme", href: "/partner/theme", label: "Theme Builder", icon: "🎨" },
+    { key: "Menu", href: "/partner/menu", label: "UI/Menu Manager", icon: "⚙️" },
+    { key: "Products", href: "/partner/products", label: "Portfolio Catalog", icon: "📦" },
+    { key: "Tickets", href: "/partner/tickets", label: "Support Tickets", icon: "🎫" },
+    { key: "Channels", href: "/partner/channels", label: "WhatsApp Channels", icon: "💬" },
+    { key: "AI", href: "/partner/ai", label: "AI overview", icon: "✦" },
+    { key: "Team", href: "/partner/team", label: "Team", icon: "🏢" },
   ];
+
+  const navItems = DEFAULT_NAV.filter((item) => {
+    const override = menuConfig[item.key];
+    return override?.enabled !== false; // undefined => keep default-enabled
+  }).map((item) => {
+    const override = menuConfig[item.key];
+    return {
+      href: item.href,
+      label: override?.label || item.label,
+      icon: override?.icon || item.icon,
+    };
+  });
 
   // Helper classes depending on theme
   const getThemeClasses = () => {

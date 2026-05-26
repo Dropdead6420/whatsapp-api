@@ -757,6 +757,100 @@ router.post(
   },
 );
 
+// ----------------------------------------------------------------------------
+// Partner-portal sidebar config — what nav items show + their labels.
+// Persisted on Tenant.partnerMenuConfig so changes survive across browsers
+// and team members. Replaces the localStorage-only mock under /partner/menu.
+// ----------------------------------------------------------------------------
+
+const PARTNER_MENU_KEYS = [
+  "Dashboard",
+  "Customers",
+  "Wallet",
+  "Whitelabel",
+  "Theme",
+  "Menu",
+  "Products",
+  "Tickets",
+  "Channels",
+  "AI",
+  "Team",
+] as const;
+
+const menuItemSchema = z.object({
+  key: z.enum(PARTNER_MENU_KEYS as unknown as [string, ...string[]]),
+  label: z.string().trim().min(1).max(40),
+  icon: z.string().trim().min(1).max(8),
+  enabled: z.boolean(),
+});
+
+const menuConfigSchema = z.object({
+  items: z.array(menuItemSchema).min(1).max(20),
+});
+
+router.get(
+  "/menu-config",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const row = await prisma.tenant.findUnique({
+        where: { id: partner.id },
+        select: { partnerMenuConfig: true },
+      });
+      res.json({
+        success: true,
+        data: (row?.partnerMenuConfig as unknown) ?? null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/menu-config",
+  requirePermission(Permissions.WHITELABEL_CONFIG),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const body = menuConfigSchema.parse(req.body);
+
+      // Ensure every key is unique (the enum already restricts to known keys).
+      const seen = new Set<string>();
+      for (const item of body.items) {
+        if (seen.has(item.key)) {
+          throw new ApiError(
+            ErrorCodes.BAD_REQUEST,
+            400,
+            `Duplicate menu key: ${item.key}`,
+          );
+        }
+        seen.add(item.key);
+      }
+
+      const updated = await prisma.tenant.update({
+        where: { id: partner.id },
+        data: { partnerMenuConfig: body },
+        select: { partnerMenuConfig: true },
+      });
+
+      await logAudit({
+        tenantId: partner.id,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "PartnerMenuConfig",
+        resourceId: partner.id,
+        newValues: { itemCount: body.items.length },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({ success: true, data: updated.partnerMenuConfig });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.patch(
   "/tickets/:id",
   requirePermission(Permissions.SUPPORT_TICKET_MANAGE),

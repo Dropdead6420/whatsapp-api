@@ -116,6 +116,12 @@ model Tenant {
   // no-op (the webhook checks both).
   aiAgentAutoReply         Boolean          @default(false)
 
+  // T-070: partner-portal nav customization. Only meaningful on
+  // WHITE_LABEL tenants — controls which sidebar items are visible
+  // in the partner's own portal and what label/icon they use. Shape
+  // (validated at the route): { items: [{ key, label, icon, enabled }] }.
+  partnerMenuConfig        Json?
+
   // T-041: Custom email sender (white-label). `emailFromAddress`
   // exists already (declared in the Email Configuration block above).
   // These three extend it: a display name + a verification stamp
