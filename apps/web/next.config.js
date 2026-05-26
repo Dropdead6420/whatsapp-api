@@ -4,6 +4,12 @@ const path = require("path");
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  // Lint runs in a separate `npm run lint` step (turbo's lint task). The
+  // production build shouldn't gate on it — externally-edited pages have
+  // been failing the build for missing-rule-definition errors unrelated
+  // to whatever's actually changing. Keep `next lint` available; just
+  // don't block builds with it.
+  eslint: { ignoreDuringBuilds: true },
   // Emit a self-contained runtime bundle under .next/standalone for the
   // production Docker image. Slashes the runtime layer from ~500MB to ~150MB
   // by skipping node_modules and dev deps.
