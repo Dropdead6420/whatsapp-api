@@ -13,30 +13,31 @@ export default function DesignSystemPage() {
 
   return (
     <DashboardShell user={user} signOut={signOut}>
-      <header className="mb-8">
-        <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 mb-2 border border-emerald-100">
+      <header className="mb-10 animate-fade-in">
+        <span className="inline-flex rounded-full bg-emerald-500/10 border border-emerald-500/25 px-3.5 py-1 text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-3">
           Visual Identity Guide
         </span>
-        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-extrabold tracking-wide text-white text-glow-emerald">
           NexaFlow Design System
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1.5 text-xs font-medium text-slate-500 tracking-wide">
           Component guidelines, custom styles, premium layout definitions, and development protocols.
         </p>
       </header>
 
       {/* State Switcher Controls */}
-      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Interactive Page States</h3>
-        <div className="flex gap-2">
+      <section className="mb-8 rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl relative overflow-hidden animate-slide-up glass-card-dark-hover">
+        <div className="absolute top-0 right-0 h-16 w-16 bg-radial-glow opacity-25 pointer-events-none filter blur-xl" />
+        <h3 className="text-[10px] font-extrabold text-slate-450 uppercase tracking-widest mb-4">Interactive Page States</h3>
+        <div className="flex flex-wrap gap-2.5">
           {["default", "loading", "empty", "error"].map((s) => (
             <button
               key={s}
               onClick={() => setDemoState(s as typeof demoState)}
-              className={`rounded-lg px-4 py-2 text-xs font-bold capitalize transition-all border ${
+              className={`rounded-xl px-4.5 py-2.5 text-xs font-bold capitalize transition-all duration-300 border ${
                 demoState === s
-                  ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  ? "bg-emerald-500 text-white border-emerald-400/25 shadow-md shadow-emerald-500/10"
+                  : "bg-white/5 text-slate-350 border-white/10 hover:bg-white/10 hover:text-white"
               }`}
             >
               {s} State
@@ -49,86 +50,88 @@ export default function DesignSystemPage() {
         <div className="space-y-8 animate-slide-up">
           {/* Typography & Colors */}
           <div className="grid gap-6 md:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-1.5 border-b border-slate-100 pb-3">
-                <Layers className="h-4 w-4 text-emerald-500" />
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl relative overflow-hidden glass-card-dark-hover">
+              <div className="absolute top-0 right-0 h-16 w-16 bg-radial-glow opacity-20 pointer-events-none filter blur-xl" />
+              <h2 className="text-sm font-extrabold text-slate-200 mb-5 flex items-center gap-2 border-b border-white/5 pb-3.5">
+                <Layers className="h-4.5 w-4.5 text-emerald-400" />
                 Theme Colors
               </h2>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-slate-950 p-4 text-white border border-slate-800">
-                  <div className="text-xs font-bold text-emerald-400">Emerald Glow</div>
-                  <div className="mt-1 font-mono text-[10px] text-slate-400">#10B981 | brand-500</div>
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="rounded-xl bg-slate-950 p-4 text-white border border-white/5">
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">Emerald Glow</div>
+                  <div className="mt-1 font-mono text-[9px] text-slate-500">rgb(16 185 129)</div>
                 </div>
-                <div className="rounded-xl bg-slate-900 p-4 text-white">
-                  <div className="text-xs font-bold">Deep Slate</div>
-                  <div className="mt-1 font-mono text-[10px] text-slate-400">#0F172A | slate-900</div>
+                <div className="rounded-xl bg-slate-900/80 p-4 text-white border border-white/5">
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-300">Cosmic Dark</div>
+                  <div className="mt-1 font-mono text-[9px] text-slate-500">rgb(3 7 18)</div>
                 </div>
-                <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-indigo-500 p-4 text-white shadow-md">
-                  <div className="text-xs font-bold">Cosmic Teal</div>
-                  <div className="mt-1 font-mono text-[10px] text-emerald-100">Premium Gradient</div>
+                <div className="rounded-xl bg-gradient-to-r from-emerald-500 to-indigo-500 p-4 text-white shadow-md border border-emerald-400/10">
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-100">Cosmic Teal</div>
+                  <div className="mt-1 font-mono text-[9px] text-emerald-200">Gradient Blend</div>
                 </div>
-                <div className="rounded-xl glass-card p-4 border border-slate-300">
-                  <div className="text-xs font-bold text-slate-800">Glassmorphic</div>
-                  <div className="mt-1 font-mono text-[10px] text-slate-500">Backdrop-blur (12px)</div>
+                <div className="rounded-xl bg-white/5 backdrop-blur-md p-4 border border-white/10">
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-200">Glassmorphic</div>
+                  <div className="mt-1 font-mono text-[9px] text-slate-450">Blur 20px / Border 10%</div>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-1.5 border-b border-slate-100 pb-3">
-                <Layout className="h-4 w-4 text-indigo-500" />
+            <div className="rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl relative overflow-hidden glass-card-dark-hover">
+              <div className="absolute top-0 right-0 h-16 w-16 bg-radial-glow opacity-20 pointer-events-none filter blur-xl" />
+              <h2 className="text-sm font-extrabold text-slate-200 mb-5 flex items-center gap-2 border-b border-white/5 pb-3.5">
+                <Layout className="h-4.5 w-4.5 text-indigo-400" />
                 Interactive Buttons
               </h2>
-              <div className="flex flex-wrap gap-2.5">
-                <button className="rounded-lg bg-emerald-500 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-600 active:scale-95 shadow-sm shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all">
+              <div className="flex flex-wrap gap-3">
+                <button className="rounded-xl bg-emerald-500 px-4.5 py-2.5 text-xs font-bold text-white hover:bg-emerald-400 active:scale-95 shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/25 transition-all duration-350 border border-emerald-450/20">
                   Primary Action
                 </button>
-                <button className="rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 active:scale-95 transition-all">
+                <button className="rounded-xl bg-slate-950 px-4.5 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-900 active:scale-95 transition-all duration-350 border border-white/5">
                   Slate Action
                 </button>
-                <button className="rounded-lg border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 active:scale-95 transition-all bg-white">
+                <button className="rounded-xl border border-white/10 bg-white/5 px-4.5 py-2.5 text-xs font-bold text-white hover:bg-white/10 hover:border-white/20 active:scale-95 transition-all duration-350">
                   Secondary Action
                 </button>
-                <button className="rounded-lg bg-red-500 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-600 active:scale-95 transition-all">
+                <button className="rounded-xl bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/25 hover:text-red-300 px-4.5 py-2.5 text-xs font-bold active:scale-95 transition-all duration-350 shadow-sm shadow-red-500/5">
                   Destructive Action
                 </button>
-                <button className="rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-4 py-2.5 text-xs font-bold active:scale-95 transition-all border border-emerald-100">
-                  Light Theme Action
+                <button className="rounded-xl bg-slate-950/40 backdrop-blur-md text-emerald-400 border border-emerald-500/20 hover:border-emerald-500/40 hover:bg-slate-900/60 px-4.5 py-2.5 text-xs font-bold active:scale-95 transition-all duration-350">
+                  Glassmorphism
                 </button>
               </div>
             </div>
           </div>
 
           {/* Gemini Development Guidelines */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-1.5 border-b border-slate-100 pb-3">
-              <Sparkles className="h-4 w-4 text-emerald-500" />
+          <div className="rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl relative overflow-hidden glass-card-dark-hover">
+            <h2 className="text-sm font-extrabold text-slate-200 mb-5 flex items-center gap-2 border-b border-white/5 pb-3.5">
+              <Sparkles className="h-4.5 w-4.5 text-emerald-400" />
               Gemini-Only UI Development Rules
             </h2>
-            <div className="space-y-4 text-xs text-slate-600">
-              <div className="flex gap-3">
-                <div className="h-5 w-5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">1</div>
+            <div className="space-y-5 text-xs text-slate-400">
+              <div className="flex gap-4">
+                <div className="h-6 w-6 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center font-bold shrink-0 text-[10px]">1</div>
                 <div>
-                  <h4 className="font-bold text-slate-800">Rich Visual Aesthetics Only</h4>
-                  <p className="mt-0.5 leading-relaxed">
-                    Always useharmonious HSL customized background cards, ambient gradients, and soft backdrops. Avoid boring standard layouts. Ensure interactive elements float, hover, and pulse to create premium depth.
+                  <h4 className="font-extrabold text-slate-200 uppercase tracking-wider text-[10px]">Rich Visual Aesthetics Only</h4>
+                  <p className="mt-1 leading-relaxed text-slate-400">
+                    Always use harmonious HSL customized background cards, ambient glows, and soft backdrops. Avoid boring standard layouts. Ensure interactive elements float, hover, and scale clicks to create premium depth.
                   </p>
                 </div>
               </div>
-              <div className="flex gap-3">
-                <div className="h-5 w-5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">2</div>
+              <div className="flex gap-4">
+                <div className="h-6 w-6 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center font-bold shrink-0 text-[10px]">2</div>
                 <div>
-                  <h4 className="font-bold text-slate-800">Mock Data Fallbacks Always</h4>
-                  <p className="mt-0.5 leading-relaxed">
+                  <h4 className="font-extrabold text-slate-200 uppercase tracking-wider text-[10px]">Mock Data Fallbacks Always</h4>
+                  <p className="mt-1 leading-relaxed text-slate-400">
                     Never leave pages broken. If database queries or fetch calls fail due to missing local backend instances, fall back to high-fidelity mocks so portals remain interactive and previewable instantly.
                   </p>
                 </div>
               </div>
-              <div className="flex gap-3">
-                <div className="h-5 w-5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 flex items-center justify-center font-bold shrink-0">3</div>
+              <div className="flex gap-4">
+                <div className="h-6 w-6 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 flex items-center justify-center font-bold shrink-0 text-[10px]">3</div>
                 <div>
-                  <h4 className="font-bold text-slate-800">Micro-animations & Interactive Feedbacks</h4>
-                  <p className="mt-0.5 leading-relaxed">
+                  <h4 className="font-extrabold text-slate-200 uppercase tracking-wider text-[10px]">Micro-animations & Interactive Feedbacks</h4>
+                  <p className="mt-1 leading-relaxed text-slate-400">
                     Every transaction, modal toggle, and tab switcher must animate cleanly. Include smooth transitions, scale clicks, and sliding menus to make components feel responsive and alive.
                   </p>
                 </div>
@@ -137,30 +140,30 @@ export default function DesignSystemPage() {
           </div>
 
           {/* Frontend Build Order Guidelines */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm bg-radial-glow">
-            <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-1.5 border-b border-slate-100 pb-3">
-              <AlertCircle className="h-4 w-4 text-emerald-600" />
+          <div className="rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl relative overflow-hidden glass-card-dark-hover bg-radial-glow">
+            <h2 className="text-sm font-extrabold text-slate-200 mb-5 flex items-center gap-2 border-b border-white/5 pb-3.5">
+              <AlertCircle className="h-4.5 w-4.5 text-emerald-400" />
               Developer Onboarding & Build Order
             </h2>
-            <div className="relative border-l-2 border-slate-200 pl-4 ml-2 space-y-6 text-xs text-slate-600">
+            <div className="relative border-l border-white/10 pl-5 ml-2.5 space-y-6 text-xs text-slate-450">
               <div className="relative">
-                <div className="absolute -left-[23px] h-3.5 w-3.5 rounded-full bg-emerald-500 border-2 border-white ring-2 ring-emerald-100" />
-                <h4 className="font-bold text-slate-800">Phase 1: Component Registration & Assets Setup</h4>
-                <p className="mt-0.5 leading-relaxed">
+                <div className="absolute -left-[25.5px] h-2.5 w-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
+                <h4 className="font-extrabold text-slate-200 uppercase tracking-wider text-[10px]">Phase 1: Component Registration & Assets Setup</h4>
+                <p className="mt-1 leading-relaxed">
                   Design base layout schemas, styling definitions in tailwind and CSS, and import necessary assets.
                 </p>
               </div>
               <div className="relative">
-                <div className="absolute -left-[23px] h-3.5 w-3.5 rounded-full bg-indigo-500 border-2 border-white ring-2 ring-indigo-100" />
-                <h4 className="font-bold text-slate-800">Phase 2: Navigation Mapping & Global Overlays</h4>
-                <p className="mt-0.5 leading-relaxed">
+                <div className="absolute -left-[25.5px] h-2.5 w-2.5 rounded-full bg-indigo-500 ring-4 ring-indigo-500/20" />
+                <h4 className="font-extrabold text-slate-200 uppercase tracking-wider text-[10px]">Phase 2: Navigation Mapping & Global Overlays</h4>
+                <p className="mt-1 leading-relaxed">
                   Integrate path structures in the central DashboardShell and register floating utilities like the AI Copilot.
                 </p>
               </div>
               <div className="relative">
-                <div className="absolute -left-[23px] h-3.5 w-3.5 rounded-full bg-slate-400 border-2 border-white" />
-                <h4 className="font-bold text-slate-800">Phase 3: Interactive Portals & Mock Integration</h4>
-                <p className="mt-0.5 leading-relaxed">
+                <div className="absolute -left-[25.5px] h-2.5 w-2.5 rounded-full bg-slate-600" />
+                <h4 className="font-extrabold text-slate-200 uppercase tracking-wider text-[10px]">Phase 3: Interactive Portals & Mock Integration</h4>
+                <p className="mt-1 leading-relaxed">
                   Develop core portals (Agency settings, wallet ledgers, checkouts, and agent dashboards) powered by fallback mocks.
                 </p>
               </div>
@@ -171,38 +174,39 @@ export default function DesignSystemPage() {
 
       {/* Interactive Skeletons / Loaders */}
       {demoState === "loading" && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6 animate-pulse">
+        <div className="rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl space-y-6 animate-pulse glass-card-dark-hover">
           <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-slate-200" />
+            <div className="h-12 w-12 rounded-full bg-white/5" />
             <div className="space-y-2 flex-1">
-              <div className="h-4 bg-slate-200 rounded w-1/4" />
-              <div className="h-3 bg-slate-200 rounded w-1/2" />
+              <div className="h-4 bg-white/5 rounded w-1/4" />
+              <div className="h-3 bg-white/5 rounded w-1/2" />
             </div>
           </div>
           <div className="space-y-3">
-            <div className="h-3.5 bg-slate-200 rounded" />
-            <div className="h-3.5 bg-slate-200 rounded w-5/6" />
-            <div className="h-3.5 bg-slate-200 rounded w-2/3" />
+            <div className="h-3.5 bg-white/5 rounded" />
+            <div className="h-3.5 bg-white/5 rounded w-5/6" />
+            <div className="h-3.5 bg-white/5 rounded w-2/3" />
           </div>
-          <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-100">
-            <div className="h-8 bg-slate-100 rounded" />
-            <div className="h-8 bg-slate-100 rounded" />
-            <div className="h-8 bg-slate-100 rounded" />
+          <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/5">
+            <div className="h-8 bg-white/5 rounded" />
+            <div className="h-8 bg-white/5 rounded" />
+            <div className="h-8 bg-white/5 rounded" />
           </div>
         </div>
       )}
 
       {/* Premium Empty State */}
       {demoState === "empty" && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm max-w-xl mx-auto animate-fade-in">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 mb-4 border border-emerald-100">
+        <div className="rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-12 text-center shadow-xl max-w-xl mx-auto animate-fade-in glass-card-dark-hover relative overflow-hidden">
+          <div className="absolute top-0 right-0 h-16 w-16 bg-radial-glow opacity-25 pointer-events-none filter blur-xl" />
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 mb-5 border border-emerald-500/20 shadow-lg shadow-emerald-500/5">
             <Inbox className="h-6 w-6" />
           </div>
-          <h3 className="text-sm font-bold text-slate-900">No active campaigns scheduled</h3>
-          <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+          <h3 className="text-sm font-extrabold text-slate-200 tracking-wide uppercase">No active campaigns scheduled</h3>
+          <p className="mt-2.5 text-xs text-slate-450 max-w-sm mx-auto leading-relaxed font-medium">
             Your broadcast campaign list is currently empty. Tap Campaign Autopilot to have our AI generate your first client win-back flow.
           </p>
-          <button className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 active:scale-95 transition-all">
+          <button className="mt-5 rounded-xl bg-emerald-500 px-5 py-2.5 text-xs font-bold text-white hover:bg-emerald-400 active:scale-95 transition-all shadow-md shadow-emerald-500/10">
             ✦ Open Autopilot
           </button>
         </div>
@@ -210,20 +214,20 @@ export default function DesignSystemPage() {
 
       {/* Premium Connection/Error State */}
       {demoState === "error" && (
-        <div className="rounded-2xl border border-red-200 bg-red-50/50 p-6 shadow-sm max-w-xl mx-auto flex gap-4 items-start animate-slide-up">
-          <div className="rounded-xl bg-red-100 border border-red-200 p-2.5 text-red-700 shrink-0">
+        <div className="rounded-2xl border border-red-500/15 bg-red-500/5 p-7 shadow-xl max-w-xl mx-auto flex gap-4.5 items-start animate-slide-up glass-card-dark-hover">
+          <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-red-400 shrink-0">
             <ShieldAlert className="h-6 w-6" />
           </div>
-          <div className="space-y-2 flex-1">
-            <h3 className="text-sm font-bold text-slate-900">API Connection Lost</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">
+          <div className="space-y-2.5 flex-1">
+            <h3 className="text-sm font-extrabold text-slate-200 tracking-wide uppercase">API Connection Lost</h3>
+            <p className="text-xs text-slate-400 leading-relaxed font-medium">
               We encountered a network timeout while query-syncing your Meta WABA cloud connection. Check Facebook API Status or refresh your credentials.
             </p>
-            <div className="flex gap-2 pt-1.5">
-              <button className="rounded-lg bg-red-600 px-3.5 py-1.5 text-[11px] font-bold text-white hover:bg-red-700 active:scale-95 transition-all">
+            <div className="flex gap-2.5 pt-2">
+              <button className="rounded-xl bg-red-500 px-4 py-2 text-xs font-bold text-white hover:bg-red-400 active:scale-95 transition-all shadow-md shadow-red-500/10">
                 Retry Connection
               </button>
-              <button className="rounded-lg border border-red-200 px-3.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-red-100 bg-white transition-all">
+              <button className="rounded-xl border border-red-500/25 bg-white/5 text-slate-250 hover:bg-white/10 hover:border-red-550/40 px-4 py-2 text-xs font-bold active:scale-95 transition-all">
                 WABA Settings
               </button>
             </div>

@@ -54,89 +54,90 @@ export function AiAssistantOverlay() {
       {/* Floating Sparkle Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-xl hover:scale-105 hover:bg-slate-800 active:scale-95 transition-all animate-float border border-slate-700/50"
+        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-lg shadow-emerald-500/25 hover:scale-105 hover:shadow-emerald-500/35 active:scale-95 transition-all duration-300 animate-float border border-emerald-400/30"
         title="AI Copy & Assistant"
       >
-        <Sparkles className="h-6 w-6 text-emerald-400" />
+        <Sparkles className="h-6 w-6 text-white animate-pulse" />
       </button>
 
       {/* Slide-out Sidebar Panel */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/60 backdrop-blur-sm animate-fade-in">
           {/* Overlay click to close */}
           <div className="flex-1" onClick={() => setIsOpen(false)} />
 
           {/* Drawer container */}
-          <div className="w-full max-w-md h-full bg-white border-l border-slate-200 shadow-2xl flex flex-col animate-slide-up">
+          <div className="w-full max-w-md h-full bg-slate-950/95 border-l border-white/5 shadow-2xl flex flex-col animate-slide-up backdrop-blur-xl relative z-30">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-950 p-4 text-white">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-emerald-400" />
+            <div className="flex items-center justify-between border-b border-white/5 bg-slate-950/90 p-5 text-white">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="h-5 w-5 text-emerald-400 text-glow-emerald" />
                 <div>
-                  <h3 className="font-semibold text-sm">NexaFlow AI Copilot</h3>
-                  <p className="text-[10px] text-slate-400">Campaign helper & Copywriter</p>
+                  <h3 className="font-bold text-sm tracking-wide">NexaFlow AI Copilot</h3>
+                  <p className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Campaign helper & Copywriter</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsOpen(false)}
-                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-900 hover:text-white"
+                className="rounded-xl p-1.5 text-slate-400 hover:bg-white/5 hover:text-white transition-all"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Sidebar content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div className="flex-1 overflow-y-auto p-5 space-y-6 text-slate-300">
               {/* Campaign Brief Summary */}
-              <div className="rounded-xl bg-gradient-to-br from-emerald-500/10 to-indigo-500/10 p-4 border border-emerald-500/15">
-                <h4 className="text-xs font-semibold text-slate-800 flex items-center gap-1.5 mb-2">
-                  <BarChart2 className="h-4 w-4 text-emerald-600" />
+              <div className="rounded-2xl bg-gradient-to-br from-emerald-500/10 to-indigo-500/10 p-5 border border-white/5 relative overflow-hidden glass-card-dark-hover">
+                <div className="absolute top-0 right-0 h-16 w-16 bg-radial-glow opacity-25 pointer-events-none filter blur-xl" />
+                <h4 className="text-xs font-bold text-slate-200 flex items-center gap-2 mb-2">
+                  <BarChart2 className="h-4.5 w-4.5 text-emerald-400" />
                   Quick Campaign Radar
                 </h4>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Based on active flows, your booking reminders have a <strong>92.4% open rate</strong>.
+                <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                  Based on active flows, your booking reminders have a <strong className="text-emerald-450">92.4% open rate</strong>.
                   We recommend launching a <em>Weekend Win-Back campaign</em> targeting clients inactive for 30+ days.
                 </p>
               </div>
 
               {/* AI Creative Studio Draft Form */}
               <div className="space-y-4">
-                <h4 className="text-xs font-semibold text-slate-800 uppercase tracking-wider">
+                <h4 className="text-[10px] font-extrabold text-slate-455 uppercase tracking-widest">
                   AI Copywriting Assistant
                 </h4>
 
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">
-                    What is your campaign campaign goal?
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    What is your campaign goal?
                   </label>
                   <textarea
                     rows={3}
                     placeholder="e.g., win back customers who haven't booked in a month, or offer discount slots for Saturday afternoon"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 p-2.5 text-xs outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-slate-400"
+                    className="w-full rounded-xl border border-white/10 bg-slate-950 p-3 text-xs text-slate-200 outline-none focus:border-emerald-500 transition-all placeholder:text-slate-650 shadow-inner"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Tone of Voice</label>
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tone of Voice</label>
                     <select
                       value={tone}
                       onChange={(e) => setTone(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs outline-none focus:border-emerald-500 transition-all bg-white"
+                      className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-xs text-slate-250 outline-none focus:border-emerald-500 transition-all"
                     >
-                      <option>Professional</option>
-                      <option>Witty</option>
-                      <option>Casual</option>
-                      <option>Urgent</option>
+                      <option className="bg-slate-950 text-slate-250">Professional</option>
+                      <option className="bg-slate-950 text-slate-250">Witty</option>
+                      <option className="bg-slate-950 text-slate-250">Casual</option>
+                      <option className="bg-slate-950 text-slate-250">Urgent</option>
                     </select>
                   </div>
                   <div className="flex items-end">
                     <button
                       onClick={handleGenerate}
                       disabled={generating || !prompt.trim()}
-                      className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all h-[36px]"
+                      className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-2.5 text-xs font-bold text-white hover:bg-emerald-450 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 transition-all h-[38px] shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 border border-emerald-450/20"
                     >
                       {generating ? (
                         <>
@@ -156,14 +157,14 @@ export function AiAssistantOverlay() {
 
               {/* Output pane */}
               {generatedCopy && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 relative overflow-hidden animate-slide-up">
+                <div className="rounded-2xl border border-white/5 bg-slate-950/80 p-5 space-y-4 relative overflow-hidden animate-slide-up shadow-inner">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                    <span className="inline-flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 uppercase tracking-wider">
                       ✦ Ready Draft
                     </span>
                     <button
                       onClick={handleCopy}
-                      className="rounded-lg p-1.5 hover:bg-white text-slate-500 hover:text-slate-900 border border-transparent hover:border-slate-100 transition-all"
+                      className="rounded-xl p-1.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5 transition-all"
                       title="Copy to clipboard"
                     >
                       {copied ? (
@@ -173,10 +174,10 @@ export function AiAssistantOverlay() {
                       )}
                     </button>
                   </div>
-                  <p className="text-xs text-slate-700 leading-relaxed font-mono select-all">
+                  <p className="text-xs text-slate-300 leading-relaxed font-mono select-all bg-slate-900/60 p-4 rounded-xl border border-white/5">
                     {generatedCopy}
                   </p>
-                  <p className="text-[10px] text-slate-400 italic">
+                  <p className="text-[10px] text-slate-500 font-semibold tracking-wide uppercase">
                     Tip: Double click inside copy area to select all variables easily.
                   </p>
                 </div>
@@ -184,8 +185,8 @@ export function AiAssistantOverlay() {
             </div>
 
             {/* Quick action footer */}
-            <div className="border-t border-slate-100 bg-slate-50 p-4 text-center">
-              <p className="text-[11px] text-slate-500">
+            <div className="border-t border-white/5 bg-slate-950 p-5 text-center">
+              <p className="text-[10px] text-slate-500 font-semibold tracking-wide">
                 AI uses Anthropic Codex to generate context-optimized copy versions.
               </p>
             </div>

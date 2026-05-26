@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api } from "../../src/lib/api";
+import Link from "next/link";
 
 interface DashboardSummary {
   scope: "platform" | "tenant";
@@ -49,14 +50,17 @@ export default function DashboardPage() {
 
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">
+      <header className="mb-10 animate-fade-in">
+        <span className="inline-flex rounded-full bg-emerald-500/10 border border-emerald-500/25 px-3.5 py-1 text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-3">
+          Executive Control Room
+        </span>
+        <h1 className="text-3xl font-extrabold tracking-wide text-white">
           Welcome back, {user.name.split(" ")[0]}
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1.5 text-xs font-medium text-slate-500 tracking-wide">
           {user.role === "SUPER_ADMIN"
-            ? "Platform health across all tenants."
-            : "Today's snapshot of your campaigns and conversations."}
+            ? "Real-time health telemetry across all tenant instances."
+            : "Today's campaign snapshot, delivery statuses, and response metrics."}
         </p>
       </header>
 
@@ -65,8 +69,12 @@ export default function DashboardPage() {
         <BusinessCards summary={summary} />
       )}
       {user.role === "AGENT" && (
-        <p className="text-sm text-slate-600">
-          Open your <a className="text-emerald-700 hover:underline" href="/inbox">Inbox</a> to start replying.
+        <p className="text-sm font-semibold text-slate-400 tracking-wide animate-slide-up">
+          Open your{" "}
+          <Link className="text-emerald-400 hover:text-emerald-300 font-extrabold underline tracking-wide transition-all" href="/inbox">
+            Inbox
+          </Link>{" "}
+          to start responding to clients.
         </p>
       )}
     </DashboardShell>
@@ -75,10 +83,11 @@ export default function DashboardPage() {
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-2 text-2xl font-semibold">{value}</div>
-      {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
+    <div className="rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl glass-card-dark-hover relative overflow-hidden animate-slide-up">
+      <div className="absolute top-0 right-0 h-16 w-16 bg-radial-glow opacity-30 pointer-events-none filter blur-xl" />
+      <div className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">{label}</div>
+      <div className="mt-3.5 text-3xl font-black text-white text-glow-emerald">{value}</div>
+      {hint && <div className="mt-2 text-xs font-medium text-slate-500 tracking-wide">{hint}</div>}
     </div>
   );
 }
@@ -95,7 +104,7 @@ function formatCurrencyFromPaisa(value?: number) {
 function SuperAdminCards({ summary }: { summary: DashboardSummary | null }) {
   const totals = summary?.totals;
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className="grid gap-6 md:grid-cols-3">
       <StatCard
         label="Tenants"
         value={totals?.tenants?.toString() ?? "—"}
@@ -120,7 +129,7 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
   const quota = summary?.sendQuota;
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-3">
         <StatCard label="Contacts" value={totals?.contacts?.toString() ?? "—"} />
         <StatCard
           label="Campaigns"
@@ -135,44 +144,46 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
       </div>
 
       {quota && (
-        <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
-          <div className="flex items-center justify-between text-sm">
+        <section className="mt-8 rounded-2xl border border-white/5 bg-slate-900/40 backdrop-blur-md p-6 shadow-xl relative overflow-hidden glass-card-dark-hover animate-slide-up">
+          <div className="absolute top-0 right-0 h-32 w-32 bg-radial-glow opacity-25 pointer-events-none filter blur-2xl" />
+          <div className="flex items-center justify-between text-xs">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                WhatsApp send quota
+              <div className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                WhatsApp Send Quota
               </div>
-              <div className="mt-1 font-medium">
-                {quota.monthlyUsed.toLocaleString()} / {quota.monthlyQuota.toLocaleString()}
-                <span className="ml-2 text-slate-500">this month</span>
+              <div className="mt-2 font-bold text-white text-sm">
+                <span className="text-lg font-black text-emerald-400">{quota.monthlyUsed.toLocaleString()}</span>
+                <span className="mx-1.5 text-slate-500 font-medium">/</span>
+                <span className="text-slate-300">{quota.monthlyQuota.toLocaleString()}</span>
+                <span className="ml-2 text-slate-500 font-medium">sent this month</span>
               </div>
             </div>
             <div
-              className={`rounded-full px-2 py-0.5 text-xs ${
+              className={`rounded-full px-3 py-1 text-[10px] font-extrabold uppercase tracking-widest border ${
                 quota.percentUsed >= 90
-                  ? "bg-red-50 text-red-700"
+                  ? "bg-red-500/10 text-red-400 border-red-500/20"
                   : quota.percentUsed >= 70
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-emerald-50 text-emerald-700"
+                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
               }`}
             >
               {quota.percentUsed}% used
             </div>
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className="mt-4.5 h-2 overflow-hidden rounded-full bg-slate-950/80 border border-white/5">
             <div
-              className={`h-full ${
+              className={`h-full rounded-full transition-all duration-500 ${
                 quota.percentUsed >= 90
-                  ? "bg-red-500"
+                  ? "bg-gradient-to-r from-red-600 to-red-400"
                   : quota.percentUsed >= 70
-                    ? "bg-amber-500"
-                    : "bg-emerald-500"
+                    ? "bg-gradient-to-r from-amber-500 to-yellow-400"
+                    : "bg-gradient-to-r from-emerald-500 to-teal-400"
               }`}
               style={{ width: `${Math.min(100, quota.percentUsed)}%` }}
             />
           </div>
-          <p className="mt-2 text-[11px] text-slate-500">
-            Per-second smoothing capped at {quota.perSecondLimit} sends/sec to
-            protect your Meta quality rating.
+          <p className="mt-3 text-[10px] font-medium text-slate-500 tracking-wide">
+            Per-second queue smoothing capped at <strong className="text-slate-300 font-semibold">{quota.perSecondLimit} messages/sec</strong> to protect your Meta sender reputation score.
           </p>
         </section>
       )}
