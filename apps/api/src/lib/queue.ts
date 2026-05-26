@@ -19,6 +19,7 @@ export const QueueNames = {
   KNOWLEDGE_BASE_EMBEDDING: "knowledge-base-embedding",
   WALLET_RECONCILIATION: "wallet-reconciliation",
   DRIP_DISPATCH: "drip-dispatch",
+  LEAD_AUTOSCORE: "lead-autoscore",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -55,6 +56,7 @@ export type KnowledgeBaseEmbeddingJobData =
   | { kind: "embed-stale"; tenantId: string; limit: number };
 export type WalletReconciliationJobData = { kind: "scan" };
 export type DripJobData = { kind: "scan" };
+export type LeadAutoScoreJobData = { kind: "scan" };
 
 const queueSingletons = new Map<string, Queue>();
 
@@ -122,6 +124,10 @@ export function getWalletReconciliationQueue(): Queue<WalletReconciliationJobDat
 
 export function getDripQueue(): Queue<DripJobData> {
   return makeQueue<DripJobData>(QueueNames.DRIP_DISPATCH);
+}
+
+export function getLeadAutoScoreQueue(): Queue<LeadAutoScoreJobData> {
+  return makeQueue<LeadAutoScoreJobData>(QueueNames.LEAD_AUTOSCORE);
 }
 
 // Test/shutdown helper. Closes the singleton + all registered workers.

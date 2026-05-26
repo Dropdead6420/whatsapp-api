@@ -87,6 +87,10 @@ import {
   startDripWorker,
   stopDripWorker,
 } from "./services/dripSequence.service";
+import {
+  startLeadAutoScoreWorker,
+  stopLeadAutoScoreWorker,
+} from "./services/leadAutoScore.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -279,6 +283,7 @@ async function startWorkers(): Promise<void> {
   await startWalletAlertsWorker();
   await startAutoRechargeWorker();
   await startDripWorker();
+  await startLeadAutoScoreWorker();
 }
 
 function stopWorkers(): void {
@@ -294,6 +299,7 @@ function stopWorkers(): void {
   stopWalletAlertsWorker();
   stopAutoRechargeWorker();
   stopDripWorker();
+  stopLeadAutoScoreWorker();
 }
 
 if (START_HTTP) {
