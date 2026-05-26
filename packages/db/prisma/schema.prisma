@@ -116,6 +116,18 @@ model Tenant {
   // no-op (the webhook checks both).
   aiAgentAutoReply         Boolean          @default(false)
 
+  // T-041: Custom email sender (white-label). `emailFromAddress`
+  // exists already (declared in the Email Configuration block above).
+  // These three extend it: a display name + a verification stamp
+  // (DNS check pass) + the last error message for the operator UI.
+  // When emailDomainVerifiedAt is non-null AND <= 30 days old,
+  // sendEmail uses the tenant's address; otherwise falls back to
+  // the platform default sender. Re-verify regularly catches
+  // domain misconfig (SPF deletion, DKIM key rotation, etc.).
+  emailFromName            String?
+  emailDomainVerifiedAt    DateTime?
+  emailDomainLastError     String?
+
   // Inbox / support SLA — minutes from inbound to first agent reply
   slaMinutes               Int              @default(30)
 

@@ -5,6 +5,13 @@ interface EmailPayload {
   subject: string;
   text: string;
   html?: string;
+  /**
+   * T-041: optional tenant id. When set AND the tenant has a
+   * verified custom email domain (within the 30-day TTL), the FROM
+   * header is overridden to use the tenant's address. Otherwise the
+   * platform-default sender is used.
+   */
+  tenantId?: string;
 }
 
 let smtpTransporter: Transporter | null = null;
@@ -29,7 +36,13 @@ function getFromAddress(): string {
   );
 }
 
-function getFormattedFrom(): string {
+function getFormattedFrom(
+  override?: { address: string; name: string | null } | null,
+): string {
+  if (override?.address) {
+    const name = override.name ?? process.env.EMAIL_FROM_NAME ?? "NexaFlow AI";
+    return `${name} <${override.address}>`;
+  }
   const from = getFromAddress();
   if (from.includes("<")) return from;
   const name = process.env.EMAIL_FROM_NAME ?? "NexaFlow AI";
@@ -65,7 +78,11 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-async function sendViaResend(payload: EmailPayload): Promise<void> {
+type EnrichedPayload = EmailPayload & {
+  overrideFrom?: { address: string; name: string | null };
+};
+
+async function sendViaResend(payload: EnrichedPayload): Promise<void> {
   const resendKey = process.env.RESEND_API_KEY;
   if (!resendKey) {
     console.warn("[email] RESEND_API_KEY missing; falling back to console");
@@ -78,7 +95,7 @@ async function sendViaResend(payload: EmailPayload): Promise<void> {
       Authorization: `Bearer ${resendKey}`,
     },
     body: JSON.stringify({
-      from: getFormattedFrom(),
+      from: getFormattedFrom(payload.overrideFrom),
       to: payload.to,
       subject: payload.subject,
       text: payload.text,
@@ -98,9 +115,9 @@ async function sendViaResend(payload: EmailPayload): Promise<void> {
   }
 }
 
-async function sendViaSmtp(payload: EmailPayload): Promise<void> {
+async function sendViaSmtp(payload: EnrichedPayload): Promise<void> {
   await getSmtpTransporter().sendMail({
-    from: getFormattedFrom(),
+    from: getFormattedFrom(payload.overrideFrom),
     to: payload.to,
     subject: payload.subject,
     text: payload.text,
@@ -108,9 +125,9 @@ async function sendViaSmtp(payload: EmailPayload): Promise<void> {
   });
 }
 
-function sendViaConsole(payload: EmailPayload): void {
+function sendViaConsole(payload: EnrichedPayload): void {
   console.log("\n📧 [email:dev]", {
-    from: getFormattedFrom(),
+    from: getFormattedFrom(payload.overrideFrom),
     to: payload.to,
     subject: payload.subject,
   });
@@ -119,18 +136,38 @@ function sendViaConsole(payload: EmailPayload): void {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<void> {
+  // T-041: tenant custom-from override. Resolve once + stash on
+  // payload so the per-provider implementations can read it. We
+  // lazy-import emailDomain.service to avoid the circular dep
+  // (emailDomain reads tenants, which sometimes need to email).
+  const enriched: EmailPayload & {
+    overrideFrom?: { address: string; name: string | null };
+  } = { ...payload };
+  if (payload.tenantId) {
+    try {
+      const { getVerifiedTenantSender } = await import("./emailDomain.service");
+      const sender = await getVerifiedTenantSender(payload.tenantId);
+      if (sender) enriched.overrideFrom = sender;
+    } catch (err) {
+      console.warn(
+        "[email] tenant sender lookup failed; using platform default:",
+        describeError(err),
+      );
+    }
+  }
+
   const provider = getProvider();
   try {
-    if (provider === "resend") return await sendViaResend(payload);
-    if (provider === "smtp") return await sendViaSmtp(payload);
-    return sendViaConsole(payload);
+    if (provider === "resend") return await sendViaResend(enriched);
+    if (provider === "smtp") return await sendViaSmtp(enriched);
+    return sendViaConsole(enriched);
   } catch (error) {
     console.error(`[email] ${provider} delivery failed`, describeError(error));
     if (isStrictDelivery()) throw error;
     console.warn(
       "[email] EMAIL_STRICT_DELIVERY is not enabled; falling back to console delivery",
     );
-    return sendViaConsole(payload);
+    return sendViaConsole(enriched);
   }
 }
 

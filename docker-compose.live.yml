@@ -1,0 +1,207 @@
+name: medscub-nexaflow
+
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+
+x-api-env: &api-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://nexaflow:${POSTGRES_PASSWORD:-nexaflow}@postgres:5432/${POSTGRES_DB:-nexaflow_dev}
+  DATABASE_URL_POOLED: postgresql://nexaflow:${POSTGRES_PASSWORD:-nexaflow}@pgbouncer:5432/${POSTGRES_DB:-nexaflow_dev}?pgbouncer=true
+  REDIS_URL: redis://redis:6379
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  WEB_URL: ${WEB_URL:-https://medscub.in}
+  WEB_ORIGINS: ${WEB_ORIGINS:-https://medscub.in,https://www.medscub.in}
+  API_URL: ${API_URL:-https://medscub.in}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+  TENANT_TOKEN_ENCRYPTION_KEY: ${TENANT_TOKEN_ENCRYPTION_KEY:?TENANT_TOKEN_ENCRYPTION_KEY is required}
+  WALLET_BILLING_ENABLED: ${WALLET_BILLING_ENABLED:-false}
+  WHATSAPP_MESSAGE_COST_CREDITS: ${WHATSAPP_MESSAGE_COST_CREDITS:-1}
+  AI_CALL_COST_CREDITS: ${AI_CALL_COST_CREDITS:-1}
+  EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-noreply@medscub.in}
+  EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Medscub}
+  EMAIL_STRICT_DELIVERY: ${EMAIL_STRICT_DELIVERY:-false}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  WHATSAPP_WEBHOOK_TOKEN: ${WHATSAPP_WEBHOOK_TOKEN:-}
+  META_APP_ID: ${META_APP_ID:-}
+  META_APP_SECRET: ${META_APP_SECRET:-}
+  NEXT_PUBLIC_META_APP_ID: ${NEXT_PUBLIC_META_APP_ID:-}
+  NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID: ${NEXT_PUBLIC_META_EMBEDDED_SIGNUP_CONFIG_ID:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+  SEED_SUPER_ADMIN_EMAIL: ${SEED_SUPER_ADMIN_EMAIL:-admin@medscub.in}
+  SEED_SUPER_ADMIN_PASSWORD: ${SEED_SUPER_ADMIN_PASSWORD:-ChangeThisAdminPassword}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: medscub-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexaflow_dev}
+      POSTGRES_USER: nexaflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexaflow}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexaflow -d ${POSTGRES_DB:-nexaflow_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    restart: unless-stopped
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: medscub-pgbouncer
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: nexaflow
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-nexaflow}
+      DB_NAME: ${POSTGRES_DB:-nexaflow_dev}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "25"
+      MIN_POOL_SIZE: "5"
+      RESERVE_POOL_SIZE: "5"
+      AUTH_TYPE: scram-sha-256
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=${POSTGRES_PASSWORD:-nexaflow} psql -h 127.0.0.1 -p 5432 -U nexaflow -d ${POSTGRES_DB:-nexaflow_dev} -c 'select 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: medscub-redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    container_name: medscub-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms384m -Xmx384m
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build: *api-build
+    image: medscub-api:latest
+    container_name: medscub-api
+    environment:
+      <<: *api-env
+      APP_MODE: api
+      PORT: "3001"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:3001/api/v1/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    build: *api-build
+    image: medscub-api:latest
+    container_name: medscub-worker
+    environment:
+      <<: *api-env
+      APP_MODE: worker
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+    image: medscub-web:latest
+    container_name: medscub-web
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: medscub-caddy
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME:-medscub.in}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@medscub.in}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  elasticsearch_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  default:
+    name: medscub-network

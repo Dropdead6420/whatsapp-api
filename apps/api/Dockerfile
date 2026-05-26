@@ -64,6 +64,8 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=build --chown=nexaflow:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=nexaflow:nodejs /app/package.json ./package.json
 COPY --from=build --chown=nexaflow:nodejs /app/packages ./packages
+COPY --from=build --chown=nexaflow:nodejs /app/apps/api/src ./apps/api/src
+COPY --from=build --chown=nexaflow:nodejs /app/apps/api/tsconfig.json ./apps/api/tsconfig.json
 COPY --from=build --chown=nexaflow:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=nexaflow:nodejs /app/apps/api/package.json ./apps/api/package.json
 
@@ -75,4 +77,7 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget --quiet --spider http://localhost:3001/api/v1/health || exit 1
 
-CMD ["node", "apps/api/dist/index.js"]
+# The TS compiler currently emits ESM imports without `.js` extensions.
+# `tsx` resolves the workspace source correctly until the API is migrated to
+# `moduleResolution: NodeNext` or a post-build alias/extension rewrite.
+CMD ["npx", "tsx", "apps/api/src/index.ts"]

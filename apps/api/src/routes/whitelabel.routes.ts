@@ -14,6 +14,11 @@ import {
   resetBrandingField,
   generateBrandingCss,
 } from "../services/whitelabel.service";
+import {
+  checkEmailDomain,
+  verifyAndPersistEmailDomain,
+} from "../services/emailDomain.service";
+import { prisma } from "@nexaflow/db";
 
 const router = Router();
 
@@ -222,5 +227,111 @@ router.delete("/:field", async (req: RequestWithAuth, res, next) => {
     next(error);
   }
 });
+
+// ===========================================================================
+// T-041: Custom email sender domain
+// ===========================================================================
+
+const emailSenderSchema = z.object({
+  emailFromAddress: z
+    .string()
+    .email()
+    .max(120)
+    .nullable()
+    .optional(),
+  emailFromName: z.string().trim().max(80).nullable().optional(),
+});
+
+// GET /api/v1/partner/whitelabel/email-sender
+router.get("/email-sender", async (req: RequestWithAuth, res, next) => {
+  try {
+    const t = await prisma.tenant.findUnique({
+      where: { id: req.tenantId! },
+      select: {
+        emailFromAddress: true,
+        emailFromName: true,
+        emailDomainVerifiedAt: true,
+        emailDomainLastError: true,
+      },
+    });
+    res.json({ success: true, data: t });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/v1/partner/whitelabel/email-sender
+// Saves the from-address + display name. Does NOT auto-verify;
+// operator clicks "Verify domain" after saving to run the DNS check.
+router.patch("/email-sender", async (req: RequestWithAuth, res, next) => {
+  try {
+    const body = emailSenderSchema.parse(req.body);
+    const data: Record<string, unknown> = {};
+    if (body.emailFromAddress !== undefined) {
+      data.emailFromAddress = body.emailFromAddress;
+      // Changing the address invalidates the verification — operator
+      // must re-verify after a change.
+      data.emailDomainVerifiedAt = null;
+    }
+    if (body.emailFromName !== undefined) {
+      data.emailFromName = body.emailFromName;
+    }
+    const updated = await prisma.tenant.update({
+      where: { id: req.tenantId! },
+      data,
+      select: {
+        emailFromAddress: true,
+        emailFromName: true,
+        emailDomainVerifiedAt: true,
+        emailDomainLastError: true,
+      },
+    });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "Tenant",
+      resourceId: req.tenantId!,
+      newValues: body as Record<string, unknown>,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/v1/partner/whitelabel/email-sender/verify
+// Runs DNS check + persists the result. Returns the structured
+// check so the UI can show pass/fail per-record.
+router.post(
+  "/email-sender/verify",
+  async (req: RequestWithAuth, res, next) => {
+    try {
+      const result = await verifyAndPersistEmailDomain(req.tenantId!);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/partner/whitelabel/email-sender/preview
+// Dry-run check for a domain WITHOUT persisting (e.g. while the
+// operator is still typing). Useful for the "test" button on the
+// settings form.
+const previewSchema = z.object({ domain: z.string().min(3).max(120) });
+router.post(
+  "/email-sender/preview",
+  async (req: RequestWithAuth, res, next) => {
+    try {
+      const { domain } = previewSchema.parse(req.body);
+      const result = await checkEmailDomain(domain);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 export default router;

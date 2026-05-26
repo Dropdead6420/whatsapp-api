@@ -1,0 +1,40 @@
+{
+	email {$ACME_EMAIL:admin@medscub.in}
+	auto_https disable_redirects
+}
+
+(nexaflow_app) {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	handle /public/* {
+		reverse_proxy api:3001
+	}
+
+	handle /webhooks/* {
+		reverse_proxy api:3001
+	}
+
+	handle /realtime* {
+		reverse_proxy api:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+{$DOMAIN_NAME:medscub.in}, www.{$DOMAIN_NAME:medscub.in} {
+	import nexaflow_app
+}
+
+http://{$DOMAIN_NAME:medscub.in}, http://www.{$DOMAIN_NAME:medscub.in} {
+	import nexaflow_app
+}
+
+http://187.127.172.138 {
+	import nexaflow_app
+}
