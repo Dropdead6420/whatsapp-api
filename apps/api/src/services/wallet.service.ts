@@ -36,17 +36,27 @@ function assertPositiveCredits(amountCredits: number): void {
 async function ensureWalletTx(tx: Tx, tenantId: string) {
   const tenant = await tx.tenant.findUnique({
     where: { id: tenantId },
-    select: { id: true },
+    select: { id: true, wallet: true },
   });
   if (!tenant) {
     throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Tenant not found.");
   }
+  if (tenant.wallet) {
+    return tenant.wallet;
+  }
 
-  return tx.wallet.upsert({
-    where: { tenantId },
-    update: {},
-    create: { tenantId },
-  });
+  try {
+    return await tx.wallet.create({ data: { tenantId } });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const wallet = await tx.wallet.findUnique({ where: { tenantId } });
+      if (wallet) return wallet;
+    }
+    throw err;
+  }
 }
 
 async function applyWalletEntryTx(tx: Tx, input: WalletEntryInput) {
@@ -109,9 +119,22 @@ async function applyWalletEntryTx(tx: Tx, input: WalletEntryInput) {
 }
 
 export async function ensureWallet(tenantId: string) {
-  return prisma.$transaction((tx) => ensureWalletTx(tx, tenantId), {
-    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-  });
+  const existing = await prisma.wallet.findUnique({ where: { tenantId } });
+  if (existing) return existing;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction((tx) => ensureWalletTx(tx, tenantId));
+    } catch (err) {
+      const retryable =
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        (err.code === "P2002" || err.code === "P2034");
+      if (!retryable || attempt === 2) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+
+  throw new ApiError(ErrorCodes.INTERNAL_SERVER_ERROR, 500, "Wallet unavailable.");
 }
 
 export async function adjustWallet(input: WalletEntryInput) {

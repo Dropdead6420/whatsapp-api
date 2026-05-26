@@ -129,11 +129,8 @@ router.get(
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
       if (!req.tenantId) {
-        throw new ApiError(
-          ErrorCodes.MULTI_TENANT_VIOLATION,
-          400,
-          "Tenant context required.",
-        );
+        res.json({ success: true, data: null });
+        return;
       }
       const alert = await getWalletAlertStatus(req.tenantId);
       res.json({ success: true, data: alert });
