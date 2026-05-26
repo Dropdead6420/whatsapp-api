@@ -46,6 +46,7 @@ import aiAgentsRoutes from "./routes/ai-agents.routes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import dripSequencesRoutes from "./routes/drip-sequences.routes";
 import metaAdsRoutes from "./routes/meta-ads.routes";
+import googleAdsRoutes from "./routes/google-ads.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -255,6 +256,7 @@ app.use("/api/v1/ai-agents", aiAgentsRoutes);
 app.use("/api/v1/onboarding", onboardingRoutes);
 app.use("/api/v1/drip-sequences", dripSequencesRoutes);
 app.use("/api/v1/meta-ads", metaAdsRoutes);
+app.use("/api/v1/google-ads", googleAdsRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {

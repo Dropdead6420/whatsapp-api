@@ -174,6 +174,7 @@ model Tenant {
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
+  googleAdsConnection      GoogleAdsConnection?
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -1614,4 +1615,41 @@ model MetaAdsConnection {
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// ============================================================================
+// GOOGLE ADS API (PRD §3.3.7, Phase 4)
+// One connection per tenant. Slice 1 stores an OAuth refresh token + the
+// Google Ads customer_id (and optional manager login_customer_id) and
+// surfaces read-only campaign performance via GAQL. The shared developer
+// token lives in env vars (GOOGLE_ADS_DEVELOPER_TOKEN); slice 2 wires the
+// proper OAuth consent flow so end-customers don't paste refresh tokens.
+// ============================================================================
+
+model GoogleAdsConnection {
+  id                  String   @id @default(cuid())
+  tenantId            String   @unique
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // OAuth refresh token issued by Google. Encrypted with the same envelope
+  // helper used for WABA + Meta Ads.
+  refreshToken        String
+
+  // 10-digit Google Ads customer id (no dashes). The account this
+  // connection reads from.
+  customerId          String
+  // Optional Manager (MCC) customer id. When set, this is sent as the
+  // login-customer-id header so Google routes the request via the manager.
+  loginCustomerId     String?
+
+  // Cached metadata fetched on connect.
+  customerName        String?
+  currency            String?  // 3-letter ISO, e.g. "INR"
+  timeZoneName        String?  // IANA tz, e.g. "Asia/Kolkata"
+
+  lastSyncedAt        DateTime?
+  lastSyncError       String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }

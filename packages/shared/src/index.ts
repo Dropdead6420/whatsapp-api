@@ -521,6 +521,8 @@ export const Permissions = {
   DRIP_SEQUENCE_MANAGE: "drip_sequence:manage",
   META_ADS_VIEW: "meta_ads:view",
   META_ADS_MANAGE: "meta_ads:manage",
+  GOOGLE_ADS_VIEW: "google_ads:view",
+  GOOGLE_ADS_MANAGE: "google_ads:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
@@ -571,6 +573,8 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.DRIP_SEQUENCE_MANAGE,
     Permissions.META_ADS_VIEW,
     Permissions.META_ADS_MANAGE,
+    Permissions.GOOGLE_ADS_VIEW,
+    Permissions.GOOGLE_ADS_MANAGE,
   ],
   [UserRole.TEAM_LEAD]: [
     Permissions.CAMPAIGN_CREATE,
@@ -584,6 +588,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.CONVERSATION_REPLY,
     Permissions.LEAD_UPDATE,
     Permissions.META_ADS_VIEW,
+    Permissions.GOOGLE_ADS_VIEW,
   ],
   [UserRole.AGENT]: [
     Permissions.CONVERSATION_READ,
