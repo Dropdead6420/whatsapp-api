@@ -401,4 +401,124 @@ router.get(
   },
 );
 
+// GET /api/v1/partner/ai/usage
+// Portfolio-wide AI spend rollup. The Gemini-built /partner/ai page used to
+// fake all of this with setTimeout + hardcoded strings. Real version: pull
+// AiUsage + AiAgent rows scoped to the partner's child tenants and group.
+router.get(
+  "/ai/usage",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const children = await prisma.tenant.findMany({
+        where: childTenantWhere(partner.id),
+        select: { id: true, name: true },
+      });
+      const childIds = children.map((c) => c.id);
+      const nameById = new Map(children.map((c) => [c.id, c.name]));
+
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      // Empty portfolio short-circuit so we don't issue Prisma queries with
+      // empty `in:[]` arrays (which return [] anyway, but cost a round-trip).
+      if (childIds.length === 0) {
+        res.json({
+          success: true,
+          data: {
+            monthStart: monthStart.toISOString(),
+            totalCostInCents: 0,
+            totalInputTokens: 0,
+            totalOutputTokens: 0,
+            totalCalls: 0,
+            byFeature: [],
+            byTenant: [],
+            agents: { total: 0, active: 0, byTenant: [] },
+          },
+        });
+        return;
+      }
+
+      const [byFeatureRaw, byTenantRaw, totals, agentsRaw, agentsTotal] =
+        await Promise.all([
+          prisma.aiUsage.groupBy({
+            by: ["feature"],
+            where: { tenantId: { in: childIds }, createdAt: { gte: monthStart } },
+            _sum: { costInCents: true, inputTokens: true, outputTokens: true },
+            _count: { _all: true },
+          }),
+          prisma.aiUsage.groupBy({
+            by: ["tenantId"],
+            where: { tenantId: { in: childIds }, createdAt: { gte: monthStart } },
+            _sum: { costInCents: true, inputTokens: true, outputTokens: true },
+            _count: { _all: true },
+          }),
+          prisma.aiUsage.aggregate({
+            where: { tenantId: { in: childIds }, createdAt: { gte: monthStart } },
+            _sum: { costInCents: true, inputTokens: true, outputTokens: true },
+            _count: { _all: true },
+          }),
+          prisma.aiAgent.groupBy({
+            by: ["tenantId"],
+            where: { tenantId: { in: childIds } },
+            _count: { _all: true },
+          }),
+          prisma.aiAgent.count({
+            where: { tenantId: { in: childIds }, status: "ACTIVE" },
+          }),
+        ]);
+
+      const byFeature = byFeatureRaw
+        .map((row) => ({
+          feature: row.feature,
+          costInCents: row._sum.costInCents ?? 0,
+          inputTokens: row._sum.inputTokens ?? 0,
+          outputTokens: row._sum.outputTokens ?? 0,
+          calls: row._count._all,
+        }))
+        .sort((a, b) => b.costInCents - a.costInCents);
+
+      const byTenant = byTenantRaw
+        .map((row) => ({
+          tenantId: row.tenantId,
+          tenantName: nameById.get(row.tenantId) ?? "(unknown)",
+          costInCents: row._sum.costInCents ?? 0,
+          inputTokens: row._sum.inputTokens ?? 0,
+          outputTokens: row._sum.outputTokens ?? 0,
+          calls: row._count._all,
+        }))
+        .sort((a, b) => b.costInCents - a.costInCents);
+
+      const agentsByTenant = agentsRaw
+        .map((row) => ({
+          tenantId: row.tenantId,
+          tenantName: nameById.get(row.tenantId) ?? "(unknown)",
+          agents: row._count._all,
+        }))
+        .sort((a, b) => b.agents - a.agents);
+
+      res.json({
+        success: true,
+        data: {
+          monthStart: monthStart.toISOString(),
+          totalCostInCents: totals._sum.costInCents ?? 0,
+          totalInputTokens: totals._sum.inputTokens ?? 0,
+          totalOutputTokens: totals._sum.outputTokens ?? 0,
+          totalCalls: totals._count._all,
+          byFeature,
+          byTenant,
+          agents: {
+            total: agentsByTenant.reduce((s, t) => s + t.agents, 0),
+            active: agentsTotal,
+            byTenant: agentsByTenant,
+          },
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export default router;

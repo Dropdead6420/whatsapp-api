@@ -1,315 +1,481 @@
 "use client";
 
+// Partner AI — REAL backend integration.
+//
+// The previous Gemini version was a high-fidelity LIE: every "AI"
+// button ran a setTimeout + dumped hardcoded fake data. It claimed
+// "Stable Diffusion & Anthropic Codex API active..." while making
+// zero API calls. This rewrite:
+//
+//   1. Shows real this-month AI spend across the partner's portfolio
+//      (GET /api/v1/partner/ai/usage — aggregates AiUsage + AiAgent
+//      rows scoped to child tenants).
+//   2. Wires the AI Creative Studio card to the real Anthropic-backed
+//      POST /api/v1/ai/copy route. That's the one playground that
+//      works for a partner: copy generation only needs an LLM, not
+//      tenant CRM data, so a white-label partner can demo it.
+//   3. Links agent management and reply-suggestion features to where
+//      they actually live (/ai-agents, inbox), instead of faking a
+//      playground that would 404 against a partner-tenant context.
+
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "../../../src/hooks/useAuth";
 import { PartnerShell } from "../../../src/components/PartnerShell";
+import { api, ApiClientError } from "../../../src/lib/api";
 
-interface AiVariant {
-  tone: string;
-  copy: string;
-  imagePrompt: string;
+interface UsageSummary {
+  monthStart: string;
+  totalCostInCents: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCalls: number;
+  byFeature: Array<{
+    feature: string;
+    costInCents: number;
+    inputTokens: number;
+    outputTokens: number;
+    calls: number;
+  }>;
+  byTenant: Array<{
+    tenantId: string;
+    tenantName: string;
+    costInCents: number;
+    inputTokens: number;
+    outputTokens: number;
+    calls: number;
+  }>;
+  agents: {
+    total: number;
+    active: number;
+    byTenant: Array<{ tenantId: string; tenantName: string; agents: number }>;
+  };
 }
 
-export default function AiGrowthCenterPage() {
+interface CopyVariant {
+  id: string;
+  text: string;
+}
+
+const CHANNEL_LABEL: Record<string, string> = {
+  whatsapp: "WhatsApp",
+  facebook_ad: "Facebook Ad",
+  google_ad: "Google Ad",
+  email: "Email",
+  sms: "SMS",
+  instagram_caption: "Instagram caption",
+};
+
+function rupees(cents: number): string {
+  return `₹${(cents / 100).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+export default function PartnerAiPage() {
   const { user, loading, signOut } = useAuth({
     required: true,
     roles: ["WHITE_LABEL_ADMIN"],
   });
 
-  // Autopilot Predictor states
-  const [goal, setGoal] = useState("Get more appointments for haircut next weekend");
-  const [predicting, setPredicting] = useState(false);
-  const [predictionResult, setPredictionResult] = useState<any>(null);
+  // Portfolio usage rollup
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [usageBusy, setUsageBusy] = useState(false);
+  const [usageErr, setUsageErr] = useState<string | null>(null);
 
-  // Creative Studio copywriting states
-  const [selectedTone, setSelectedTone] = useState("Professional");
-  const [studioQuery, setStudioQuery] = useState("Season Sale: 20% discount on all spa massages.");
-  const [generatingVariants, setGeneratingVariants] = useState(false);
-  const [variants, setVariants] = useState<AiVariant[]>([]);
+  // Creative Studio
+  const [prompt, setPrompt] = useState(
+    "20% off weekend spa packages — drive last-minute bookings",
+  );
+  const [channel, setChannel] = useState<keyof typeof CHANNEL_LABEL>("whatsapp");
+  const [tone, setTone] = useState<
+    "professional" | "friendly" | "casual" | "urgent" | "playful"
+  >("friendly");
+  const [variantCount, setVariantCount] = useState(3);
+  const [variants, setVariants] = useState<CopyVariant[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [copyErr, setCopyErr] = useState<string | null>(null);
 
-  // Reply Suggestion states
-  const [chatInput, setChatInput] = useState("Can I cancel my haircut slot booked for Friday?");
-  const [suggestedReplies, setSuggestedReplies] = useState<string[]>([]);
-  const [generatingReplies, setGeneratingReplies] = useState(false);
+  async function loadUsage() {
+    setUsageBusy(true);
+    setUsageErr(null);
+    try {
+      const data = await api.get<UsageSummary>("/api/v1/partner/ai/usage");
+      setUsage(data);
+    } catch (e) {
+      setUsageErr(
+        e instanceof ApiClientError
+          ? `Failed to load usage: ${e.message}`
+          : "Failed to load usage.",
+      );
+    } finally {
+      setUsageBusy(false);
+    }
+  }
 
-  // Autopilot goal analyzer
-  const handleAnalyzeGoal = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (user) void loadUsage();
+  }, [user]);
+
+  async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
-    if (!goal) return;
-
-    setPredicting(true);
-    setPredictionResult(null);
-
-    setTimeout(() => {
-      setPredicting(false);
-      setPredictionResult({
-        targetAudience: "1,250 Contacts (Salon regulars + Churn risks)",
-        readRate: "96.4% (Meta Verified)",
-        CTR: "14.2% Estimated",
-        conversions: "45-60 bookings expected",
-        bestTime: "Friday afternoon between 2:00 PM and 4:30 PM",
-        summaryText: "Goal: High intent booking drive. Autopilot segments regular clients who haven't visited in 30 days and triggers reminder drafts containing slot links."
-      });
-    }, 2000);
-  };
-
-  // Copy variant generator
-  const handleGenerateVariants = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!studioQuery) return;
-
-    setGeneratingVariants(true);
+    if (!prompt.trim()) return;
+    setGenerating(true);
     setVariants([]);
-
-    setTimeout(() => {
-      setGeneratingVariants(false);
-      setVariants([
+    setCopyErr(null);
+    try {
+      const data = await api.post<{ variants: CopyVariant[] }>(
+        "/api/v1/ai/copy",
         {
-          tone: "Professional",
-          copy: "Unwind and rejuvenate. Treat yourself to a premium spa massage this weekend with an exclusive 20% savings. Book your session: [link]",
-          imagePrompt: "Close-up of therapeutic hot massage stones, peaceful spa candle flames, serene wooden table backdrop, cinematic lighting."
+          prompt,
+          channel,
+          tone,
+          variantCount,
         },
-        {
-          tone: "Urgent",
-          copy: "Time is ticking! ⏳ Snag 20% off all luxurious spa massages this weekend only. Limited slots remaining—grab yours now: [link]",
-          imagePrompt: "Glowing digital clock overlay, soft warm water massage therapy environment, luxury aromatherapy diffuse focus."
-        },
-        {
-          tone: "Empathetic / Friendly",
-          copy: "You've worked hard all week, and you deserve a peaceful break. ❤️ Enjoy a cozy spa massage today for 20% off. Let us take care of you: [link]",
-          imagePrompt: "Smiling calm individual relaxing under soft warm towels, steam aroma mist, high resolution photorealistic render."
-        }
-      ]);
-    }, 2000);
-  };
-
-  // Chat replies suggestions
-  const handleSuggestReplies = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput) return;
-
-    setGeneratingReplies(true);
-    setSuggestedReplies([]);
-
-    setTimeout(() => {
-      setGeneratingReplies(false);
-      setSuggestedReplies([
-        "Hi! Yes, you can cancel or reschedule. Simply click here: [link] or let me know the new slot and I will update it immediately.",
-        "No problem! Cancellations are free up to 24 hours in advance. Should we shift your slot to Saturday instead?",
-        "Sure, I can cancel that slot for you. You will receive a WhatsApp confirmation link in a moment."
-      ]);
-    }, 1500);
-  };
+      );
+      setVariants(data.variants);
+    } catch (e) {
+      setCopyErr(
+        e instanceof ApiClientError
+          ? e.message
+          : "Failed to generate copy.",
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   if (loading || !user) {
-    return <div className="p-10 text-center text-sm text-slate-500">Loading AI growth suite…</div>;
+    return <div className="p-10 text-sm text-slate-500">Loading…</div>;
   }
 
   return (
     <PartnerShell user={user} signOut={signOut}>
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight text-white">AI Additions Growth Center</h1>
-        <p className="text-sm text-slate-400">
-          Showcase interactive, high-fidelity playgrounds for Autopilot campaign predictor, Copy variant studios, and Reply Assist tools.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            AI overview
+          </h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Portfolio-wide AI activity across every customer tenant — real
+            costs, real token counts, real agent counts. Generate live copy
+            below to test the LLM pipeline.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void loadUsage()}
+          disabled={usageBusy}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+        >
+          {usageBusy ? "Refreshing…" : "Refresh"}
+        </button>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-2 mb-8">
-        {/* Campaign Autopilot Predictor */}
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-md flex flex-col justify-between">
-          <div>
-            <h2 className="text-base font-bold text-white mb-2">✦ AI Campaign Autopilot Predictor</h2>
-            <p className="text-xs text-slate-400 mb-4">
-              Enter a marketing objective, and let AI forecast segments size, CTRs, best send-times, and booking outcomes.
+      {usageErr && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {usageErr}
+        </div>
+      )}
+
+      {/* This-month rollup */}
+      <section className="mb-6 grid gap-3 sm:grid-cols-4">
+        <StatCard
+          label="AI spend this month"
+          value={usage ? rupees(usage.totalCostInCents) : "—"}
+          accent="emerald"
+        />
+        <StatCard
+          label="Total LLM calls"
+          value={usage ? usage.totalCalls.toLocaleString() : "—"}
+          accent="slate"
+        />
+        <StatCard
+          label="Tokens (in / out)"
+          value={
+            usage
+              ? `${usage.totalInputTokens.toLocaleString()} / ${usage.totalOutputTokens.toLocaleString()}`
+              : "—"
+          }
+          accent="slate"
+        />
+        <StatCard
+          label="Active AI agents"
+          value={
+            usage
+              ? `${usage.agents.active.toLocaleString()} / ${usage.agents.total.toLocaleString()}`
+              : "—"
+          }
+          accent="indigo"
+        />
+      </section>
+
+      {/* By feature + by tenant */}
+      <div className="mb-8 grid gap-4 lg:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-slate-800">
+            Spend by feature
+          </h2>
+          {!usage || usage.byFeature.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              No AI usage yet this month.
             </p>
-
-            <form onSubmit={handleAnalyzeGoal} className="space-y-4">
-              <label className="block text-xs font-semibold text-slate-400">
-                Marketing Target / Goal
-                <input
-                  required
-                  type="text"
-                  value={goal}
-                  onChange={(e) => setGoal(e.target.value)}
-                  placeholder="e.g. increase salon haircut bookings this weekend"
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 focus:outline-none"
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={predicting}
-                className="w-full rounded-lg bg-indigo-600 py-2.5 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 transition-all duration-300 disabled:opacity-50"
-              >
-                {predicting ? "Analyzing objective parameters..." : "Predict Campaign Outcomes"}
-              </button>
-            </form>
-          </div>
-
-          {predicting && (
-            <div className="mt-4 py-8 flex flex-col items-center justify-center text-center space-y-2">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-800 border-t-indigo-500"></div>
-              <div className="text-[10px] text-slate-400">Autopilot segment analyzer online...</div>
-            </div>
-          )}
-
-          {predictionResult && (
-            <div className="mt-4 rounded-lg bg-slate-950/60 p-4 border border-slate-800 text-xs space-y-2 animate-fade-in">
-              <div className="font-bold text-indigo-400">Autopilot Forecast Report:</div>
-              <div className="flex justify-between border-b border-slate-900 pb-1">
-                <span className="text-slate-500">Audience Scope:</span>
-                <span className="text-slate-200 font-medium">{predictionResult.targetAudience}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-900 pb-1">
-                <span className="text-slate-500">Read Probability:</span>
-                <span className="text-emerald-400 font-semibold">{predictionResult.readRate}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-900 pb-1">
-                <span className="text-slate-500">Predicted CTR:</span>
-                <span className="text-slate-200 font-medium">{predictionResult.CTR}</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-900 pb-1">
-                <span className="text-slate-500">Conversion Rate:</span>
-                <span className="text-indigo-300 font-bold">{predictionResult.conversions}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Best Send Time:</span>
-                <span className="text-amber-400 font-medium">{predictionResult.bestTime}</span>
-              </div>
-              <p className="mt-3 text-[10px] text-slate-400 border-t border-slate-900 pt-2 leading-relaxed">
-                {predictionResult.summaryText}
-              </p>
-            </div>
+          ) : (
+            <ul className="space-y-2">
+              {usage.byFeature.map((row) => (
+                <li
+                  key={row.feature}
+                  className="flex items-center justify-between text-xs"
+                >
+                  <span className="font-medium text-slate-700">
+                    {row.feature}
+                  </span>
+                  <span className="font-mono tabular-nums text-slate-600">
+                    {rupees(row.costInCents)} · {row.calls.toLocaleString()}{" "}
+                    calls
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
 
-        {/* Reply Assistant Simulator */}
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-md flex flex-col justify-between">
-          <div>
-            <h2 className="text-base font-bold text-white mb-2">✦ AI Reply Assistant Playground</h2>
-            <p className="text-xs text-slate-400 mb-4">
-              Inspect how the AI assistant suggests quick reply variants inside live agent chats.
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-sm font-semibold text-slate-800">
+            Spend by tenant
+          </h2>
+          {!usage || usage.byTenant.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              No customer tenants are using AI yet.
             </p>
-
-            <form onSubmit={handleSuggestReplies} className="space-y-4">
-              <label className="block text-xs font-semibold text-slate-400">
-                Inbound Customer Inquiry Text
-                <input
-                  required
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="e.g. how much is a styling session?"
-                  className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 focus:outline-none"
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={generatingReplies}
-                className="w-full rounded-lg bg-indigo-600 py-2.5 text-xs font-semibold text-white shadow-lg hover:bg-indigo-500 transition-all duration-300 disabled:opacity-50"
-              >
-                {generatingReplies ? "Drafting responses..." : "Suggest Live Answers"}
-              </button>
-            </form>
-          </div>
-
-          {generatingReplies && (
-            <div className="mt-4 py-8 flex flex-col items-center justify-center text-center space-y-2">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-800 border-t-indigo-500"></div>
-              <div className="text-[10px] text-slate-400">Analyzing conversation history context...</div>
-            </div>
-          )}
-
-          {suggestedReplies.length > 0 && (
-            <div className="mt-4 space-y-2 animate-fade-in">
-              <div className="text-xs font-semibold text-indigo-400">Reply suggestions list:</div>
-              {suggestedReplies.map((reply, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => alert(`Replied: ${reply}`)}
-                  className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300 cursor-pointer hover:bg-slate-900 transition-all"
+          ) : (
+            <ul className="space-y-2">
+              {usage.byTenant.slice(0, 8).map((row) => (
+                <li
+                  key={row.tenantId}
+                  className="flex items-center justify-between text-xs"
                 >
-                  <div className="text-[9px] text-slate-505 font-bold mb-1">Option #{idx + 1} (Click to Send)</div>
-                  {reply}
-                </div>
+                  <span className="truncate font-medium text-slate-700">
+                    {row.tenantName}
+                  </span>
+                  <span className="font-mono tabular-nums text-slate-600">
+                    {rupees(row.costInCents)} · {row.calls.toLocaleString()}{" "}
+                    calls
+                  </span>
+                </li>
               ))}
-            </div>
+              {usage.byTenant.length > 8 && (
+                <li className="text-[10px] text-slate-400">
+                  +{usage.byTenant.length - 8} more tenants
+                </li>
+              )}
+            </ul>
           )}
         </section>
       </div>
 
-      {/* AI Creative Copywriter Studio */}
-      <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-md mb-6">
-        <h2 className="text-base font-bold text-white mb-2">✦ AI Creative Studio (Copywriting & Prompts Generator)</h2>
-        <p className="text-xs text-slate-400 mb-6">
-          Write a campaign briefing description, and get instant multi-tone copy alternatives paired with matching image generation prompts.
+      {/* Agents per tenant */}
+      <section className="mb-8 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-800">
+            AI agents per tenant
+          </h2>
+          <Link
+            href="/ai-agents"
+            className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+          >
+            Manage agents →
+          </Link>
+        </div>
+        {!usage || usage.agents.byTenant.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            No AI agents have been created across your portfolio yet.
+          </p>
+        ) : (
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {usage.agents.byTenant.map((row) => (
+              <li
+                key={row.tenantId}
+                className="flex items-center justify-between rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs"
+              >
+                <span className="truncate font-medium text-slate-700">
+                  {row.tenantName}
+                </span>
+                <span className="font-mono tabular-nums text-slate-600">
+                  {row.agents} agent{row.agents === 1 ? "" : "s"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Live AI Creative Studio (REAL endpoint) */}
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-base font-semibold text-slate-900">
+          AI Creative Studio
+        </h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Live LLM call — generates {variantCount} copy variants for the chosen
+          channel and tone. Billed to your tenant under the{" "}
+          <span className="font-mono">copywriting</span> feature; charges show
+          up in this month&apos;s rollup above.
         </p>
 
-        <form onSubmit={handleGenerateVariants} className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="block text-xs font-semibold text-slate-400 sm:col-span-2">
-              Campaign Theme / Discount Briefing
-              <input
-                required
-                type="text"
-                value={studioQuery}
-                onChange={(e) => setStudioQuery(e.target.value)}
-                placeholder="e.g. 20% off luxurious body massage for weekend"
-                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 focus:outline-none"
-              />
-            </label>
+        <form onSubmit={handleGenerate} className="mt-4 space-y-3">
+          <label className="block text-xs font-semibold text-slate-700">
+            Campaign goal / briefing
+            <textarea
+              required
+              rows={2}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="e.g. 20% off weekend spa packages — drive last-minute bookings"
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              maxLength={2000}
+            />
+          </label>
 
-            <label className="block text-xs font-semibold text-slate-400">
-              Creative Tone Selector
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block text-xs font-semibold text-slate-700">
+              Channel
               <select
-                value={selectedTone}
-                onChange={(e) => setSelectedTone(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 focus:outline-none"
+                value={channel}
+                onChange={(e) =>
+                  setChannel(e.target.value as keyof typeof CHANNEL_LABEL)
+                }
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
-                <option value="Professional">Professional Standard</option>
-                <option value="Urgent">Urgent Countdown</option>
-                <option value="Empathetic">Friendly / Personal</option>
+                {Object.entries(CHANNEL_LABEL).map(([v, label]) => (
+                  <option key={v} value={v}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-slate-700">
+              Tone
+              <select
+                value={tone}
+                onChange={(e) => setTone(e.target.value as typeof tone)}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              >
+                <option value="professional">Professional</option>
+                <option value="friendly">Friendly</option>
+                <option value="casual">Casual</option>
+                <option value="urgent">Urgent</option>
+                <option value="playful">Playful</option>
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-slate-700">
+              Variants
+              <select
+                value={variantCount}
+                onChange={(e) => setVariantCount(Number(e.target.value))}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              >
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
 
           <button
             type="submit"
-            disabled={generatingVariants}
-            className="w-full rounded-lg bg-indigo-600 py-2.5 text-xs font-semibold text-white shadow-lg hover:bg-indigo-500 transition-all duration-300 disabled:opacity-50"
+            disabled={generating}
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
           >
-            {generatingVariants ? "Generating variant suggestions..." : "Generate Creative Asset Variants"}
+            {generating ? "Generating…" : "Generate variants"}
           </button>
         </form>
 
-        {generatingVariants && (
-          <div className="mt-6 py-12 flex flex-col items-center justify-center text-center space-y-2">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-800 border-t-indigo-500"></div>
-            <div className="text-xs text-slate-400">Stable Diffusion & Anthropic Codex API active...</div>
+        {copyErr && (
+          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {copyErr}
           </div>
         )}
 
         {variants.length > 0 && (
-          <div className="grid gap-4 md:grid-cols-3 mt-6 animate-fade-in">
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {variants.map((v, idx) => (
-              <div key={idx} className="rounded-lg bg-slate-950/60 p-4 border border-slate-800 space-y-4 hover:border-slate-700 transition-all duration-300">
-                <div className="flex justify-between items-center text-[10px] font-bold">
-                  <span className="text-indigo-400 uppercase">{v.tone}</span>
-                  <span className="text-slate-500">Option #{idx + 1}</span>
+              <article
+                key={v.id}
+                className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold uppercase tracking-wide text-emerald-700">
+                    Variant {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(v.text);
+                    }}
+                    className="text-[10px] font-medium text-slate-500 hover:text-slate-800"
+                  >
+                    Copy
+                  </button>
                 </div>
-                <div className="text-xs text-slate-300 leading-relaxed italic">
-                  "{v.copy}"
-                </div>
-                <div className="border-t border-slate-900 pt-3 text-[10px] text-slate-400">
-                  <div className="font-semibold text-white mb-1">Image Generation Prompt:</div>
-                  "{v.imagePrompt}"
-                </div>
-              </div>
+                <p className="whitespace-pre-wrap leading-relaxed text-slate-800">
+                  {v.text}
+                </p>
+              </article>
             ))}
           </div>
         )}
       </section>
+
+      <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
+        <strong>Tip:</strong> Customer-specific AI playgrounds — reply
+        suggestions, campaign autopilot, lead scoring — operate on a tenant&apos;s
+        own conversation history and CRM data, so they live inside each
+        customer&apos;s dashboard. From this portal you see the aggregate
+        spend and can manage shared{" "}
+        <Link
+          href="/ai-agents"
+          className="font-medium text-emerald-700 hover:text-emerald-800"
+        >
+          AI agents
+        </Link>
+        .
+      </div>
     </PartnerShell>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent: "slate" | "emerald" | "indigo";
+}) {
+  const accents = {
+    slate: "border-slate-200 bg-white",
+    emerald: "border-emerald-200 bg-emerald-50",
+    indigo: "border-indigo-200 bg-indigo-50",
+  } as const;
+  const numColor = {
+    slate: "text-slate-900",
+    emerald: "text-emerald-800",
+    indigo: "text-indigo-800",
+  } as const;
+  return (
+    <div className={`rounded-lg border p-4 ${accents[accent]}`}>
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div
+        className={`mt-1 font-mono text-xl font-semibold ${numColor[accent]}`}
+      >
+        {value}
+      </div>
+    </div>
   );
 }
