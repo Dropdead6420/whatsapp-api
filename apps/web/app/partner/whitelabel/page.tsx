@@ -78,15 +78,18 @@ export default function WhitelabelPage() {
       setDraftAddress(data.emailFromAddress ?? "");
       setDraftName(data.emailFromName ?? "");
     } catch (e) {
-      // Fallback
-      setSender({
-        emailFromAddress: "notifications@youragency.com",
-        emailFromName: "Agency Notifications",
-        emailDomainVerifiedAt: new Date().toISOString(),
-        emailDomainLastError: null
-      });
-      setDraftAddress("notifications@youragency.com");
-      setDraftName("Agency Notifications");
+      // Real error path — don't fake success. If the backend is
+      // unreachable, the operator needs to know so they don't
+      // proceed thinking domain verification worked when it
+      // didn't (which would silently bounce real emails).
+      setErr(
+        e instanceof ApiClientError
+          ? `Failed to load email sender settings: ${e.message}`
+          : "Failed to load email sender settings.",
+      );
+      setSender(null);
+      setDraftAddress("");
+      setDraftName("");
     }
   }
 
@@ -137,14 +140,12 @@ export default function WhitelabelPage() {
         "Sender saved. Run verification check to confirm DNS SPF/DKIM records.",
       );
     } catch (e) {
-      // Offline fallback
-      setNotice("Simulated email sender configurations updated.");
-      setSender({
-        emailFromAddress: draftAddress.trim(),
-        emailFromName: draftName.trim(),
-        emailDomainVerifiedAt: new Date().toISOString(),
-        emailDomainLastError: null
-      });
+      // Don't fake success. Saving requires real backend write —
+      // a fake local update would let the operator think the
+      // address is configured when nothing was persisted.
+      setErr(
+        e instanceof ApiClientError ? e.message : "Failed to save email sender.",
+      );
     } finally {
       setBusy(false);
     }
@@ -169,17 +170,15 @@ export default function WhitelabelPage() {
         setErr("Verification failed. Check SPF/DKIM record setups.");
       }
     } catch (e) {
-      // Mock verify
-      setCheck({
-        domain: draftAddress.split("@")[1] || "youragency.com",
-        spfPresent: true,
-        dkimPresent: true,
-        dmarcPresent: true,
-        includeSeen: ["_spf.resend.com"],
-        verified: true,
-        errors: []
-      });
-      setNotice("Email transactional domain verified successfully.");
+      // CRITICAL: never fake a "verified" result. A false positive
+      // here means the operator ships emails on an unverified
+      // domain and they all bounce (or get marked as spam, which is
+      // worse). Show the real error so they fix the underlying issue.
+      setErr(
+        e instanceof ApiClientError
+          ? `Verification request failed: ${e.message}`
+          : "Verification request failed.",
+      );
     } finally {
       setBusy(false);
     }
