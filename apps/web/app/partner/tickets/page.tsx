@@ -39,7 +39,9 @@ export default function TicketManagerPage() {
         setTickets(JSON.parse(stored));
         const parsed = JSON.parse(stored);
         if (parsed.length > 0) setSelectedTicketId(parsed[0].id);
-      } catch (e) {}
+      } catch {
+        localStorage.removeItem("nexaflow_tickets");
+      }
     } else {
       const initialTickets: Ticket[] = [
         {

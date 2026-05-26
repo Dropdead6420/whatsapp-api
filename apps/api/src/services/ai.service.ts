@@ -1134,7 +1134,7 @@ Be concrete. "Wording is fine" is not a reason — name the policy each item tou
     temperature: 0,
   });
 
-  let score =
+  const score =
     typeof parsed?.score === "number" && Number.isFinite(parsed.score)
       ? Math.min(1, Math.max(0, parsed.score))
       : 0.5;

@@ -407,7 +407,7 @@ function autoMapHeader(header: string): ImportField {
 function parseCsv(text: string): string[][] {
   // Simple CSV: handle quoted fields with embedded commas. No multi-line
   // quoted fields (rare in contact lists). Strip BOM.
-  const cleaned = text.replace(/^﻿/, "");
+  const cleaned = text.replace(/^\uFEFF/, "");
   const rows: string[][] = [];
   for (const line of cleaned.split(/\r?\n/)) {
     if (!line.trim()) continue;

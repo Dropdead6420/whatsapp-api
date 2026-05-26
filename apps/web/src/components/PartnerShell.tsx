@@ -46,7 +46,9 @@ export function PartnerShell({
     if (storedMenu) {
       try {
         setMenuConfig(JSON.parse(storedMenu));
-      } catch (e) {}
+      } catch {
+        setMenuConfig({});
+      }
     }
 
     const storedLogo = localStorage.getItem("nexaflow_brand_logo");

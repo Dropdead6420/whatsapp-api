@@ -49,6 +49,23 @@ function childTenantWhere(partnerTenantId: string) {
   };
 }
 
+function countsByTenant<T extends { tenantId: string }>(
+  rows: T[],
+  nameById: Map<string, string>,
+) {
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    map.set(r.tenantId, (map.get(r.tenantId) ?? 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([tenantId, count]) => ({
+      tenantId,
+      tenantName: nameById.get(tenantId) ?? "(unknown)",
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
 // GET /api/v1/partner/dashboard
 router.get(
   "/dashboard",
@@ -512,6 +529,134 @@ router.get(
             total: agentsByTenant.reduce((s, t) => s + t.agents, 0),
             active: agentsTotal,
             byTenant: agentsByTenant,
+          },
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/partner/catalog
+// Portfolio inventory of reusable assets (WhatsApp templates, chatbot
+// flows, service bundles) across the partner's child tenants. Replaces
+// the Gemini /partner/products localStorage "distribute" mock — Meta
+// requires per-WABA template submission so partners can't actually
+// push a template to every customer in one click; the honest read is
+// "what does my portfolio look like, who has what."
+router.get(
+  "/catalog",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const children = await prisma.tenant.findMany({
+        where: childTenantWhere(partner.id),
+        select: { id: true, name: true },
+      });
+      const childIds = children.map((c) => c.id);
+      const nameById = new Map(children.map((c) => [c.id, c.name]));
+
+      if (childIds.length === 0) {
+        res.json({
+          success: true,
+          data: {
+            templates: { total: 0, items: [], byTenant: [] },
+            flows: { total: 0, items: [], byTenant: [] },
+            services: { total: 0, items: [], byTenant: [] },
+          },
+        });
+        return;
+      }
+
+      const [templates, flows, services] = await Promise.all([
+        prisma.whatsAppTemplate.findMany({
+          where: { tenantId: { in: childIds } },
+          select: {
+            id: true,
+            tenantId: true,
+            name: true,
+            category: true,
+            language: true,
+            status: true,
+            messageCount: true,
+            updatedAt: true,
+          },
+          orderBy: { updatedAt: "desc" },
+        }),
+        prisma.chatbotFlow.findMany({
+          where: { tenantId: { in: childIds } },
+          select: {
+            id: true,
+            tenantId: true,
+            name: true,
+            isActive: true,
+            trigger: true,
+            aiIntentEnabled: true,
+            updatedAt: true,
+          },
+          orderBy: { updatedAt: "desc" },
+        }),
+        prisma.service.findMany({
+          where: { tenantId: { in: childIds } },
+          select: {
+            id: true,
+            tenantId: true,
+            name: true,
+            durationMinutes: true,
+            priceInPaisa: true,
+            isActive: true,
+            updatedAt: true,
+          },
+          orderBy: { updatedAt: "desc" },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          templates: {
+            total: templates.length,
+            byTenant: countsByTenant(templates, nameById),
+            items: templates.map((t) => ({
+              id: t.id,
+              tenantId: t.tenantId,
+              tenantName: nameById.get(t.tenantId) ?? "(unknown)",
+              name: t.name,
+              category: t.category,
+              language: t.language,
+              status: t.status,
+              messageCount: t.messageCount,
+              updatedAt: t.updatedAt,
+            })),
+          },
+          flows: {
+            total: flows.length,
+            byTenant: countsByTenant(flows, nameById),
+            items: flows.map((f) => ({
+              id: f.id,
+              tenantId: f.tenantId,
+              tenantName: nameById.get(f.tenantId) ?? "(unknown)",
+              name: f.name,
+              isActive: f.isActive,
+              trigger: f.trigger,
+              aiIntentEnabled: f.aiIntentEnabled,
+              updatedAt: f.updatedAt,
+            })),
+          },
+          services: {
+            total: services.length,
+            byTenant: countsByTenant(services, nameById),
+            items: services.map((s) => ({
+              id: s.id,
+              tenantId: s.tenantId,
+              tenantName: nameById.get(s.tenantId) ?? "(unknown)",
+              name: s.name,
+              durationMinutes: s.durationMinutes,
+              priceInPaisa: s.priceInPaisa,
+              isActive: s.isActive,
+              updatedAt: s.updatedAt,
+            })),
           },
         },
       });

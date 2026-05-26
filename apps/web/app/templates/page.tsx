@@ -226,7 +226,7 @@ export default function TemplatesPage() {
     }
   }
 
-  function useVariant(v: AiVariant) {
+  function applyVariant(v: AiVariant) {
     setDraft((d) => ({
       ...d,
       headerText: v.headerText ?? "",
@@ -694,7 +694,7 @@ export default function TemplatesPage() {
                       </span>
                       <button
                         type="button"
-                        onClick={() => useVariant(v)}
+                        onClick={() => applyVariant(v)}
                         className="rounded bg-emerald-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-emerald-700"
                       >
                         Use this

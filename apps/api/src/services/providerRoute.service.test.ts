@@ -126,7 +126,7 @@ describe("providerRoute.service", () => {
       id: "rt_1",
       config: { apiKey: "rotated_key_1234" },
     });
-    let writtenConfig = mocks.routeUpdate.mock.calls[0][0].data.config as string;
+    const writtenConfig = mocks.routeUpdate.mock.calls[0][0].data.config as string;
     expect(writtenConfig).not.toContain("rotated_key_1234");
     expect(writtenConfig.startsWith("v1:")).toBe(true);
 
