@@ -21,7 +21,9 @@ export type AuditAction =
   | "RECONCILIATION_DRIFT"
   | "RUN_RECONCILIATION"
   | "LOW_BALANCE_ALERT"
-  | "AGENT_DISABLED_ALERT";
+  | "AGENT_DISABLED_ALERT"
+  | "REPLY"
+  | "ANNOTATE";
 
 export interface AuditInput {
   tenantId: string;

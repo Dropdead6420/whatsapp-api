@@ -18,6 +18,16 @@ import {
 import { requirePermission, requireRole } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { authService } from "../services/auth.service";
+import {
+  getPartnerTicket,
+  listPartnerTickets,
+  partnerReplyToTicket,
+  updatePartnerTicket,
+} from "../services/supportTicket.service";
+import {
+  SupportTicketPriority,
+  SupportTicketStatus,
+} from "@nexaflow/db";
 
 const router = Router();
 
@@ -660,6 +670,116 @@ router.get(
           },
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ----------------------------------------------------------------------------
+// Support tickets — read + reply for tickets raised by child tenants.
+// Customers create tickets via /api/v1/support-tickets in their own portal;
+// partners triage + resolve them here. Replaces the localStorage mock that
+// powered the old /partner/tickets page.
+// ----------------------------------------------------------------------------
+
+const ticketListQuerySchema = z.object({
+  status: z.nativeEnum(SupportTicketStatus).optional(),
+  priority: z.nativeEnum(SupportTicketPriority).optional(),
+});
+
+const ticketReplySchema = z.object({
+  content: z.string().trim().min(1).max(8000),
+  internalNote: z.boolean().optional(),
+});
+
+const ticketUpdateSchema = z.object({
+  status: z.nativeEnum(SupportTicketStatus).optional(),
+  priority: z.nativeEnum(SupportTicketPriority).optional(),
+});
+
+router.get(
+  "/tickets",
+  requirePermission(Permissions.SUPPORT_TICKET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const q = ticketListQuerySchema.parse(req.query);
+      const tickets = await listPartnerTickets(partner.id, q);
+      res.json({ success: true, data: tickets });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/tickets/:id",
+  requirePermission(Permissions.SUPPORT_TICKET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const ticket = await getPartnerTicket(partner.id, req.params.id);
+      res.json({ success: true, data: ticket });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/tickets/:id/replies",
+  requirePermission(Permissions.SUPPORT_TICKET_MANAGE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const body = ticketReplySchema.parse(req.body);
+      const message = await partnerReplyToTicket({
+        partnerTenantId: partner.id,
+        partnerUserId: req.userId!,
+        ticketId: req.params.id,
+        content: body.content,
+        internalNote: body.internalNote,
+      });
+      await logAudit({
+        tenantId: partner.id,
+        userId: req.userId!,
+        action: body.internalNote ? "ANNOTATE" : "REPLY",
+        resource: "SupportTicket",
+        resourceId: req.params.id,
+        newValues: { messageId: message.id, internalNote: body.internalNote ?? false },
+        ...extractRequestMeta(req),
+      });
+      res.status(201).json({ success: true, data: message });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.patch(
+  "/tickets/:id",
+  requirePermission(Permissions.SUPPORT_TICKET_MANAGE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const body = ticketUpdateSchema.parse(req.body);
+      const updated = await updatePartnerTicket({
+        partnerTenantId: partner.id,
+        ticketId: req.params.id,
+        status: body.status,
+        priority: body.priority,
+      });
+      await logAudit({
+        tenantId: partner.id,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "SupportTicket",
+        resourceId: req.params.id,
+        newValues: { status: body.status, priority: body.priority },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: updated });
     } catch (err) {
       next(err);
     }

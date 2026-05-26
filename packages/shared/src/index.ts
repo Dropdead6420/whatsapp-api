@@ -516,6 +516,8 @@ export const Permissions = {
   PROVIDER_ROUTE_MANAGE: "provider_route:manage",
   KNOWLEDGE_BASE_MANAGE: "knowledge_base:manage",
   AI_AGENT_MANAGE: "ai_agent:manage",
+  SUPPORT_TICKET_VIEW: "support_ticket:view",
+  SUPPORT_TICKET_MANAGE: "support_ticket:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
@@ -538,6 +540,8 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.WALLET_VIEW,
     Permissions.WALLET_MANAGE,
     Permissions.CONTACT_READ,
+    Permissions.SUPPORT_TICKET_VIEW,
+    Permissions.SUPPORT_TICKET_MANAGE,
   ],
   [UserRole.BUSINESS_ADMIN]: [
     Permissions.CAMPAIGN_CREATE,
@@ -559,6 +563,8 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.CONVERSATION_READ,
     Permissions.CONVERSATION_REPLY,
     Permissions.LEAD_UPDATE,
+    Permissions.SUPPORT_TICKET_VIEW,
+    Permissions.SUPPORT_TICKET_MANAGE,
   ],
   [UserRole.TEAM_LEAD]: [
     Permissions.CAMPAIGN_CREATE,
