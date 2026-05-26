@@ -173,6 +173,7 @@ model Tenant {
   supportTickets           SupportTicket[]
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
+  metaAdsConnection        MetaAdsConnection?
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -1577,4 +1578,40 @@ model DripEnrollment {
   @@unique([sequenceId, contactId])
   @@index([tenantId, status])
   @@index([status, nextStepAt])
+}
+
+// ============================================================================
+// META MARKETING API (PRD §3.3.6, Phase 4)
+// One connection per tenant — stores the encrypted Facebook user access
+// token + selected ad account. Slice 1 ships read-only campaign + insights
+// surfacing via the Marketing API; future slices add Lead Ads sync,
+// click-to-WhatsApp ad creation, and audience export.
+// ============================================================================
+
+model MetaAdsConnection {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Facebook user/system-user access token. Stored encrypted via the same
+  // envelope helper used for WABA tokens (lib/tokenCrypto.ts).
+  accessToken     String
+
+  // act_<numeric-id> — the active ad account. Operators can have many in
+  // a single Facebook business account; this records which one we're
+  // reading from. Stored without the "act_" prefix.
+  adAccountId     String
+  // Display label shown in the UI so operators recognize the account.
+  adAccountName   String?
+
+  // Cached metadata pulled from Meta on connect. Refreshed on next sync.
+  businessName    String?
+  currency        String?  // 3-letter ISO, e.g. "INR"
+  timeZoneName    String?  // IANA tz, e.g. "Asia/Kolkata"
+
+  lastSyncedAt    DateTime?
+  lastSyncError   String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

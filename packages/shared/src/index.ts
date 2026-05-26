@@ -519,6 +519,8 @@ export const Permissions = {
   SUPPORT_TICKET_VIEW: "support_ticket:view",
   SUPPORT_TICKET_MANAGE: "support_ticket:manage",
   DRIP_SEQUENCE_MANAGE: "drip_sequence:manage",
+  META_ADS_VIEW: "meta_ads:view",
+  META_ADS_MANAGE: "meta_ads:manage",
 
   // Agent
   CONVERSATION_READ: "conversation:read",
@@ -567,6 +569,8 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.SUPPORT_TICKET_VIEW,
     Permissions.SUPPORT_TICKET_MANAGE,
     Permissions.DRIP_SEQUENCE_MANAGE,
+    Permissions.META_ADS_VIEW,
+    Permissions.META_ADS_MANAGE,
   ],
   [UserRole.TEAM_LEAD]: [
     Permissions.CAMPAIGN_CREATE,
@@ -579,6 +583,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.CONVERSATION_READ,
     Permissions.CONVERSATION_REPLY,
     Permissions.LEAD_UPDATE,
+    Permissions.META_ADS_VIEW,
   ],
   [UserRole.AGENT]: [
     Permissions.CONVERSATION_READ,
