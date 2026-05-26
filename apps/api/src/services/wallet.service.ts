@@ -266,6 +266,10 @@ export async function updateWalletSettings(input: {
   creditLimit?: number;
   lowBalanceThreshold?: number;
   autoRechargeEnabled?: boolean;
+  // T-021: auto-recharge config. Pass null to clear a field; omit to leave unchanged.
+  autoRechargeAmountCredits?: number;
+  autoRechargePaymentProvider?: string | null;
+  autoRechargePaymentMethodToken?: string | null;
 }) {
   return prisma.$transaction(
     async (tx) => {
@@ -278,6 +282,9 @@ export async function updateWalletSettings(input: {
           creditLimit: input.creditLimit,
           lowBalanceThreshold: input.lowBalanceThreshold,
           autoRechargeEnabled: input.autoRechargeEnabled,
+          autoRechargeAmountCredits: input.autoRechargeAmountCredits,
+          autoRechargePaymentProvider: input.autoRechargePaymentProvider,
+          autoRechargePaymentMethodToken: input.autoRechargePaymentMethodToken,
         },
       });
     },

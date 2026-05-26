@@ -841,7 +841,21 @@ model Wallet {
   reservedCredits          Int              @default(0)
   creditLimit              Int              @default(0)
   lowBalanceThreshold      Int              @default(100)
+
+  // T-021: auto-recharge config.
+  // enabled + amount + paymentMethodToken must ALL be set for the worker
+  // to attempt a charge. The token is the payment provider's opaque
+  // reference (Razorpay subscription id, Stripe customer id, etc.) —
+  // we never store raw card data.
   autoRechargeEnabled      Boolean          @default(false)
+  autoRechargeAmountCredits Int             @default(0)
+  autoRechargePaymentMethodToken String?
+  autoRechargePaymentProvider String?       // "razorpay" | "stripe" | future providers
+  // Stamp set after a successful auto-recharge so a hot-fire bug
+  // can't drain the customer's card; the worker refuses to recharge
+  // again within `AUTO_RECHARGE_COOLDOWN_HOURS` of the last attempt.
+  lastAutoRechargeAt       DateTime?
+  lastAutoRechargeError    String?
 
   transactions             WalletTransaction[] @relation("WalletTransactions")
   counterpartyTransactions WalletTransaction[] @relation("CounterpartyWallet")

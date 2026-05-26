@@ -42,6 +42,10 @@ const settingsSchema = z.object({
   creditLimit: z.number().int().min(0).optional(),
   lowBalanceThreshold: z.number().int().min(0).optional(),
   autoRechargeEnabled: z.boolean().optional(),
+  // T-021: auto-recharge config.
+  autoRechargeAmountCredits: z.number().int().min(0).max(1_000_000).optional(),
+  autoRechargePaymentProvider: z.enum(["razorpay", "stripe"]).nullable().optional(),
+  autoRechargePaymentMethodToken: z.string().trim().max(200).nullable().optional(),
 });
 
 const adjustSchema = z.object({
