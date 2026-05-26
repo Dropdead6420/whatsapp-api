@@ -26,6 +26,12 @@ import {
   reconcileAllWallets,
   reconcileWallet,
 } from "../services/walletReconciliation.service";
+import {
+  runComplianceAuditor,
+  runPlatformMonitor,
+  runRevenueIntelligence,
+  runSupportCopilot,
+} from "../services/ai.service";
 import { metricsRegistry } from "../lib/observability";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
@@ -558,6 +564,124 @@ router.get(
         };
       });
       res.json({ success: true, data: { drifts } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// T-053: SuperAdmin AI suite
+//
+// Four assistants. Each takes a structured snapshot the caller assembled
+// from existing services and returns analysis. The SuperAdmin tenantId is
+// used as the billing tenant for the LLM calls. Permission guard is the
+// `requireRole(SUPER_ADMIN)` already applied to this whole router.
+// ---------------------------------------------------------------------------
+
+const PLATFORM_TENANT_ID = "__platform__";
+
+const platformMonitorSchema = z.object({
+  totals: z.object({
+    tenants: z.number().int().nonnegative(),
+    activeTenants: z.number().int().nonnegative(),
+    messagesPerHour: z.number().nonnegative(),
+    failedSendsPerHour: z.number().nonnegative(),
+    p95LatencyMs: z.number().nonnegative(),
+    redisQueueDepth: z.number().nonnegative(),
+    p95DbLatencyMs: z.number().nonnegative().optional(),
+    errorRatePct: z.number().nonnegative().optional(),
+  }),
+  anomalies: z
+    .array(z.object({ kind: z.string(), detail: z.string() }))
+    .optional(),
+});
+
+router.post(
+  "/ai/platform-monitor",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = platformMonitorSchema.parse(req.body);
+      const result = await runPlatformMonitor(PLATFORM_TENANT_ID, body);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const complianceAuditorSchema = z.object({
+  samples: z
+    .array(
+      z.object({
+        tenantId: z.string(),
+        text: z.string().min(1).max(2000),
+        category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION", "REPLY"]),
+      }),
+    )
+    .min(1)
+    .max(25),
+});
+
+router.post(
+  "/ai/compliance-audit",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = complianceAuditorSchema.parse(req.body);
+      const result = await runComplianceAuditor(PLATFORM_TENANT_ID, body);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const supportCopilotSchema = z.object({
+  question: z.string().min(1).max(4000),
+  context: z.string().max(4000).optional(),
+  tenantId: z.string().optional(),
+});
+
+router.post(
+  "/ai/support-copilot",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = supportCopilotSchema.parse(req.body);
+      const result = await runSupportCopilot(PLATFORM_TENANT_ID, body);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const revenueIntelligenceSchema = z.object({
+  mrrInPaisa: z.number().int().nonnegative(),
+  arpuInPaisa: z.number().int().nonnegative(),
+  newTenantsThisMonth: z.number().int().nonnegative(),
+  churnedTenantsThisMonth: z.number().int().nonnegative(),
+  expansionTenants: z.number().int().nonnegative(),
+  contractionTenants: z.number().int().nonnegative(),
+  topRevenueTenants: z
+    .array(
+      z.object({
+        tenantId: z.string(),
+        monthlyPaisa: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
+  topAtRiskTenants: z
+    .array(z.object({ tenantId: z.string(), reason: z.string() }))
+    .optional(),
+});
+
+router.post(
+  "/ai/revenue-intelligence",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = revenueIntelligenceSchema.parse(req.body);
+      const result = await runRevenueIntelligence(PLATFORM_TENANT_ID, body);
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }

@@ -1164,3 +1164,375 @@ Be concrete. "Wording is fine" is not a reason — name the policy each item tou
 
   return { score: Number(score.toFixed(3)), verdict, reasons };
 }
+
+// ============================================================================
+// T-053: SuperAdmin AI suite — four assistants that analyze
+// platform-level data (across tenants) and surface what a human
+// operator might miss while scanning dashboards.
+//
+// All four take a "context snapshot" the caller assembled from existing
+// services (analytics totals, audit log slices, support ticket text,
+// MRR/churn numbers) and return a structured analysis the SuperAdmin UI
+// renders. None of them touch tenant-scoped data without explicit
+// permission gating at the route layer.
+//
+// All four call callLlmJson → wallet-billed (under the platform tenant
+// for SUPER_ADMIN runs, not the customer tenant). Feature keys are
+// distinct per assistant so per-feature pricing can override.
+// ============================================================================
+
+// --- Platform Monitor --------------------------------------------------------
+
+export interface PlatformMonitorInput {
+  /** Snapshot of platform totals over a recent window. */
+  totals: {
+    tenants: number;
+    activeTenants: number;
+    messagesPerHour: number;
+    failedSendsPerHour: number;
+    p95LatencyMs: number;
+    redisQueueDepth: number;
+    p95DbLatencyMs?: number;
+    errorRatePct?: number;
+  };
+  /** Anomalies the caller already detected (e.g. tenant_X sending 100x normal). */
+  anomalies?: Array<{ kind: string; detail: string }>;
+}
+
+export interface PlatformMonitorResult {
+  severity: "ok" | "watch" | "intervene";
+  headline: string;
+  observations: string[];
+  recommendations: string[];
+}
+
+export async function runPlatformMonitor(
+  platformTenantId: string,
+  input: PlatformMonitorInput,
+): Promise<PlatformMonitorResult> {
+  const anomaliesBlock =
+    input.anomalies && input.anomalies.length > 0
+      ? `\n\nDetected anomalies:\n${input.anomalies.map((a) => `- [${a.kind}] ${a.detail}`).join("\n")}`
+      : "\n\nNo specific anomalies detected by the rule layer.";
+
+  const prompt = `You are reviewing platform health for a WhatsApp Business Automation SaaS.
+
+Snapshot:
+- Tenants: ${input.totals.tenants} total, ${input.totals.activeTenants} active
+- Throughput: ${input.totals.messagesPerHour}/hr messages, ${input.totals.failedSendsPerHour}/hr failed sends
+- Latency: p95 API ${input.totals.p95LatencyMs}ms${input.totals.p95DbLatencyMs ? `, p95 DB ${input.totals.p95DbLatencyMs}ms` : ""}
+- Redis queue depth: ${input.totals.redisQueueDepth}
+- Error rate: ${input.totals.errorRatePct ?? "?"}%${anomaliesBlock}
+
+Triage this. Return JSON:
+{
+  "severity": "ok" | "watch" | "intervene",
+  "headline": "<one-sentence verdict>",
+  "observations": ["<concrete data point + interpretation>", ...max 5],
+  "recommendations": ["<specific operator action>", ...max 5]
+}
+
+"intervene" = pages someone now. "watch" = monitor for the next hour. "ok" = no action.`;
+
+  const parsed = await callLlmJson<{
+    severity: unknown;
+    headline: unknown;
+    observations: unknown;
+    recommendations: unknown;
+  }>({
+    tenantId: platformTenantId,
+    feature: "superadmin_platform_monitor",
+    system:
+      "You are a senior site reliability engineer for a multi-tenant SaaS. You triage telemetry with cold judgment — no panic, no false positives, no hedging.",
+    prompt,
+    maxTokens: 600,
+    temperature: 0.2,
+  });
+
+  const severity =
+    parsed.severity === "ok" || parsed.severity === "watch" || parsed.severity === "intervene"
+      ? parsed.severity
+      : "watch";
+  return {
+    severity,
+    headline:
+      typeof parsed.headline === "string" && parsed.headline.trim()
+        ? parsed.headline.trim()
+        : "Platform health snapshot",
+    observations: toStringArray(parsed.observations, 5),
+    recommendations: toStringArray(parsed.recommendations, 5),
+  };
+}
+
+// --- Compliance Auditor ------------------------------------------------------
+
+export interface ComplianceAuditInput {
+  /** Sample of outbound messages from across tenants (anonymized, capped). */
+  samples: Array<{
+    tenantId: string;
+    text: string;
+    category: "MARKETING" | "UTILITY" | "AUTHENTICATION" | "REPLY";
+  }>;
+}
+
+export interface ComplianceFinding {
+  tenantId: string;
+  text: string;
+  category: string;
+  severity: "info" | "warn" | "violation";
+  issue: string;
+  policy: string;
+}
+
+export interface ComplianceAuditResult {
+  scanned: number;
+  flagged: number;
+  findings: ComplianceFinding[];
+}
+
+export async function runComplianceAuditor(
+  platformTenantId: string,
+  input: ComplianceAuditInput,
+): Promise<ComplianceAuditResult> {
+  const samples = input.samples.slice(0, 25); // cap to keep prompt bounded
+  if (samples.length === 0) {
+    return { scanned: 0, flagged: 0, findings: [] };
+  }
+
+  const block = samples
+    .map(
+      (s, i) =>
+        `[${i + 1}] tenant=${s.tenantId} category=${s.category} text=${JSON.stringify(s.text.slice(0, 280))}`,
+    )
+    .join("\n");
+
+  const prompt = `Audit these outbound WhatsApp messages for Meta policy violations.
+
+Common violations:
+- Marketing content sent as UTILITY (or vice versa)
+- Unsolicited promotions to users who didn't opt in
+- Link shorteners (bit.ly, t.co, tinyurl)
+- Aggressive CTAs ("CLICK NOW", "LIMITED TIME", all-caps shouting)
+- Financial guarantees, medical claims, or restricted-industry pitches
+- PII leakage (raw credit card numbers, government IDs)
+
+Messages:
+${block}
+
+Return JSON:
+{
+  "findings": [
+    {
+      "index": <1-based sample index>,
+      "severity": "info" | "warn" | "violation",
+      "issue": "<one sentence>",
+      "policy": "<Meta WABA policy or regulation name>"
+    }
+  ]
+}
+
+Only flag actual problems. An empty findings array is the right answer when the samples are clean.`;
+
+  const parsed = await callLlmJson<{ findings: unknown }>({
+    tenantId: platformTenantId,
+    feature: "superadmin_compliance_auditor",
+    system:
+      "You are a compliance reviewer for a WhatsApp Business platform. You cite specific Meta WABA policy rules and ignore the temptation to flag harmless copy.",
+    prompt,
+    maxTokens: 1200,
+    temperature: 0,
+  });
+
+  const findings: ComplianceFinding[] = [];
+  if (Array.isArray(parsed?.findings)) {
+    for (const raw of parsed.findings) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const idx = typeof r.index === "number" ? r.index - 1 : -1;
+      if (idx < 0 || idx >= samples.length) continue;
+      const sample = samples[idx];
+      const severity =
+        r.severity === "info" || r.severity === "warn" || r.severity === "violation"
+          ? r.severity
+          : "warn";
+      findings.push({
+        tenantId: sample.tenantId,
+        text: sample.text.length > 200 ? sample.text.slice(0, 197) + "..." : sample.text,
+        category: sample.category,
+        severity,
+        issue:
+          typeof r.issue === "string" && r.issue.trim()
+            ? r.issue.trim()
+            : "(unspecified)",
+        policy:
+          typeof r.policy === "string" && r.policy.trim()
+            ? r.policy.trim()
+            : "Meta WABA policy",
+      });
+    }
+  }
+
+  return {
+    scanned: samples.length,
+    flagged: findings.length,
+    findings,
+  };
+}
+
+// --- Support Copilot ---------------------------------------------------------
+
+export interface SupportCopilotInput {
+  /** The customer's question/complaint. */
+  question: string;
+  /** Free-form recent context the operator pasted (tickets, logs, etc.). */
+  context?: string;
+  /** Tenant id the question is about (for the operator's reference, not lookup). */
+  tenantId?: string;
+}
+
+export interface SupportCopilotResult {
+  reply: string;
+  internalNotes: string[];
+  suggestedActions: string[];
+}
+
+export async function runSupportCopilot(
+  platformTenantId: string,
+  input: SupportCopilotInput,
+): Promise<SupportCopilotResult> {
+  const ctx = (input.context ?? "").trim();
+  const prompt = `A customer of our WhatsApp Business platform asked support a question. Draft a reply + internal notes.
+
+Question:
+${input.question.trim()}
+
+${ctx ? `Operator context:\n${ctx}\n` : ""}
+Return JSON:
+{
+  "reply": "<polite, accurate customer-facing reply — markdown OK>",
+  "internalNotes": ["<note for the support agent's eyes only>", ...max 3],
+  "suggestedActions": ["<specific platform action the agent should take>", ...max 3]
+}
+
+Guidelines:
+- If the issue is a platform bug, say so honestly and propose a workaround.
+- If it's user error, explain the fix without condescension.
+- If you don't know, say "I need to check with the engineering team" rather than guessing.`;
+
+  const parsed = await callLlmJson<{
+    reply: unknown;
+    internalNotes: unknown;
+    suggestedActions: unknown;
+  }>({
+    tenantId: platformTenantId,
+    feature: "superadmin_support_copilot",
+    system:
+      "You are a senior customer success engineer for a WhatsApp Business SaaS. You write replies that solve the customer's actual problem in as few words as possible.",
+    prompt,
+    maxTokens: 800,
+    temperature: 0.3,
+  });
+
+  return {
+    reply:
+      typeof parsed.reply === "string" && parsed.reply.trim()
+        ? parsed.reply.trim()
+        : "I'll follow up shortly with a complete answer.",
+    internalNotes: toStringArray(parsed.internalNotes, 3),
+    suggestedActions: toStringArray(parsed.suggestedActions, 3),
+  };
+}
+
+// --- Revenue Intelligence ----------------------------------------------------
+
+export interface RevenueIntelligenceInput {
+  mrrInPaisa: number;
+  arpuInPaisa: number;
+  newTenantsThisMonth: number;
+  churnedTenantsThisMonth: number;
+  expansionTenants: number; // upgraded plan
+  contractionTenants: number; // downgraded
+  topRevenueTenants?: Array<{ tenantId: string; monthlyPaisa: number }>;
+  topAtRiskTenants?: Array<{ tenantId: string; reason: string }>;
+}
+
+export interface RevenueIntelligenceResult {
+  headline: string;
+  positives: string[];
+  risks: string[];
+  recommendations: string[];
+}
+
+export async function runRevenueIntelligence(
+  platformTenantId: string,
+  input: RevenueIntelligenceInput,
+): Promise<RevenueIntelligenceResult> {
+  const topRev = (input.topRevenueTenants ?? [])
+    .slice(0, 5)
+    .map((t) => `  - tenant ${t.tenantId}: ₹${(t.monthlyPaisa / 100).toFixed(0)}/mo`)
+    .join("\n");
+  const atRisk = (input.topAtRiskTenants ?? [])
+    .slice(0, 5)
+    .map((t) => `  - tenant ${t.tenantId}: ${t.reason}`)
+    .join("\n");
+
+  const prompt = `Analyze this SaaS revenue snapshot. Return JSON with strategic observations.
+
+This month:
+- MRR: ₹${(input.mrrInPaisa / 100).toFixed(0)}
+- ARPU: ₹${(input.arpuInPaisa / 100).toFixed(0)}
+- New tenants: ${input.newTenantsThisMonth}
+- Churned: ${input.churnedTenantsThisMonth}
+- Expansions (upgrades): ${input.expansionTenants}
+- Contractions (downgrades): ${input.contractionTenants}
+
+Top revenue tenants:
+${topRev || "  (none provided)"}
+
+At-risk tenants:
+${atRisk || "  (none provided)"}
+
+Net new MRR direction matters more than gross numbers.
+
+Return JSON:
+{
+  "headline": "<one-sentence summary>",
+  "positives": ["<momentum/wins to lean into>", ...max 4],
+  "risks": ["<concrete risk + numbers>", ...max 4],
+  "recommendations": ["<specific operator action, prioritized>", ...max 5]
+}`;
+
+  const parsed = await callLlmJson<{
+    headline: unknown;
+    positives: unknown;
+    risks: unknown;
+    recommendations: unknown;
+  }>({
+    tenantId: platformTenantId,
+    feature: "superadmin_revenue_intelligence",
+    system:
+      "You are a SaaS growth analyst. You read MRR snapshots the way a CFO would — focused on net new MRR, retention, and expansion. You don't celebrate vanity metrics.",
+    prompt,
+    maxTokens: 700,
+    temperature: 0.3,
+  });
+
+  return {
+    headline:
+      typeof parsed.headline === "string" && parsed.headline.trim()
+        ? parsed.headline.trim()
+        : "Revenue snapshot",
+    positives: toStringArray(parsed.positives, 4),
+    risks: toStringArray(parsed.risks, 4),
+    recommendations: toStringArray(parsed.recommendations, 5),
+  };
+}
+
+function toStringArray(raw: unknown, max: number): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x): x is string => typeof x === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .slice(0, max);
+}
