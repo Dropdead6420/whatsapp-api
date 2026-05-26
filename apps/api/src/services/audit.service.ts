@@ -17,7 +17,9 @@ export type AuditAction =
   | "PASSWORD_RESET_COMPLETE"
   | "EMAIL_VERIFICATION_RESENT"
   | "EMAIL_VERIFIED"
-  | "IMPERSONATE";
+  | "IMPERSONATE"
+  | "RECONCILIATION_DRIFT"
+  | "RUN_RECONCILIATION";
 
 export interface AuditInput {
   tenantId: string;

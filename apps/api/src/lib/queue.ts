@@ -17,6 +17,7 @@ export const QueueNames = {
   LEAD_FOLLOWUP_DISPATCH: "lead-followup-dispatch",
   WABA_TOKEN_EXPIRY: "waba-token-expiry",
   KNOWLEDGE_BASE_EMBEDDING: "knowledge-base-embedding",
+  WALLET_RECONCILIATION: "wallet-reconciliation",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -51,6 +52,7 @@ export type WabaTokenExpiryJobData = { kind: "scan" };
 export type KnowledgeBaseEmbeddingJobData =
   | { tenantId: string; entryId: string }
   | { kind: "embed-stale"; tenantId: string; limit: number };
+export type WalletReconciliationJobData = { kind: "scan" };
 
 const queueSingletons = new Map<string, Queue>();
 
@@ -107,6 +109,12 @@ export function getLeadFollowUpQueue(): Queue<LeadFollowUpJobData> {
 export function getKnowledgeBaseEmbeddingQueue(): Queue<KnowledgeBaseEmbeddingJobData> {
   return makeQueue<KnowledgeBaseEmbeddingJobData>(
     QueueNames.KNOWLEDGE_BASE_EMBEDDING,
+  );
+}
+
+export function getWalletReconciliationQueue(): Queue<WalletReconciliationJobData> {
+  return makeQueue<WalletReconciliationJobData>(
+    QueueNames.WALLET_RECONCILIATION,
   );
 }
 

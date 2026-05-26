@@ -18,9 +18,14 @@ import {
   getKnowledgeBaseEmbeddingQueue,
   getSlaQueue,
   getWabaTokenExpiryQueue,
+  getWalletReconciliationQueue,
   getWebhookQueue,
   queueDepth,
 } from "../lib/queue";
+import {
+  reconcileAllWallets,
+  reconcileWallet,
+} from "../services/walletReconciliation.service";
 import { metricsRegistry } from "../lib/observability";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
@@ -97,6 +102,7 @@ function getManagedQueues() {
     getLeadFollowUpQueue(),
     getWabaTokenExpiryQueue(),
     getKnowledgeBaseEmbeddingQueue(),
+    getWalletReconciliationQueue(),
   ];
 }
 
@@ -461,6 +467,97 @@ router.get(
           },
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// T-023: wallet reconciliation. The scheduled worker runs every 6h on
+// its own; these endpoints let a SuperAdmin trigger an ad-hoc check
+// (after a suspected billing incident) or query recent drift events.
+
+// POST /api/v1/admin/wallet-reconciliation/run — fires the same logic
+// the worker runs. Synchronous, returns the full summary in the
+// response so an operator sees results without tailing logs.
+router.post(
+  "/wallet-reconciliation/run",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const summary = await reconcileAllWallets();
+      await logAudit({
+        tenantId: req.tenantId ?? "platform",
+        userId: req.userId!,
+        action: "RUN_RECONCILIATION",
+        resource: "Platform",
+        newValues: {
+          scanned: summary.scanned,
+          clean: summary.clean,
+          drifted: summary.drifted,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/admin/wallet-reconciliation/run/:walletId — reconcile
+// one wallet (e.g. for a suspected debit race). Read-only; never
+// mutates the wallet.
+router.post(
+  "/wallet-reconciliation/run/:walletId",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const result = await reconcileWallet(req.params.walletId);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/admin/wallet-reconciliation/drifts — recent drift events
+// from AuditLog. Default to last 50; supports ?limit query param.
+router.get(
+  "/wallet-reconciliation/drifts",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const limit = Math.min(
+        500,
+        Math.max(1, Number(req.query.limit ?? 50)),
+      );
+      const rows = await prisma.auditLog.findMany({
+        where: { action: "RECONCILIATION_DRIFT" },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          tenantId: true,
+          resourceId: true,
+          newValues: true,
+          createdAt: true,
+        },
+      });
+      const drifts = rows.map((r) => {
+        let details: unknown = null;
+        try {
+          details = r.newValues ? JSON.parse(r.newValues) : null;
+        } catch {
+          /* corrupt JSON in audit log — surface the raw string */
+          details = r.newValues;
+        }
+        return {
+          auditId: r.id,
+          tenantId: r.tenantId,
+          walletId: r.resourceId,
+          detectedAt: r.createdAt,
+          details,
+        };
+      });
+      res.json({ success: true, data: { drifts } });
     } catch (err) {
       next(err);
     }

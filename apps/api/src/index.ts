@@ -70,6 +70,10 @@ import {
   startKnowledgeBaseEmbeddingWorker,
   stopKnowledgeBaseEmbeddingWorker,
 } from "./services/knowledgeBaseEmbedding.service";
+import {
+  startWalletReconciliationWorker,
+  stopWalletReconciliationWorker,
+} from "./services/walletReconciliation.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -257,6 +261,7 @@ async function startWorkers(): Promise<void> {
   await startLeadFollowUpWorker();
   await startWabaTokenExpiryWorker();
   await startKnowledgeBaseEmbeddingWorker();
+  await startWalletReconciliationWorker();
 }
 
 function stopWorkers(): void {
@@ -268,6 +273,7 @@ function stopWorkers(): void {
   stopLeadFollowUpWorker();
   stopWabaTokenExpiryWorker();
   stopKnowledgeBaseEmbeddingWorker();
+  stopWalletReconciliationWorker();
 }
 
 if (START_HTTP) {
