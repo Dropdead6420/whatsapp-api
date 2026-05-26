@@ -334,4 +334,71 @@ router.post(
   },
 );
 
+// GET /api/v1/partner/channels
+// Read-only view of every child tenant's WhatsApp connection state.
+// Partners use this to spot tenants whose WABA connection is broken /
+// expiring / unverified without clicking into each one. Token itself
+// is NEVER returned — only the connection metadata.
+router.get(
+  "/channels",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const childIds = (
+        await prisma.tenant.findMany({
+          where: childTenantWhere(partner.id),
+          select: { id: true },
+        })
+      ).map((t) => t.id);
+
+      const channels = await prisma.tenant.findMany({
+        where: { id: { in: childIds } },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          wabaPhoneNumber: true,
+          wabaId: true,
+          wabaBusinessName: true,
+          wabaBusinessVertical: true,
+          wabaTokenExpiresAt: true,
+          wabaBusinessProfileSyncedAt: true,
+          // NOTE: wabaAccessToken intentionally NOT selected. Even
+          // the encrypted form never crosses an API boundary from
+          // this route.
+          createdAt: true,
+          _count: {
+            select: { conversations: true, contacts: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      // Compute derived flags so the UI doesn't have to (and so they're
+      // consistent if we add multi-WABA-per-tenant later).
+      const now = Date.now();
+      const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+      const data = channels.map((c) => {
+        const isConnected = Boolean(c.wabaPhoneNumber);
+        const expiresInMs = c.wabaTokenExpiresAt
+          ? c.wabaTokenExpiresAt.getTime() - now
+          : null;
+        const tokenExpiringSoon =
+          expiresInMs !== null && expiresInMs > 0 && expiresInMs < TWO_WEEKS_MS;
+        const tokenExpired = expiresInMs !== null && expiresInMs <= 0;
+        return {
+          ...c,
+          isConnected,
+          tokenExpiringSoon,
+          tokenExpired,
+        };
+      });
+
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export default router;
