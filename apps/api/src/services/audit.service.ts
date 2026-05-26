@@ -19,7 +19,9 @@ export type AuditAction =
   | "EMAIL_VERIFIED"
   | "IMPERSONATE"
   | "RECONCILIATION_DRIFT"
-  | "RUN_RECONCILIATION";
+  | "RUN_RECONCILIATION"
+  | "LOW_BALANCE_ALERT"
+  | "AGENT_DISABLED_ALERT";
 
 export interface AuditInput {
   tenantId: string;

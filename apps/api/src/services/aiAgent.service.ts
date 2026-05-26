@@ -574,6 +574,7 @@ export async function publishAgent(
 export async function disableAgent(
   tenantId: string,
   agentId: string,
+  opts: { reason?: string } = {},
 ): Promise<AiAgentPublic> {
   const existing = await findScoped(tenantId, agentId);
   if (existing.status === ("ARCHIVED" as AiAgentStatus)) {
@@ -586,6 +587,7 @@ export async function disableAgent(
   if (existing.status === ("DISABLED" as AiAgentStatus)) {
     return toPublic(existing); // idempotent
   }
+  const wasDefault = existing.isDefault;
   const updated = await prisma.aiAgent.update({
     where: { id: agentId },
     data: {
@@ -593,7 +595,56 @@ export async function disableAgent(
       disabledAt: new Date(),
     },
   });
+
+  // Email business admins ONLY if the disabled agent was the default —
+  // a disabled non-default agent doesn't affect inbound traffic, so
+  // an email would be noise. Fire-and-forget so a transient SMTP
+  // hiccup doesn't roll back the disable.
+  if (wasDefault) {
+    void notifyAgentDisabled({
+      tenantId,
+      agentName: existing.name,
+      reason: opts.reason ?? "Disabled by operator",
+    }).catch((err) =>
+      console.warn("[ai-agent] disable notification failed (non-fatal):", err),
+    );
+  }
   return toPublic(updated);
+}
+
+async function notifyAgentDisabled(input: {
+  tenantId: string;
+  agentName: string;
+  reason: string;
+}): Promise<void> {
+  // Lazy import to avoid the circular dep — emails service doesn't pull
+  // in aiAgent service, but importing at top would create the cycle.
+  const { sendEmail, buildAgentDisabledEmail } = await import("./email.service");
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: input.tenantId },
+    select: { name: true },
+  });
+  if (!tenant) return;
+  const admins = await prisma.user.findMany({
+    where: {
+      tenantId: input.tenantId,
+      role: "BUSINESS_ADMIN",
+      status: "ACTIVE",
+    },
+    select: { email: true, name: true },
+    take: 5,
+  });
+  for (const a of admins) {
+    await sendEmail(
+      buildAgentDisabledEmail({
+        to: a.email,
+        recipientName: a.name?.split(" ")[0] || "there",
+        tenantName: tenant.name,
+        agentName: input.agentName,
+        reason: input.reason,
+      }),
+    );
+  }
 }
 
 export async function archiveAgent(

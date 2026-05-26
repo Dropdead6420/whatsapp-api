@@ -28,6 +28,7 @@ import {
   sendEmail,
   buildPasswordResetEmail,
   buildVerifyEmailEmail,
+  buildWelcomeEmail,
 } from "../services/email.service";
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 
@@ -581,6 +582,33 @@ router.post(
           ...extractRequestMeta(req),
         });
       }
+
+      // Welcome email — fire-and-forget so a transient SMTP hiccup
+      // doesn't block the operator from logging in. Failed sends are
+      // logged by sendEmail itself.
+      void (async () => {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: record.userId },
+            select: {
+              email: true,
+              name: true,
+              tenant: { select: { name: true } },
+            },
+          });
+          if (user?.tenant) {
+            await sendEmail(
+              buildWelcomeEmail({
+                to: user.email,
+                recipientName: user.name?.split(" ")[0] || "there",
+                tenantName: user.tenant.name,
+              }),
+            );
+          }
+        } catch (err) {
+          console.warn("[auth] welcome email failed (non-fatal):", err);
+        }
+      })();
 
       res.json({ success: true, data: { message: "Email verified. You can now log in." } });
     } catch (err) {

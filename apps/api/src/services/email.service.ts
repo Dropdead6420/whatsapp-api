@@ -179,3 +179,119 @@ export function buildVerifyEmailEmail(
     `,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Operational notification emails. All builders below take the recipient
+// + the structured data, return an EmailPayload. The caller decides
+// when to fire — usually a service or worker that detected the event.
+// ---------------------------------------------------------------------------
+
+const APP_URL = process.env.WEB_URL ?? "https://medscrub.in";
+
+function fmtCredits(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * Welcome email — fires AFTER email is verified, so the link in this
+ * one goes to the login / onboarding page, not back to verification.
+ */
+export function buildWelcomeEmail(opts: {
+  to: string;
+  recipientName: string;
+  tenantName: string;
+}): EmailPayload {
+  const { to, recipientName, tenantName } = opts;
+  return {
+    to,
+    subject: "Welcome to NexaFlow AI 👋",
+    text: `Hi ${recipientName},\n\nYour ${tenantName} workspace is live. Get started in three minutes:\n\n1. Connect WhatsApp Business: ${APP_URL}/whatsapp-settings\n2. Import contacts:           ${APP_URL}/contacts\n3. Create your first agent:   ${APP_URL}/ai-agents\n\nTrack your setup at ${APP_URL}/onboarding.\n\n— The NexaFlow team`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;max-width:560px">
+        <h2 style="margin:0 0 8px">Welcome, ${recipientName} 👋</h2>
+        <p>Your <strong>${tenantName}</strong> workspace is live. Three steps to your first automated conversation:</p>
+        <ol style="padding-left:20px">
+          <li style="margin-bottom:6px"><a href="${APP_URL}/whatsapp-settings" style="color:#059669">Connect WhatsApp Business</a></li>
+          <li style="margin-bottom:6px"><a href="${APP_URL}/contacts" style="color:#059669">Import your contacts</a></li>
+          <li><a href="${APP_URL}/ai-agents" style="color:#059669">Create your first AI agent</a></li>
+        </ol>
+        <p style="margin-top:24px"><a href="${APP_URL}/onboarding" style="display:inline-block;background:#059669;color:#ffffff;padding:10px 18px;border-radius:6px;text-decoration:none">Open setup checklist</a></p>
+        <p style="color:#6b7280;font-size:14px;margin-top:24px">Reply to this email if you need help — a human reads every reply.</p>
+      </div>
+    `,
+  };
+}
+
+/**
+ * Low-balance alert — fires when Wallet.balanceCredits drops below
+ * Wallet.lowBalanceThreshold. Sent at most once per 24 hours per wallet
+ * (the caller is responsible for the de-dupe; we don't want this code
+ * coupled to a "last alert sent at" column).
+ */
+export function buildLowBalanceEmail(opts: {
+  to: string;
+  recipientName: string;
+  tenantName: string;
+  balanceCredits: number;
+  threshold: number;
+  isEmpty: boolean;
+}): EmailPayload {
+  const { to, recipientName, tenantName, balanceCredits, threshold, isEmpty } =
+    opts;
+  const urgency = isEmpty
+    ? "Sending is blocked until you recharge"
+    : `You'll hit zero soon at the current send rate`;
+  return {
+    to,
+    subject: isEmpty
+      ? `[Action needed] ${tenantName} wallet is empty`
+      : `[Heads up] ${tenantName} wallet is low`,
+    text: `Hi ${recipientName},\n\n${tenantName} wallet balance is ${fmtCredits(balanceCredits)} credits (threshold ${fmtCredits(threshold)}).\n\n${urgency}.\n\nRecharge: ${APP_URL}/wallets\n\n— NexaFlow`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;max-width:560px">
+        <h2 style="margin:0 0 8px;color:${isEmpty ? "#b91c1c" : "#b45309"}">
+          ${isEmpty ? "Wallet is empty" : "Wallet running low"}
+        </h2>
+        <p>Hi ${recipientName},</p>
+        <p>
+          <strong>${tenantName}</strong> balance:
+          <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">${fmtCredits(balanceCredits)} credits</code>
+          (threshold ${fmtCredits(threshold)}).
+        </p>
+        <p>${urgency}.</p>
+        <p><a href="${APP_URL}/wallets" style="display:inline-block;background:#b45309;color:#ffffff;padding:10px 18px;border-radius:6px;text-decoration:none">Recharge wallet</a></p>
+      </div>
+    `,
+  };
+}
+
+/**
+ * Agent-disabled notification — fires when an AI agent that was
+ * answering inbound DMs gets disabled (either by an operator or by
+ * the platform after persistent LLM failures). Lets a sleeping admin
+ * know inbound traffic might be unattended.
+ */
+export function buildAgentDisabledEmail(opts: {
+  to: string;
+  recipientName: string;
+  tenantName: string;
+  agentName: string;
+  reason: string;
+}): EmailPayload {
+  const { to, recipientName, tenantName, agentName, reason } = opts;
+  return {
+    to,
+    subject: `[${tenantName}] AI agent "${agentName}" is disabled`,
+    text: `Hi ${recipientName},\n\nThe AI agent "${agentName}" is no longer answering inbound conversations.\n\nReason: ${reason}\n\nReview + re-enable: ${APP_URL}/ai-agents\n\n— NexaFlow`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827;max-width:560px">
+        <h2 style="margin:0 0 8px;color:#b45309">AI agent disabled</h2>
+        <p>Hi ${recipientName},</p>
+        <p>The AI agent <strong>${agentName}</strong> in <strong>${tenantName}</strong> is no longer answering inbound conversations.</p>
+        <p><strong>Reason:</strong> ${reason}</p>
+        <p>Customers messaging you will get the fallback behavior configured on the agent (escalate to human / send template / silent).</p>
+        <p><a href="${APP_URL}/ai-agents" style="display:inline-block;background:#b45309;color:#ffffff;padding:10px 18px;border-radius:6px;text-decoration:none">Review agents</a></p>
+      </div>
+    `,
+  };
+}
