@@ -23,6 +23,7 @@ import {
   listSubscribedLeadForms,
   previewAudienceSize,
   refreshMetaAudience,
+  runMetaCampaignOptimizer,
   saveMetaAdsConnection,
   subscribeLeadForm,
   unsubscribeLeadForm,
@@ -435,6 +436,33 @@ const ctwaSchema = z.object({
   ageMin: z.number().int().min(13).max(65).optional(),
   ageMax: z.number().int().min(18).max(65).optional(),
 });
+
+// ----------------------------------------------------------------------------
+// AI campaign optimizer (slice 5)
+// ----------------------------------------------------------------------------
+
+const optimizerSchema = z.object({
+  datePreset: z
+    .enum(["today", "yesterday", "last_7d", "last_28d", "this_month"])
+    .default("last_7d"),
+});
+
+router.post(
+  "/optimizer",
+  requirePermission(Permissions.META_ADS_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = optimizerSchema.parse(req.body ?? {});
+      const result = await runMetaCampaignOptimizer({
+        tenantId: req.tenantId!,
+        datePreset: body.datePreset,
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.post(
   "/click-to-whatsapp",

@@ -1223,3 +1223,176 @@ export async function createClickToWhatsAppDraft(
     throw err;
   }
 }
+
+// ----------------------------------------------------------------------------
+// AI campaign optimizer (PRD §3.3.6 final slice).
+//
+// Pulls the latest campaigns + insights from Meta, hands the structured
+// performance data to Claude, and returns a list of per-campaign findings
+// + an overall portfolio summary. The LLM is not allowed to invent metric
+// values — it only reasons over the numbers we give it.
+// ----------------------------------------------------------------------------
+
+export interface CampaignOptimizerFinding {
+  campaignId: string;
+  campaignName: string;
+  severity: "low" | "medium" | "high";
+  issue: string;
+  suggestion: string;
+  reasoning: string;
+}
+
+export interface CampaignOptimizerResult {
+  datePreset: string;
+  analyzedCampaignCount: number;
+  summary: string;
+  findings: CampaignOptimizerFinding[];
+  /** Generated at server time so the UI can timestamp the run. */
+  generatedAt: string;
+}
+
+export async function runMetaCampaignOptimizer(args: {
+  tenantId: string;
+  datePreset?: "today" | "yesterday" | "last_7d" | "last_28d" | "this_month";
+}): Promise<CampaignOptimizerResult> {
+  // Lazy import to avoid a circular service edge (ai.service may eventually
+  // depend on metaAds, e.g. for cross-channel autopilot suggestions).
+  const { runTenantLlmJson } = await import("./ai.service");
+
+  const datePreset = args.datePreset ?? "last_7d";
+  const [campaigns, insightsByCampaign] = await Promise.all([
+    listCampaigns({ tenantId: args.tenantId }),
+    getAccountInsightsByCampaign({
+      tenantId: args.tenantId,
+      datePreset,
+    }).catch((): Record<string, MetaCampaignInsights> => ({})),
+  ]);
+
+  if (campaigns.length === 0) {
+    return {
+      datePreset,
+      analyzedCampaignCount: 0,
+      summary: "No campaigns found in this ad account.",
+      findings: [],
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  // Trim to the fields the LLM actually needs, and skip campaigns with no
+  // insights (the model can't say anything useful about an unspent campaign).
+  type CampaignRow = {
+    id: string;
+    name: string;
+    status: string;
+    objective: string;
+    impressions: number;
+    clicks: number;
+    ctrPct: number;
+    cpc: number;
+    spend: number;
+    reach: number;
+  };
+  const rows: CampaignRow[] = [];
+  for (const c of campaigns) {
+    const ins = insightsByCampaign[c.id];
+    if (!ins) continue;
+    const impressions = Number(ins.impressions ?? 0);
+    const clicks = Number(ins.clicks ?? 0);
+    const spend = Number(ins.spend ?? 0);
+    const reach = Number(ins.reach ?? 0);
+    const ctr = Number(ins.ctr ?? 0);
+    const cpc = Number(ins.cpc ?? 0);
+    rows.push({
+      id: c.id,
+      name: c.name,
+      status: c.effective_status ?? c.status,
+      objective: c.objective ?? "UNKNOWN",
+      impressions,
+      clicks,
+      ctrPct: ctr,
+      cpc,
+      spend,
+      reach,
+    });
+  }
+
+  if (rows.length === 0) {
+    return {
+      datePreset,
+      analyzedCampaignCount: 0,
+      summary:
+        "Campaigns exist but none have spend in this window. Run them long enough to generate insights and try again.",
+      findings: [],
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  // Truncate to the top 20 by spend so the prompt stays bounded.
+  rows.sort((a, b) => b.spend - a.spend);
+  const analyzed = rows.slice(0, 20);
+
+  const prompt = [
+    "You are a senior performance marketing analyst. You analyze WhatsApp",
+    "engagement campaigns running on Meta and recommend concrete, low-risk",
+    "next actions.",
+    "",
+    `Date window: ${datePreset}`,
+    `Campaigns analyzed: ${analyzed.length}`,
+    "",
+    "Performance data (one row per campaign, JSON):",
+    JSON.stringify(analyzed, null, 2),
+    "",
+    "Rules:",
+    "- Do not invent metric numbers; only reason over the values above.",
+    "- Severity 'high' only for clear problems (e.g. high spend + zero clicks).",
+    "- Each suggestion must be specific (a budget change, a creative test,",
+    "  a targeting tweak) and reference the campaign by name.",
+    "- Limit findings to the 6 most actionable. If none, return an empty list.",
+    "- Keep each `issue` under 120 chars, each `suggestion` under 200 chars.",
+    "",
+    "Return strict JSON:",
+    "{",
+    '  "summary": "one paragraph overview of the portfolio",',
+    '  "findings": [',
+    '    {',
+    '      "campaignId": "<id from the data>",',
+    '      "campaignName": "<name from the data>",',
+    '      "severity": "low" | "medium" | "high",',
+    '      "issue": "...",',
+    '      "suggestion": "...",',
+    '      "reasoning": "one short sentence"',
+    '    }',
+    '  ]',
+    "}",
+  ].join("\n");
+
+  type LlmOut = {
+    summary: string;
+    findings: CampaignOptimizerFinding[];
+  };
+
+  const parsed = await runTenantLlmJson<LlmOut>({
+    tenantId: args.tenantId,
+    feature: "meta_ads_optimizer",
+    system:
+      "You are NexaFlow's Meta Ads optimizer. You return strict JSON, never invent metric values, and only recommend tactics with clear evidence in the data provided.",
+    prompt,
+    maxTokens: 1500,
+    temperature: 0.3,
+  });
+
+  const validIds = new Set(analyzed.map((r) => r.id));
+  const findings = (parsed.findings ?? [])
+    // Defensive: drop any findings that reference a campaign we didn't
+    // send (the LLM can occasionally fabricate ids when uncertain).
+    .filter((f) => f && validIds.has(f.campaignId))
+    .slice(0, 6);
+
+  return {
+    datePreset,
+    analyzedCampaignCount: analyzed.length,
+    summary: parsed.summary ?? "",
+    findings,
+    generatedAt: new Date().toISOString(),
+  };
+}

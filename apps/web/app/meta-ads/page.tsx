@@ -111,6 +111,23 @@ interface CtwaDraftResponse {
   adsManagerUrl: string;
 }
 
+interface OptimizerFinding {
+  campaignId: string;
+  campaignName: string;
+  severity: "low" | "medium" | "high";
+  issue: string;
+  suggestion: string;
+  reasoning: string;
+}
+
+interface OptimizerResult {
+  datePreset: string;
+  analyzedCampaignCount: number;
+  summary: string;
+  findings: OptimizerFinding[];
+  generatedAt: string;
+}
+
 const DATE_PRESETS = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -219,6 +236,31 @@ export default function MetaAdsPage() {
   const [ctwaSaving, setCtwaSaving] = useState(false);
   const [ctwaErr, setCtwaErr] = useState<string | null>(null);
   const [ctwaResult, setCtwaResult] = useState<CtwaDraftResponse | null>(null);
+
+  // AI optimizer (slice 5)
+  const [optimizerBusy, setOptimizerBusy] = useState(false);
+  const [optimizerErr, setOptimizerErr] = useState<string | null>(null);
+  const [optimizerResult, setOptimizerResult] = useState<OptimizerResult | null>(
+    null,
+  );
+
+  async function handleRunOptimizer() {
+    setOptimizerBusy(true);
+    setOptimizerErr(null);
+    try {
+      const data = await api.post<OptimizerResult>(
+        "/api/v1/meta-ads/optimizer",
+        { datePreset },
+      );
+      setOptimizerResult(data);
+    } catch (e) {
+      setOptimizerErr(
+        e instanceof ApiClientError ? e.message : "Failed to run optimizer.",
+      );
+    } finally {
+      setOptimizerBusy(false);
+    }
+  }
 
   async function loadConnection() {
     setConnBusy(true);
@@ -758,6 +800,117 @@ export default function MetaAdsPage() {
               Disconnect
             </button>
           </div>
+        </section>
+      )}
+
+      {/* AI optimizer panel (slice 5) — sits above the campaign table so
+          operators see findings in context with the raw numbers. */}
+      {conn && (
+        <section className="mb-4 rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                AI campaign optimizer
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-600">
+                Claude reviews your top-20-by-spend campaigns for the selected
+                date window and lists the most actionable changes. Cost is
+                charged to your tenant under the{" "}
+                <code className="font-mono">meta_ads_optimizer</code> AI
+                feature.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleRunOptimizer()}
+              disabled={optimizerBusy}
+              className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {optimizerBusy ? "Analyzing…" : "Run optimizer"}
+            </button>
+          </div>
+
+          {optimizerErr && (
+            <div className="m-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {optimizerErr}
+            </div>
+          )}
+
+          {!optimizerResult && !optimizerBusy && !optimizerErr && (
+            <div className="px-4 py-6 text-center text-xs text-slate-500">
+              Click <em>Run optimizer</em> to generate AI recommendations for
+              this date window.
+            </div>
+          )}
+
+          {optimizerResult && (
+            <div className="px-4 py-4 space-y-3">
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                <p>{optimizerResult.summary}</p>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  {optimizerResult.analyzedCampaignCount} campaigns analyzed ·{" "}
+                  {optimizerResult.datePreset} · generated{" "}
+                  {new Date(optimizerResult.generatedAt).toLocaleString(
+                    "en-IN",
+                    {
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    },
+                  )}
+                </p>
+              </div>
+
+              {optimizerResult.findings.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  No actionable findings — your campaigns look healthy for
+                  this window.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {optimizerResult.findings.map((f, idx) => (
+                    <li
+                      key={`${f.campaignId}-${idx}`}
+                      className={`rounded-md border px-3 py-2 ${
+                        f.severity === "high"
+                          ? "border-red-200 bg-red-50"
+                          : f.severity === "medium"
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-slate-200 bg-white"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <div className="text-sm font-semibold text-slate-900">
+                          {f.campaignName}
+                        </div>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            f.severity === "high"
+                              ? "bg-red-200 text-red-900"
+                              : f.severity === "medium"
+                                ? "bg-amber-200 text-amber-900"
+                                : "bg-slate-200 text-slate-700"
+                          }`}
+                        >
+                          {f.severity}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-700">
+                        <strong>Issue:</strong> {f.issue}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-700">
+                        <strong>Suggested action:</strong> {f.suggestion}
+                      </div>
+                      <div className="mt-1 text-[11px] italic text-slate-500">
+                        {f.reasoning}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </section>
       )}
 
@@ -1415,9 +1568,11 @@ export default function MetaAdsPage() {
       )}
 
       <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
-        <strong>Slice 4 shipped:</strong> Click-to-WhatsApp ad drafts. Meta
-        Ads suite is feature-complete per PRD §3.3.6 except for the AI
-        campaign optimizer + full Facebook OAuth flow.
+        <strong>Meta Ads suite feature-complete per PRD §3.3.6:</strong>{" "}
+        campaigns + insights, Lead Ads → CRM sync, custom audience export,
+        Click-to-WhatsApp drafts, and AI campaign optimizer all live. Still
+        ahead: the full Facebook OAuth consent flow so customers don&apos;t
+        paste long-lived tokens.
       </div>
     </DashboardShell>
   );
