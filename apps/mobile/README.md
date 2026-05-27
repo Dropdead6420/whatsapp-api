@@ -46,12 +46,22 @@ supported from the mobile app — sign up from the web dashboard first.
   `POST /api/v1/ai/reply-suggestions`; tap any suggestion to pre-fill
   the compose box.
 
-## What does not work yet (slice 3+)
+**Slice 3**
+- Real-time message arrival: when the conversation detail screen is
+  open, inbound messages from Meta + outbound messages from other
+  clients appear instantly via Socket.io (`/realtime` endpoint, JWT in
+  the `auth` payload, per-conversation room joined on mount).
+- Tap a lead row → detail screen with status chips, AI follow-up
+  drafting, save / send / dismiss actions. Uses the existing
+  `/leads/:id` + `/leads/:id/follow-up/*` endpoints (new
+  `GET /leads/:id` was added on the backend in the same slice).
+
+## What does not work yet (slice 4+)
 
 - Push notifications via Firebase Cloud Messaging
-- Real-time message arrival via Socket.io
 - Voice note recording + sending
-- Lead → status change / mark follow-up sent
+- Image / file attachments
+- Offline message queue (sends fail outright when offline)
 
 ## Project layout
 

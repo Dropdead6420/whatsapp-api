@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api, ApiClientError } from "../../src/lib/api";
 
 // Leads — kanban-by-status flattened into a single list. Slice 1 is
@@ -75,6 +75,7 @@ function flattenBoard(resp: Lead[] | LeadsBoardResp): Lead[] {
 }
 
 export default function LeadsScreen() {
+  const router = useRouter();
   const [items, setItems] = useState<Lead[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -147,6 +148,12 @@ export default function LeadsScreen() {
           const colors = STATUS_COLORS[item.status];
           return (
             <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/leads/[id]",
+                  params: { id: item.id },
+                })
+              }
               style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             >
               <View style={styles.rowTop}>

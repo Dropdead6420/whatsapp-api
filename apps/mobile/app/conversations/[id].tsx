@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { api, ApiClientError } from "../../src/lib/api";
+import { subscribe, useConversationRoom } from "../../src/lib/socket";
 
 // Conversation detail — message timeline + compose box + AI Reply.
 //
@@ -107,6 +108,36 @@ export default function ConversationDetailScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Join the per-conversation Socket.io room while this screen is mounted
+  // (slice 3). The server emits message:received for inbound webhook
+  // arrivals and message:sent for outbound sends from other clients (the
+  // web inbox, another phone, etc.). We append both — appendIfNew
+  // de-dupes against our optimistic appends.
+  useConversationRoom(conversationId || null);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    function appendIfNew(payload: {
+      conversationId?: string;
+      message?: MessageRow;
+    }) {
+      if (!payload?.message || payload.conversationId !== conversationId) return;
+      setConvo((prev) => {
+        if (!prev) return prev;
+        if (prev.messages.some((m) => m.id === payload.message!.id)) {
+          return prev;
+        }
+        return { ...prev, messages: [...prev.messages, payload.message!] };
+      });
+    }
+    const unsubInbound = subscribe("message:received", appendIfNew);
+    const unsubOutbound = subscribe("message:sent", appendIfNew);
+    return () => {
+      unsubInbound();
+      unsubOutbound();
+    };
+  }, [conversationId]);
 
   // Scroll to the newest message whenever the list changes. FlatList's
   // `inverted` would be cleaner but reverses gesture direction; this is

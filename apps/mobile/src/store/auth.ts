@@ -10,6 +10,7 @@ import {
   tokenStore,
   type AuthUser,
 } from "../lib/api";
+import { disconnectSocket } from "../lib/socket";
 
 interface AuthState {
   user: AuthUser | null;
@@ -63,6 +64,7 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   signOut: async () => {
+    disconnectSocket();
     await apiLogout();
     set({ user: null });
   },

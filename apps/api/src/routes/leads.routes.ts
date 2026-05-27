@@ -87,6 +87,37 @@ router.get("/", requirePermission(Permissions.CONTACT_READ), async (req: Request
   }
 });
 
+// GET /leads/:id — single lead with contact + assignee. AGENT role can
+// only read leads assigned to them; everyone else sees any tenant lead.
+router.get(
+  "/:id",
+  requirePermission(Permissions.CONTACT_READ),
+  async (req: RequestWithAuth, res, next) => {
+    try {
+      const lead = await prisma.lead.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+        include: {
+          contact: true,
+          assignee: { select: { id: true, name: true } },
+        },
+      });
+      if (!lead) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Lead not found.");
+      }
+      if (req.userRole === "AGENT" && lead.assigneeId !== req.userId) {
+        throw new ApiError(
+          ErrorCodes.FORBIDDEN,
+          403,
+          "This lead is assigned to another agent.",
+        );
+      }
+      res.json({ success: true, data: lead });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // POST /leads
 router.post("/", requirePermission(Permissions.LEAD_UPDATE), async (req: RequestWithAuth, res, next) => {
   try {

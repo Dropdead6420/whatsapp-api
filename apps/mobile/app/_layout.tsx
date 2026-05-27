@@ -53,6 +53,10 @@ export default function RootLayout() {
           name="conversations/[id]"
           options={{ presentation: "card" }}
         />
+        <Stack.Screen
+          name="leads/[id]"
+          options={{ presentation: "card" }}
+        />
       </Stack>
       <Slot />
     </SafeAreaProvider>
