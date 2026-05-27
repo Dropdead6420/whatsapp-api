@@ -1,6 +1,20 @@
-import { prisma, MetaAdsConnection } from "@nexaflow/db";
+import { Worker } from "bullmq";
+import {
+  prisma,
+  MetaAdsConnection,
+  MetaAdsLeadForm,
+  LeadStatus,
+  LifecycleStage,
+} from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import { decryptTokenIfNeeded, encryptToken } from "../lib/tokenCrypto";
+import {
+  getMetaLeadSyncQueue,
+  getQueueConnection,
+  QueueNames,
+  trackWorker,
+  type MetaLeadSyncJobData,
+} from "../lib/queue";
 
 // ----------------------------------------------------------------------------
 // Meta Marketing API client (PRD §3.3.6, Phase 4 slice 1).
@@ -330,4 +344,463 @@ export async function getAccountInsightsByCampaign(args: {
     }
   }
   return map;
+}
+
+// ----------------------------------------------------------------------------
+// Lead Ads → CRM auto-sync (PRD §3.3.6 slice 2).
+//
+// Flow:
+//   1. discoverLeadForms() lists every leadgen_form in the connected ad
+//      account so operators can pick which to subscribe to. We pull form
+//      id + name + owning page so the UI can disambiguate identically-
+//      named forms across multiple FB pages.
+//   2. subscribeLeadForm() upserts a MetaAdsLeadForm row.
+//   3. The scan worker hits every active form's /<form_id>/leads endpoint
+//      every few minutes, filtering on time_created > lastFetchedAt to
+//      avoid re-importing the same entries.
+//   4. importLead() maps the form's field_data to Contact fields and
+//      creates a Contact + Lead in NexaFlow.
+//
+// Failure handling is per-form: one broken form (expired permission,
+// deleted form) must not stop other forms in the same tenant. We persist
+// `lastFetchError` so operators can see why an individual form stopped
+// importing.
+// ----------------------------------------------------------------------------
+
+export interface MetaLeadForm {
+  id: string;
+  name?: string;
+  status?: string;
+  page?: { id: string; name?: string };
+  created_time?: string;
+}
+
+interface PagedListResponse<T> {
+  data: T[];
+  paging?: { cursors?: { before?: string; after?: string }; next?: string };
+}
+
+/**
+ * Discover every leadgen_form attached to the ad account's pages. Meta
+ * returns forms scoped to whichever pages the access token can read; we
+ * pass-through whatever it returns.
+ */
+export async function discoverLeadForms(
+  tenantId: string,
+): Promise<MetaLeadForm[]> {
+  const { token, adAccountId } = await getDecryptedToken(tenantId);
+
+  // Marketing API doesn't expose a single "all forms in this ad account"
+  // endpoint — leadgen_forms live on Pages. So we first enumerate the
+  // ad account's owned pages and then fan out one /<page>/leadgen_forms
+  // call per page. Bounded to the first 25 pages to keep the latency
+  // reasonable; most tenants have <5.
+  type PageRow = { id: string; name?: string };
+  const pagesResp = await callMeta<PagedListResponse<PageRow>>({
+    path: `/act_${adAccountId}/promote_pages`,
+    accessToken: token,
+    query: { fields: "id,name", limit: 25 },
+  });
+  const pages = pagesResp.data ?? [];
+
+  const collected: MetaLeadForm[] = [];
+  for (const page of pages) {
+    try {
+      const formsResp = await callMeta<PagedListResponse<MetaLeadForm>>({
+        path: `/${page.id}/leadgen_forms`,
+        accessToken: token,
+        query: { fields: "id,name,status,created_time", limit: 50 },
+      });
+      for (const f of formsResp.data ?? []) {
+        collected.push({
+          ...f,
+          page: { id: page.id, name: page.name },
+        });
+      }
+    } catch (err) {
+      // Skip pages the token can't read — common for shared agency setups
+      // where the page-token didn't get the leadgen permission.
+      console.warn(
+        `[meta-ads] discover skipping page ${page.id}:`,
+        (err as Error).message,
+      );
+    }
+  }
+  return collected;
+}
+
+export interface SubscribeLeadFormInput {
+  tenantId: string;
+  formId: string;
+  formName?: string;
+  pageId?: string;
+  pageName?: string;
+  importTag?: string;
+}
+
+export async function subscribeLeadForm(
+  input: SubscribeLeadFormInput,
+): Promise<MetaAdsLeadForm> {
+  // Sanity check — operator must already have a connection before they
+  // can subscribe to a form.
+  const conn = await getMetaAdsConnection(input.tenantId);
+  if (!conn) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "Connect a Meta Ads account before subscribing to lead forms.",
+    );
+  }
+  return prisma.metaAdsLeadForm.upsert({
+    where: {
+      tenantId_formId: {
+        tenantId: input.tenantId,
+        formId: input.formId,
+      },
+    },
+    create: {
+      tenantId: input.tenantId,
+      formId: input.formId,
+      formName: input.formName ?? null,
+      pageId: input.pageId ?? null,
+      pageName: input.pageName ?? null,
+      importTag: input.importTag?.trim() || null,
+      isActive: true,
+    },
+    update: {
+      formName: input.formName ?? null,
+      pageId: input.pageId ?? null,
+      pageName: input.pageName ?? null,
+      importTag: input.importTag?.trim() || null,
+      isActive: true,
+      lastFetchError: null,
+    },
+  });
+}
+
+export async function listSubscribedLeadForms(
+  tenantId: string,
+): Promise<MetaAdsLeadForm[]> {
+  return prisma.metaAdsLeadForm.findMany({
+    where: { tenantId },
+    orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+  });
+}
+
+export async function unsubscribeLeadForm(args: {
+  tenantId: string;
+  id: string;
+}): Promise<void> {
+  await prisma.metaAdsLeadForm.deleteMany({
+    where: { id: args.id, tenantId: args.tenantId },
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Lead → Contact mapping
+// ----------------------------------------------------------------------------
+
+interface MetaFieldDatum {
+  name: string;
+  values: string[];
+}
+
+interface MetaLead {
+  id: string;
+  created_time: string;
+  field_data: MetaFieldDatum[];
+}
+
+/**
+ * Best-effort mapper from Meta's free-form `name` field labels to our
+ * Contact columns. Meta's default fields use predictable names
+ * (full_name, phone_number, email, ...) but operators can rename them at
+ * form-build time, so we match on common patterns rather than exact equals.
+ */
+function extractContactFields(fields: MetaFieldDatum[]): {
+  name: string | null;
+  phoneNumber: string | null;
+  email: string | null;
+  raw: Record<string, string>;
+} {
+  const raw: Record<string, string> = {};
+  for (const f of fields) {
+    const value = (f.values?.[0] ?? "").trim();
+    if (value) raw[f.name] = value;
+  }
+  const lowerKeys = Object.keys(raw).reduce<Record<string, string>>(
+    (acc, k) => {
+      acc[k.toLowerCase()] = raw[k];
+      return acc;
+    },
+    {},
+  );
+
+  const findFirst = (...patterns: string[]): string | null => {
+    for (const key of Object.keys(lowerKeys)) {
+      if (patterns.some((p) => key.includes(p))) return lowerKeys[key];
+    }
+    return null;
+  };
+
+  const phoneNumber = findFirst("phone", "mobile", "whatsapp");
+  const email = findFirst("email");
+  const fullName =
+    findFirst("full_name", "full name", "name") ??
+    [findFirst("first_name", "first name"), findFirst("last_name", "last name")]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+  return {
+    name: fullName || null,
+    phoneNumber: phoneNumber || null,
+    email: email || null,
+    raw,
+  };
+}
+
+function normalizePhone(input: string): string | null {
+  const digits = input.replace(/[^\d+]/g, "");
+  if (digits.startsWith("+")) {
+    return /^\+\d{7,15}$/.test(digits) ? digits : null;
+  }
+  return /^\d{7,15}$/.test(digits) ? `+${digits}` : null;
+}
+
+async function importLead(args: {
+  tenantId: string;
+  form: MetaAdsLeadForm;
+  metaLead: MetaLead;
+}): Promise<"created" | "merged" | "skipped"> {
+  const extracted = extractContactFields(args.metaLead.field_data);
+  const normalizedPhone = extracted.phoneNumber
+    ? normalizePhone(extracted.phoneNumber)
+    : null;
+  // Without a phone we can't message the lead via WhatsApp later, so skip
+  // and let the operator see the form's importedCount stay flat. Slice 3
+  // can offer an email-only fallback if there's demand.
+  if (!normalizedPhone) return "skipped";
+
+  const importTag = args.form.importTag?.trim();
+  const tagsToAdd = importTag ? [importTag] : [];
+
+  // Upsert contact. If a contact with this phone exists in the tenant, we
+  // merge tags + refresh name/email rather than create a duplicate.
+  const existing = await prisma.contact.findUnique({
+    where: {
+      tenantId_phoneNumber: {
+        tenantId: args.tenantId,
+        phoneNumber: normalizedPhone,
+      },
+    },
+    select: { id: true, tags: true, name: true, email: true },
+  });
+
+  let contactId: string;
+  let outcome: "created" | "merged";
+  if (existing) {
+    const mergedTags = Array.from(
+      new Set([...(existing.tags ?? []), ...tagsToAdd]),
+    );
+    await prisma.contact.update({
+      where: { id: existing.id },
+      data: {
+        tags: mergedTags,
+        name: existing.name || extracted.name || existing.name,
+        email: existing.email || extracted.email,
+      },
+    });
+    contactId = existing.id;
+    outcome = "merged";
+  } else {
+    const created = await prisma.contact.create({
+      data: {
+        tenantId: args.tenantId,
+        phoneNumber: normalizedPhone,
+        name: extracted.name ?? "Meta Lead",
+        email: extracted.email ?? null,
+        tags: tagsToAdd,
+        lifecycleStage: LifecycleStage.LEAD,
+      },
+      select: { id: true },
+    });
+    contactId = created.id;
+    outcome = "created";
+  }
+
+  // Always create a Lead row pointing at this contact so the pipeline
+  // surfaces the new entry. Use the Meta lead id in the title so operators
+  // can correlate with the Meta UI.
+  await prisma.lead.create({
+    data: {
+      tenantId: args.tenantId,
+      contactId,
+      title: `Meta Lead Ad — ${args.form.formName ?? args.form.formId}`,
+      description: `Source: Meta Lead Ad form ${args.form.formId} (Meta lead id ${args.metaLead.id})`,
+      status: LeadStatus.NEW,
+    },
+  });
+
+  return outcome;
+}
+
+// ----------------------------------------------------------------------------
+// Polling worker
+// ----------------------------------------------------------------------------
+
+interface SyncResult {
+  fetched: number;
+  imported: number;
+  merged: number;
+  skipped: number;
+}
+
+async function syncOneForm(form: MetaAdsLeadForm): Promise<SyncResult> {
+  const { token } = await getDecryptedToken(form.tenantId);
+
+  // Meta's filtering operator wants a unix-second timestamp.
+  const since = form.lastFetchedAt
+    ? Math.floor(form.lastFetchedAt.getTime() / 1000)
+    : 0;
+
+  const result = await callMeta<PagedListResponse<MetaLead>>({
+    path: `/${form.formId}/leads`,
+    accessToken: token,
+    query: {
+      fields: "id,created_time,field_data",
+      limit: 50,
+      ...(since > 0 && {
+        filtering: JSON.stringify([
+          { field: "time_created", operator: "GREATER_THAN", value: since },
+        ]),
+      }),
+    },
+  });
+
+  const leads = result.data ?? [];
+  let imported = 0;
+  let merged = 0;
+  let skipped = 0;
+  for (const m of leads) {
+    try {
+      const outcome = await importLead({
+        tenantId: form.tenantId,
+        form,
+        metaLead: m,
+      });
+      if (outcome === "created") imported += 1;
+      else if (outcome === "merged") merged += 1;
+      else skipped += 1;
+    } catch (err) {
+      skipped += 1;
+      console.warn(
+        `[meta-leadsync] form=${form.formId} lead=${m.id} import failed:`,
+        (err as Error).message,
+      );
+    }
+  }
+
+  await prisma.metaAdsLeadForm.update({
+    where: { id: form.id },
+    data: {
+      lastFetchedAt: new Date(),
+      lastFetchError: null,
+      importedCount: { increment: imported + merged },
+    },
+  });
+
+  return { fetched: leads.length, imported, merged, skipped };
+}
+
+async function scanAllLeadForms(): Promise<{
+  forms: number;
+  imported: number;
+  merged: number;
+  skipped: number;
+  errored: number;
+}> {
+  const forms = await prisma.metaAdsLeadForm.findMany({
+    where: { isActive: true },
+    take: 200,
+  });
+  let imported = 0;
+  let merged = 0;
+  let skipped = 0;
+  let errored = 0;
+  for (const form of forms) {
+    try {
+      const result = await syncOneForm(form);
+      imported += result.imported;
+      merged += result.merged;
+      skipped += result.skipped;
+    } catch (err) {
+      errored += 1;
+      const message = (err as Error).message ?? "unknown";
+      await prisma.metaAdsLeadForm
+        .update({
+          where: { id: form.id },
+          data: { lastFetchError: message },
+        })
+        .catch(() => undefined);
+      console.warn(
+        `[meta-leadsync] form=${form.formId} skipped:`,
+        message,
+      );
+    }
+  }
+  return { forms: forms.length, imported, merged, skipped, errored };
+}
+
+const SCAN_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+const SCAN_JOB_NAME = "scan";
+
+let leadSyncWorker: Worker<MetaLeadSyncJobData> | null = null;
+
+export async function startMetaLeadSyncWorker(): Promise<void> {
+  if (leadSyncWorker) return;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    console.warn(
+      "[meta-leadsync] database unavailable; worker not started.",
+    );
+    return;
+  }
+  const q = getMetaLeadSyncQueue();
+  try {
+    await q.removeJobScheduler(SCAN_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SCAN_JOB_NAME,
+      { every: SCAN_INTERVAL_MS },
+      { name: SCAN_JOB_NAME, data: { kind: "scan" } },
+    );
+  } catch (err) {
+    console.warn(
+      "[meta-leadsync] could not register scan scheduler:",
+      (err as Error).message,
+    );
+    return;
+  }
+  leadSyncWorker = new Worker<MetaLeadSyncJobData>(
+    QueueNames.META_LEAD_SYNC,
+    async (job) => {
+      if (job.name !== SCAN_JOB_NAME) return { skipped: true };
+      return scanAllLeadForms();
+    },
+    { connection: getQueueConnection(), concurrency: 1 },
+  );
+  leadSyncWorker.on("failed", (job, err) => {
+    console.error(
+      `[meta-leadsync] job ${job?.id} (${job?.name}) failed:`,
+      err.message,
+    );
+  });
+  trackWorker(leadSyncWorker);
+}
+
+export function stopMetaLeadSyncWorker(): void {
+  if (!leadSyncWorker) return;
+  void leadSyncWorker.close();
+  leadSyncWorker = null;
 }

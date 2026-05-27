@@ -93,6 +93,10 @@ import {
   startLeadAutoScoreWorker,
   stopLeadAutoScoreWorker,
 } from "./services/leadAutoScore.service";
+import {
+  startMetaLeadSyncWorker,
+  stopMetaLeadSyncWorker,
+} from "./services/metaAds.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -288,6 +292,7 @@ async function startWorkers(): Promise<void> {
   await startAutoRechargeWorker();
   await startDripWorker();
   await startLeadAutoScoreWorker();
+  await startMetaLeadSyncWorker();
 }
 
 function stopWorkers(): void {
@@ -304,6 +309,7 @@ function stopWorkers(): void {
   stopAutoRechargeWorker();
   stopDripWorker();
   stopLeadAutoScoreWorker();
+  stopMetaLeadSyncWorker();
 }
 
 if (START_HTTP) {

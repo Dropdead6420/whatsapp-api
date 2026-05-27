@@ -174,6 +174,7 @@ model Tenant {
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
+  metaAdsLeadForms         MetaAdsLeadForm[]
   googleAdsConnection      GoogleAdsConnection?
 
   createdAt                DateTime         @default(now())
@@ -1625,6 +1626,40 @@ model MetaAdsConnection {
 // token lives in env vars (GOOGLE_ADS_DEVELOPER_TOKEN); slice 2 wires the
 // proper OAuth consent flow so end-customers don't paste refresh tokens.
 // ============================================================================
+
+// Per-tenant, per-form subscription to Meta Lead Ads. A form is a Meta
+// "leadgen_form" attached to one of the operator's ad sets. We poll Meta's
+// /<form_id>/leads endpoint every few minutes, page through entries newer
+// than `lastFetchedAt`, and create a Contact + Lead in NexaFlow.
+model MetaAdsLeadForm {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  formId         String    // Meta lead form id (numeric string)
+  formName       String?
+  // Meta page that owns the form. Captured for display; not used at fetch
+  // time since the form id is globally unique on Meta's side.
+  pageId         String?
+  pageName       String?
+
+  // Tag every imported Contact with this label so operators can segment
+  // "leads from Meta" quickly. Optional — empty disables tag injection.
+  importTag      String?
+
+  // Polling state.
+  isActive       Boolean   @default(true)
+  lastFetchedAt  DateTime?
+  lastFetchError String?
+  importedCount  Int       @default(0)
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([tenantId, formId])
+  @@index([tenantId, isActive])
+  @@index([isActive, lastFetchedAt])
+}
 
 model GoogleAdsConnection {
   id                  String   @id @default(cuid())
