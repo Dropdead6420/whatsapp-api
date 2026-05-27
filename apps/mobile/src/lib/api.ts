@@ -96,7 +96,10 @@ export const api = {
   get: <T>(path: string) => unwrap<T>(http.get(path)),
   post: <T>(path: string, body?: unknown) => unwrap<T>(http.post(path, body)),
   patch: <T>(path: string, body?: unknown) => unwrap<T>(http.patch(path, body)),
-  delete: <T>(path: string) => unwrap<T>(http.delete(path)),
+  // axios accepts a body on DELETE via the `data` config field — required
+  // for endpoints like /devices that take fcmToken in the body.
+  delete: <T>(path: string, body?: unknown) =>
+    unwrap<T>(http.delete(path, body !== undefined ? { data: body } : undefined)),
 };
 
 export interface AuthUser {
@@ -139,6 +142,15 @@ export async function fetchMe(): Promise<AuthUser | null> {
 }
 
 export async function logout(): Promise<void> {
+  // Best-effort unregister of this device's FCM token from the server so
+  // a logged-out user stops receiving push for this tenant. We don't
+  // block logout on it.
+  try {
+    const { unregisterThisDevice } = await import("./push");
+    await unregisterThisDevice();
+  } catch {
+    // ignore
+  }
   try {
     const refreshToken = await tokenStore.getRefresh();
     await api.post("/api/v1/auth/logout", { refreshToken });

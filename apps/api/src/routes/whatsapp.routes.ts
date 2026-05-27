@@ -27,6 +27,7 @@ import { assertCanAffordMessage, debitMessage } from "../services/billing.servic
 import { dispatchInboundMessageFlows } from "../services/flow/flowTrigger.service";
 import { resumeWaitingFlowRuns } from "../services/flow/flowWait.service";
 import { emitWebhookEvent } from "../services/webhook.service";
+import { sendToTenant as sendPushToTenant } from "../services/pushNotification.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   getWhatsAppConfig,
@@ -208,6 +209,23 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
 
           // Emit MESSAGE_RECEIVED to subscribed webhooks (fire-and-forget).
           void emitWebhookEvent(tenant.id, "MESSAGE_RECEIVED", realtimePayload);
+
+          // Fan-out push to every device registered to a user in this
+          // tenant. Body is truncated so the OS notification doesn't bloat
+          // and the inbox can show a snippet without exposing the whole
+          // message. Tap data deep-links to the conversation detail screen.
+          void sendPushToTenant(tenant.id, {
+            title: contact.name || contact.phoneNumber,
+            body: inboundBody.length > 140
+              ? `${inboundBody.slice(0, 140)}…`
+              : inboundBody,
+            data: {
+              type: "message",
+              conversationId: conversation.id,
+              contactId: contact.id,
+              messageId: inboundMessage.id,
+            },
+          });
 
           // Meta-compliance: respect STOP/UNSUBSCRIBE/CANCEL keywords instantly.
           // Per WhatsApp Business Policy, ignoring opt-outs is a quality-rating

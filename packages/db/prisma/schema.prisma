@@ -1415,6 +1415,40 @@ model DemoTenant {
 }
 
 // ============================================================================
+// PUSH NOTIFICATIONS — FCM device tokens
+// ============================================================================
+//
+// One row per (user, fcmToken). A user can have multiple devices (phone +
+// tablet + an old phone that's still receiving). We dedupe on the token,
+// not on the user, so re-registration from the same device is idempotent.
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+model UserDevice {
+  id           String         @id @default(cuid())
+  userId       String
+  // Denormalised so the push service can scope a fanout without joining
+  // through User. Updated on every refresh.
+  tenantId     String?
+  fcmToken     String         @unique
+  platform    DevicePlatform  @default(ANDROID)
+  // Human-readable label so operators recognise their devices in an
+  // eventual "Manage logged-in devices" page.
+  label       String?
+
+  lastSeenAt   DateTime       @default(now())
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([tenantId])
+}
+
+// ============================================================================
 // SUPPORT TICKETS
 // Customer-tenant raises a ticket → partner-tenant handles it. Replaces the
 // localStorage mock that lived under /partner/tickets.
