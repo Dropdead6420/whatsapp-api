@@ -100,6 +100,17 @@ interface AudienceSpecInput {
   hasEmail?: boolean;
 }
 
+interface MetaPage {
+  id: string;
+  name?: string;
+}
+
+interface CtwaDraftResponse {
+  campaignId: string;
+  adSetId: string;
+  adsManagerUrl: string;
+}
+
 const DATE_PRESETS = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -196,6 +207,18 @@ export default function MetaAdsPage() {
   const [audiencePreviewBusy, setAudiencePreviewBusy] = useState(false);
   const [audienceSaving, setAudienceSaving] = useState(false);
   const [audienceSaveErr, setAudienceSaveErr] = useState<string | null>(null);
+
+  // Click-to-WhatsApp drafts (slice 4)
+  const [ctwaPages, setCtwaPages] = useState<MetaPage[]>([]);
+  const [ctwaPagesBusy, setCtwaPagesBusy] = useState(false);
+  const [showCtwaForm, setShowCtwaForm] = useState(false);
+  const [ctwaPageId, setCtwaPageId] = useState("");
+  const [ctwaName, setCtwaName] = useState("");
+  const [ctwaDailyBudget, setCtwaDailyBudget] = useState("");
+  const [ctwaGeoCsv, setCtwaGeoCsv] = useState("IN");
+  const [ctwaSaving, setCtwaSaving] = useState(false);
+  const [ctwaErr, setCtwaErr] = useState<string | null>(null);
+  const [ctwaResult, setCtwaResult] = useState<CtwaDraftResponse | null>(null);
 
   async function loadConnection() {
     setConnBusy(true);
@@ -459,6 +482,60 @@ export default function MetaAdsPage() {
     else setAudiences([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn?.adAccountId]);
+
+  // Click-to-WhatsApp pages
+  async function loadCtwaPages() {
+    setCtwaPagesBusy(true);
+    setCtwaErr(null);
+    try {
+      const data = await api.get<MetaPage[]>("/api/v1/meta-ads/pages");
+      setCtwaPages(data);
+      if (data.length > 0 && !ctwaPageId) setCtwaPageId(data[0].id);
+    } catch (e) {
+      setCtwaErr(
+        e instanceof ApiClientError ? e.message : "Failed to load pages.",
+      );
+    } finally {
+      setCtwaPagesBusy(false);
+    }
+  }
+
+  async function handleCreateCtwa(e: FormEvent) {
+    e.preventDefault();
+    setCtwaSaving(true);
+    setCtwaErr(null);
+    setCtwaResult(null);
+    try {
+      const budget = Number(ctwaDailyBudget) * 100; // operator types whole units; backend wants minor units
+      if (!Number.isFinite(budget) || budget < 1) {
+        throw new Error("Daily budget must be a positive number.");
+      }
+      const geoCountries = ctwaGeoCsv
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => /^[A-Z]{2}$/.test(s));
+      const data = await api.post<CtwaDraftResponse>(
+        "/api/v1/meta-ads/click-to-whatsapp",
+        {
+          pageId: ctwaPageId,
+          campaignName: ctwaName.trim(),
+          dailyBudgetMinor: Math.floor(budget),
+          geoCountries: geoCountries.length > 0 ? geoCountries : undefined,
+        },
+      );
+      setCtwaResult(data);
+      setCtwaName("");
+      setCtwaDailyBudget("");
+    } catch (e) {
+      setCtwaErr(
+        e instanceof ApiClientError
+          ? e.message
+          : (e as Error).message ?? "Failed to create draft.",
+      );
+    } finally {
+      setCtwaSaving(false);
+    }
+  }
 
   async function handleDisconnect() {
     if (
@@ -1194,11 +1271,153 @@ export default function MetaAdsPage() {
         </section>
       )}
 
+      {/* Click-to-WhatsApp ad drafts (slice 4) */}
+      {conn && (
+        <section className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Click-to-WhatsApp ads
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-600">
+                Spin up a paused Campaign + ad set wired to a WhatsApp
+                destination. Open the result in Ads Manager to attach
+                creative + finalise targeting before going live.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCtwaForm((v) => !v);
+                setCtwaResult(null);
+                setCtwaErr(null);
+                if (!showCtwaForm && ctwaPages.length === 0) void loadCtwaPages();
+              }}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              {showCtwaForm ? "Cancel" : "+ New CTWA draft"}
+            </button>
+          </div>
+
+          {showCtwaForm && (
+            <form onSubmit={handleCreateCtwa} className="space-y-3 px-4 py-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Facebook Page
+                  <select
+                    required
+                    value={ctwaPageId}
+                    onChange={(e) => setCtwaPageId(e.target.value)}
+                    disabled={ctwaPagesBusy || ctwaPages.length === 0}
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                  >
+                    {ctwaPagesBusy && <option>Loading pages…</option>}
+                    {!ctwaPagesBusy && ctwaPages.length === 0 && (
+                      <option value="">No pages available</option>
+                    )}
+                    {ctwaPages.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name ?? p.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Campaign name
+                  <input
+                    required
+                    value={ctwaName}
+                    onChange={(e) => setCtwaName(e.target.value)}
+                    maxLength={200}
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                    placeholder="Salon launch — WhatsApp"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Daily budget ({conn.currency ?? "currency"})
+                  <input
+                    required
+                    type="number"
+                    min={1}
+                    step="1"
+                    value={ctwaDailyBudget}
+                    onChange={(e) => setCtwaDailyBudget(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                    placeholder="500"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Target countries (2-letter codes, comma-separated)
+                  <input
+                    value={ctwaGeoCsv}
+                    onChange={(e) => setCtwaGeoCsv(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm font-mono"
+                    placeholder="IN, AE"
+                  />
+                </label>
+              </div>
+
+              {ctwaErr && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {ctwaErr}
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={
+                    ctwaSaving ||
+                    !ctwaPageId ||
+                    !ctwaName.trim() ||
+                    !ctwaDailyBudget
+                  }
+                  className="rounded-md bg-emerald-600 px-5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {ctwaSaving ? "Creating on Meta…" : "Create paused draft"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {ctwaResult && (
+            <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-4">
+              <h3 className="text-sm font-semibold text-emerald-900">
+                Draft created in PAUSED state
+              </h3>
+              <p className="mt-1 text-xs text-emerald-800">
+                Campaign ID{" "}
+                <code className="font-mono">{ctwaResult.campaignId}</code> · Ad
+                set ID <code className="font-mono">{ctwaResult.adSetId}</code>.
+                Open Ads Manager to attach creative + review.
+              </p>
+              <a
+                href={ctwaResult.adsManagerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+              >
+                Open in Meta Ads Manager →
+              </a>
+            </div>
+          )}
+
+          {!showCtwaForm && !ctwaResult && (
+            <div className="px-4 py-8 text-center text-sm text-slate-500">
+              Click <em>+ New CTWA draft</em> to spin up a paused campaign
+              wired to WhatsApp.
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
-        <strong>Slice 3 shipped:</strong> custom audience export with SHA-256
-        phone hashing + auto-exclusion of opted-out contacts. Still ahead:
-        click-to-WhatsApp ad creation, AI campaign optimizer, full Facebook
-        OAuth flow.
+        <strong>Slice 4 shipped:</strong> Click-to-WhatsApp ad drafts. Meta
+        Ads suite is feature-complete per PRD §3.3.6 except for the AI
+        campaign optimizer + full Facebook OAuth flow.
       </div>
     </DashboardShell>
   );

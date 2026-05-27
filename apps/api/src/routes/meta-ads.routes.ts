@@ -9,6 +9,7 @@ import {
 import { requirePermission } from "../middleware/rbac";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
+  createClickToWhatsAppDraft,
   deleteMetaAdsConnection,
   deleteMetaAudienceLocal,
   discoverLeadForms,
@@ -18,6 +19,7 @@ import {
   getMetaAdsConnection,
   listCampaigns,
   listMetaAudiences,
+  listPromotablePages,
   listSubscribedLeadForms,
   previewAudienceSize,
   refreshMetaAudience,
@@ -399,6 +401,70 @@ router.delete(
         ...extractRequestMeta(req),
       });
       res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ----------------------------------------------------------------------------
+// Click-to-WhatsApp ad drafts (slice 4)
+// ----------------------------------------------------------------------------
+
+router.get(
+  "/pages",
+  requirePermission(Permissions.META_ADS_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const pages = await listPromotablePages(req.tenantId!);
+      res.json({ success: true, data: pages });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const ctwaSchema = z.object({
+  pageId: z.string().trim().min(1).max(64),
+  campaignName: z.string().trim().min(1).max(200),
+  dailyBudgetMinor: z.number().int().min(1).max(10_000_000_00), // 10M minor units
+  geoCountries: z
+    .array(z.string().trim().regex(/^[A-Z]{2}$/))
+    .max(60)
+    .optional(),
+  ageMin: z.number().int().min(13).max(65).optional(),
+  ageMax: z.number().int().min(18).max(65).optional(),
+});
+
+router.post(
+  "/click-to-whatsapp",
+  requirePermission(Permissions.META_ADS_MANAGE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = ctwaSchema.parse(req.body);
+      const draft = await createClickToWhatsAppDraft({
+        tenantId: req.tenantId!,
+        pageId: body.pageId,
+        campaignName: body.campaignName,
+        dailyBudgetMinor: body.dailyBudgetMinor,
+        geoCountries: body.geoCountries,
+        ageMin: body.ageMin,
+        ageMax: body.ageMax,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "MetaAdsClickToWhatsAppDraft",
+        resourceId: draft.campaignId,
+        newValues: {
+          adSetId: draft.adSetId,
+          campaignName: body.campaignName,
+          pageId: body.pageId,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.status(201).json({ success: true, data: draft });
     } catch (err) {
       next(err);
     }

@@ -1086,3 +1086,140 @@ export async function previewAudienceSize(args: {
 }
 
 export { type SegmentFilterSpec as MetaAudienceFilterSpec };
+
+// ----------------------------------------------------------------------------
+// Click-to-WhatsApp ad creation (PRD §3.3.6 click-to-WhatsApp slice).
+//
+// Slice 4 ships a *draft* creator: we spin up a PAUSED Campaign + PAUSED AdSet
+// on Meta's side configured for the WHATSAPP destination, then hand the
+// operator a deep link into Ads Manager so they can finish creative upload,
+// targeting refinements, and review submission inside Meta's UI.
+//
+// Doing the creative step from NexaFlow requires hosted image upload via
+// /adimages and is the most error-prone Meta surface — keeping it out of
+// slice 4 means the green path is robust.
+// ----------------------------------------------------------------------------
+
+export interface MetaPageSummary {
+  id: string;
+  name?: string;
+}
+
+/**
+ * The pages the connected ad account can promote. Reused by lead-forms
+ * discovery + CTWA creation.
+ */
+export async function listPromotablePages(
+  tenantId: string,
+): Promise<MetaPageSummary[]> {
+  const { token, adAccountId } = await getDecryptedToken(tenantId);
+  type PageRow = { id: string; name?: string };
+  const resp = await callMeta<PagedListResponse<PageRow>>({
+    path: `/act_${adAccountId}/promote_pages`,
+    accessToken: token,
+    query: { fields: "id,name", limit: 50 },
+  });
+  return (resp.data ?? []).map((p) => ({ id: p.id, name: p.name }));
+}
+
+export interface ClickToWhatsAppDraft {
+  campaignId: string;
+  adSetId: string;
+  // Deep link operators paste into a new tab. Meta resolves it to the
+  // campaign overview inside Ads Manager so they can attach creative.
+  adsManagerUrl: string;
+}
+
+export interface ClickToWhatsAppInput {
+  tenantId: string;
+  pageId: string;
+  campaignName: string;
+  /**
+   * Daily budget in the ad account's currency, in the smallest unit
+   * (paise for INR, cents for USD). Meta wants this as an integer.
+   */
+  dailyBudgetMinor: number;
+  /** ISO 3166-1 alpha-2 country codes to target. Defaults to ["IN"]. */
+  geoCountries?: string[];
+  /** Age band. Defaults to 18-65. */
+  ageMin?: number;
+  ageMax?: number;
+}
+
+export async function createClickToWhatsAppDraft(
+  input: ClickToWhatsAppInput,
+): Promise<ClickToWhatsAppDraft> {
+  const { token, adAccountId } = await getDecryptedToken(input.tenantId);
+  const geo =
+    input.geoCountries && input.geoCountries.length > 0
+      ? input.geoCountries
+      : ["IN"];
+  const ageMin = input.ageMin ?? 18;
+  const ageMax = input.ageMax ?? 65;
+  const name = input.campaignName.trim();
+  if (!name) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "Campaign name is required.",
+    );
+  }
+
+  // 1. Campaign — paused, engagement objective. special_ad_categories must
+  //    be an empty array explicitly; Meta rejects omitted versions of this
+  //    field with a confusing 100 error.
+  type CampaignResp = { id: string };
+  const campaign = await callMeta<CampaignResp>({
+    method: "POST",
+    path: `/act_${adAccountId}/campaigns`,
+    accessToken: token,
+    query: {
+      name,
+      objective: "OUTCOME_ENGAGEMENT",
+      status: "PAUSED",
+      special_ad_categories: JSON.stringify([]),
+    },
+  });
+
+  // 2. Ad set — WHATSAPP destination + CONVERSATIONS optimization. The
+  //    promoted_object names the page that owns the WhatsApp number ads
+  //    will route into.
+  type AdSetResp = { id: string };
+  try {
+    const adSet = await callMeta<AdSetResp>({
+      method: "POST",
+      path: `/act_${adAccountId}/adsets`,
+      accessToken: token,
+      query: {
+        name: `${name} — ad set`,
+        campaign_id: campaign.id,
+        status: "PAUSED",
+        destination_type: "WHATSAPP",
+        optimization_goal: "CONVERSATIONS",
+        billing_event: "IMPRESSIONS",
+        daily_budget: input.dailyBudgetMinor,
+        targeting: JSON.stringify({
+          geo_locations: { countries: geo },
+          age_min: ageMin,
+          age_max: ageMax,
+        }),
+        promoted_object: JSON.stringify({ page_id: input.pageId }),
+      },
+    });
+
+    return {
+      campaignId: campaign.id,
+      adSetId: adSet.id,
+      adsManagerUrl: `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccountId}&selected_campaign_ids=${encodeURIComponent(campaign.id)}`,
+    };
+  } catch (err) {
+    // If the ad set creation fails, the orphan campaign is a minor mess.
+    // Best-effort delete; ignore failures so the original error surfaces.
+    await callMeta<unknown>({
+      method: "DELETE",
+      path: `/${campaign.id}`,
+      accessToken: token,
+    }).catch(() => undefined);
+    throw err;
+  }
+}
