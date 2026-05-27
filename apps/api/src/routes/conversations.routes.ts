@@ -209,6 +209,129 @@ router.get(
 );
 
 // ----------------------------------------------------------------------------
+// POST /conversations/:id/messages — send a reply via WhatsApp from inside an
+// existing conversation. Mirrors /whatsapp/send-text but uses the
+// conversation's contact (so the mobile app can post just `{body}`) and is
+// gated by CONVERSATION_REPLY so the AGENT role can actually use it from
+// their phone. The realtime + webhook emission stays consistent with the
+// existing send paths.
+// ----------------------------------------------------------------------------
+
+const replyTextSchema = z.object({ body: z.string().min(1).max(4096) });
+
+router.post(
+  "/:id/messages",
+  requirePermission(Permissions.CONVERSATION_REPLY),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const { body } = replyTextSchema.parse(req.body);
+
+      const convo = await prisma.conversation.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+        include: {
+          contact: {
+            select: { id: true, phoneNumber: true, optedOut: true },
+          },
+        },
+      });
+      if (!convo) {
+        throw new ApiError(
+          ErrorCodes.NOT_FOUND,
+          404,
+          "Conversation not found.",
+        );
+      }
+      if (convo.contact.optedOut) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "Contact has opted out; cannot reply.",
+        );
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId! },
+      });
+      if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "WhatsApp Business API is not configured for this tenant.",
+        );
+      }
+      const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+      if (!accessToken) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "WhatsApp access token failed to decrypt.",
+        );
+      }
+
+      // Gate checks before we mutate Meta state.
+      await assertCanAffordMessage(req.tenantId!);
+      await assertCanSend(req.tenantId!, {
+        phoneNumberId: tenant.wabaPhoneNumber,
+      });
+
+      const metaMessageId = await sendWhatsAppText({
+        tenantId: req.tenantId!,
+        phoneNumberId: tenant.wabaPhoneNumber,
+        accessToken,
+        to: convo.contact.phoneNumber.replace(/^\+/, ""),
+        body,
+      });
+      await recordSend(req.tenantId!, {
+        phoneNumberId: tenant.wabaPhoneNumber,
+      });
+      await debitMessage(req.tenantId!, metaMessageId, {
+        actorUserId: req.userId,
+        reason: `Conversation reply ${convo.id}`,
+      });
+
+      const message = await prisma.message.create({
+        data: {
+          conversationId: convo.id,
+          direction: MessageDirection.OUTBOUND,
+          status: MessageStatus.SENT,
+          content: body,
+          metaMessageId,
+        },
+      });
+      await prisma.conversation.update({
+        where: { id: convo.id },
+        data: { lastMessageAt: message.createdAt, isActive: true },
+      });
+
+      // Best-effort realtime broadcast so other open clients (web + future
+      // socket-connected mobile) see the message appear instantly.
+      try {
+        emitToConversation(req.tenantId!, convo.id, "message:sent", {
+          conversationId: convo.id,
+          message,
+        });
+      } catch {
+        // Realtime is best-effort; the message is already persisted.
+      }
+
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "Message",
+        resourceId: message.id,
+        newValues: { conversationId: convo.id, metaMessageId },
+        ...extractRequestMeta(req),
+      });
+
+      res.status(201).json({ success: true, data: message });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ----------------------------------------------------------------------------
 // Internal notes (sub-resource of conversation)
 // ----------------------------------------------------------------------------
 

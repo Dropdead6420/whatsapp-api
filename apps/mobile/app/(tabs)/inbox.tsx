@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api, ApiClientError } from "../../src/lib/api";
 
 // Inbox — list of WhatsApp conversations, freshest first. Slice 1 is
@@ -44,6 +44,7 @@ function formatRelative(iso: string | null): string {
 }
 
 export default function InboxScreen() {
+  const router = useRouter();
   const [items, setItems] = useState<Conversation[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -113,7 +114,15 @@ export default function InboxScreen() {
           />
         }
         renderItem={({ item }) => (
-          <Pressable style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: "/conversations/[id]",
+                params: { id: item.id },
+              })
+            }
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+          >
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
                 {item.contact.name.charAt(0).toUpperCase() || "?"}

@@ -25,8 +25,9 @@ EXPO_PUBLIC_API_URL="http://localhost:3001" npm run ios       # iOS
 Use your existing NexaFlow web credentials. Account creation is not
 supported from the mobile app — sign up from the web dashboard first.
 
-## What works in slice 1
+## What works
 
+**Slice 1**
 - Auth — token storage via `AsyncStorage`, validated against
   `GET /api/v1/auth/me` on cold start so signed-in users skip the login
   screen.
@@ -36,12 +37,19 @@ supported from the mobile app — sign up from the web dashboard first.
   leads first, with status pill + value + follow-up state.
 - Settings tab — shows current user + API URL, sign-out button.
 
-## What does not work yet (slice 2+)
+**Slice 2**
+- Tap a conversation row → detail screen with message timeline.
+- Compose box sends via `POST /api/v1/conversations/:id/messages`
+  (new conversation-scoped endpoint; gated by CONVERSATION_REPLY so
+  agents can use it from the phone).
+- "AI" button drafts up to 3 reply suggestions via
+  `POST /api/v1/ai/reply-suggestions`; tap any suggestion to pre-fill
+  the compose box.
 
-- Tap a conversation → detail view with message history
-- Compose / send a reply
-- AI Reply button (calls `/api/v1/ai/reply-suggestions`)
+## What does not work yet (slice 3+)
+
 - Push notifications via Firebase Cloud Messaging
+- Real-time message arrival via Socket.io
 - Voice note recording + sending
 - Lead → status change / mark follow-up sent
 
