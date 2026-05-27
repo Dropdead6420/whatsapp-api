@@ -10,12 +10,17 @@ import { requirePermission } from "../middleware/rbac";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   deleteMetaAdsConnection,
+  deleteMetaAudienceLocal,
   discoverLeadForms,
+  exportMetaAudience,
   getAccountInsightsByCampaign,
   getCampaignInsights,
   getMetaAdsConnection,
   listCampaigns,
+  listMetaAudiences,
   listSubscribedLeadForms,
+  previewAudienceSize,
+  refreshMetaAudience,
   saveMetaAdsConnection,
   subscribeLeadForm,
   unsubscribeLeadForm,
@@ -258,6 +263,138 @@ router.delete(
         userId: req.userId!,
         action: "DELETE",
         resource: "MetaAdsLeadForm",
+        resourceId: req.params.id,
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ----------------------------------------------------------------------------
+// Custom audiences — retargeting export (slice 3)
+// ----------------------------------------------------------------------------
+
+const audienceSpecSchema = z.object({
+  tagsAny: z.array(z.string().max(80)).max(40).optional(),
+  tagsAll: z.array(z.string().max(80)).max(40).optional(),
+  inactiveSinceDays: z.number().int().positive().max(3650).optional(),
+  interactedWithinDays: z.number().int().positive().max(3650).optional(),
+  aiScoreGte: z.number().min(0).max(1).optional(),
+  aiScoreLte: z.number().min(0).max(1).optional(),
+  hasEmail: z.boolean().optional(),
+  // optedOut is intentionally rejected — service always forces false.
+});
+
+router.get(
+  "/audiences",
+  requirePermission(Permissions.META_ADS_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const data = await listMetaAudiences(req.tenantId!);
+      res.json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/audiences/preview",
+  requirePermission(Permissions.META_ADS_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const spec = audienceSpecSchema.parse(req.body ?? {});
+      const preview = await previewAudienceSize({
+        tenantId: req.tenantId!,
+        spec,
+      });
+      res.json({ success: true, data: preview });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const exportAudienceSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(800).optional(),
+  spec: audienceSpecSchema.default({}),
+});
+
+router.post(
+  "/audiences",
+  requirePermission(Permissions.META_ADS_MANAGE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = exportAudienceSchema.parse(req.body);
+      const audience = await exportMetaAudience({
+        tenantId: req.tenantId!,
+        name: body.name,
+        description: body.description,
+        spec: body.spec,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "MetaAdsAudience",
+        resourceId: audience.id,
+        newValues: {
+          name: audience.name,
+          uploadedCount: audience.uploadedCount,
+          metaAudienceId: audience.metaAudienceId,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.status(201).json({ success: true, data: audience });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/audiences/:id/refresh",
+  requirePermission(Permissions.META_ADS_MANAGE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const audience = await refreshMetaAudience({
+        tenantId: req.tenantId!,
+        audienceRowId: req.params.id,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "MetaAdsAudience",
+        resourceId: audience.id,
+        newValues: { uploadedCount: audience.uploadedCount },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: audience });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.delete(
+  "/audiences/:id",
+  requirePermission(Permissions.META_ADS_MANAGE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      await deleteMetaAudienceLocal({
+        tenantId: req.tenantId!,
+        audienceRowId: req.params.id,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "DELETE",
+        resource: "MetaAdsAudience",
         resourceId: req.params.id,
         ...extractRequestMeta(req),
       });

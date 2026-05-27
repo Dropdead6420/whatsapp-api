@@ -1,8 +1,11 @@
 import { Worker } from "bullmq";
+import { createHash } from "node:crypto";
 import {
   prisma,
   MetaAdsConnection,
   MetaAdsLeadForm,
+  MetaAdsAudience,
+  MetaAudienceStatus,
   LeadStatus,
   LifecycleStage,
 } from "@nexaflow/db";
@@ -15,6 +18,7 @@ import {
   trackWorker,
   type MetaLeadSyncJobData,
 } from "../lib/queue";
+import { specToWhere, type SegmentFilterSpec } from "./segment.service";
 
 // ----------------------------------------------------------------------------
 // Meta Marketing API client (PRD §3.3.6, Phase 4 slice 1).
@@ -804,3 +808,281 @@ export function stopMetaLeadSyncWorker(): void {
   void leadSyncWorker.close();
   leadSyncWorker = null;
 }
+
+// ----------------------------------------------------------------------------
+// Custom audience export (PRD §3.3.6 retargeting).
+//
+// Flow:
+//   1. Operator picks a contact filter (tags / opt-out / score / etc.) and
+//      a friendly name. We POST /act_<id>/customaudiences with
+//      customer_file_source=USER_PROVIDED_ONLY to register the audience.
+//   2. We resolve the filter to a contact list, hash each phone number
+//      using SHA-256(lowercase E.164 digits-only), and POST /<aud_id>/users
+//      in batches with schema=["PHONE"].
+//   3. Meta does the match server-side over the next 24-72h. We don't have
+//      visibility into how many matched — we record uploadedCount so the
+//      operator sees how many rows we sent.
+//
+// Refresh is the same flow without the create step: we re-resolve the
+// filter (in case the contact pool grew) and upload again. Meta dedupes
+// on its side so re-uploading is safe.
+// ----------------------------------------------------------------------------
+
+function parseFilterSpec(json: unknown): SegmentFilterSpec {
+  if (typeof json === "string") {
+    try {
+      return JSON.parse(json) as SegmentFilterSpec;
+    } catch {
+      return {};
+    }
+  }
+  return (json ?? {}) as SegmentFilterSpec;
+}
+
+/**
+ * Hash a phone number per Meta's Customer File Schema:
+ *   - strip everything except digits (drop the leading +)
+ *   - SHA-256 hex, lowercased
+ * Meta expects E.164 without the plus, so a raw "9876543210" is also valid;
+ * if the input has a country code that's preserved.
+ */
+function hashPhoneForMeta(phoneNumber: string): string | null {
+  const digits = phoneNumber.replace(/\D/g, "");
+  if (!digits) return null;
+  return createHash("sha256").update(digits).digest("hex").toLowerCase();
+}
+
+/**
+ * Resolve a SegmentFilterSpec into a deduped list of E.164 phone hashes
+ * suitable for /users payload. We always exclude opted-out contacts
+ * regardless of the spec — exporting an opted-out customer to a Meta
+ * audience would be a compliance violation.
+ */
+async function resolveContactHashes(
+  tenantId: string,
+  spec: SegmentFilterSpec,
+): Promise<{ totalContacts: number; hashes: string[] }> {
+  const where = specToWhere(tenantId, spec) as Record<string, unknown>;
+  where.optedOut = false; // hard-enforce, even if spec said otherwise.
+  const contacts = await prisma.contact.findMany({
+    where,
+    select: { phoneNumber: true },
+    take: 50_000, // safety cap — typical audience sizes are well under this.
+  });
+  const seen = new Set<string>();
+  const hashes: string[] = [];
+  for (const c of contacts) {
+    const h = hashPhoneForMeta(c.phoneNumber);
+    if (h && !seen.has(h)) {
+      seen.add(h);
+      hashes.push(h);
+    }
+  }
+  return { totalContacts: contacts.length, hashes };
+}
+
+async function createMetaAudienceRow(args: {
+  tenantId: string;
+  name: string;
+  description?: string;
+  spec: SegmentFilterSpec;
+}): Promise<MetaAdsAudience> {
+  return prisma.metaAdsAudience.create({
+    data: {
+      tenantId: args.tenantId,
+      name: args.name,
+      description: args.description ?? null,
+      filterSpec: args.spec as unknown as object,
+      status: MetaAudienceStatus.CREATING,
+    },
+  });
+}
+
+/**
+ * Create the audience on Meta's side AND upload the contact hashes. Run
+ * synchronously so the route returns a fully-uploaded audience; for very
+ * large segments we'd want to queue this, but the 50k cap keeps the
+ * runtime predictable in the seconds, not minutes.
+ */
+export async function exportMetaAudience(args: {
+  tenantId: string;
+  name: string;
+  description?: string;
+  spec: SegmentFilterSpec;
+}): Promise<MetaAdsAudience> {
+  const { token, adAccountId } = await getDecryptedToken(args.tenantId);
+  const row = await createMetaAudienceRow({
+    tenantId: args.tenantId,
+    name: args.name.trim(),
+    description: args.description?.trim(),
+    spec: args.spec,
+  });
+
+  try {
+    // 1. Create the audience on Meta.
+    type CreateAudienceResp = { id: string };
+    const created = await callMeta<CreateAudienceResp>({
+      method: "POST",
+      path: `/act_${adAccountId}/customaudiences`,
+      accessToken: token,
+      query: {
+        name: row.name,
+        description: row.description ?? "",
+        subtype: "CUSTOM",
+        customer_file_source: "USER_PROVIDED_ONLY",
+      },
+    });
+
+    // 2. Resolve the contact list + upload in batches of 10k.
+    const { totalContacts, hashes } = await resolveContactHashes(
+      args.tenantId,
+      args.spec,
+    );
+    let uploaded = 0;
+    for (let i = 0; i < hashes.length; i += 10_000) {
+      const batch = hashes.slice(i, i + 10_000);
+      await callMeta<unknown>({
+        method: "POST",
+        path: `/${created.id}/users`,
+        accessToken: token,
+        query: {
+          payload: JSON.stringify({
+            schema: ["PHONE"],
+            data: batch.map((h) => [h]),
+          }),
+        },
+      });
+      uploaded += batch.length;
+    }
+
+    return prisma.metaAdsAudience.update({
+      where: { id: row.id },
+      data: {
+        metaAudienceId: created.id,
+        status: MetaAudienceStatus.READY,
+        contactCount: totalContacts,
+        uploadedCount: uploaded,
+        lastSyncedAt: new Date(),
+        lastSyncError: null,
+      },
+    });
+  } catch (err) {
+    const message = (err as Error).message ?? "Audience export failed.";
+    await prisma.metaAdsAudience.update({
+      where: { id: row.id },
+      data: { status: MetaAudienceStatus.FAILED, lastSyncError: message },
+    });
+    throw err;
+  }
+}
+
+/**
+ * Re-resolve the audience's filter spec and re-upload the contact list.
+ * Meta dedupes on its side, so this is safe to call repeatedly.
+ */
+export async function refreshMetaAudience(args: {
+  tenantId: string;
+  audienceRowId: string;
+}): Promise<MetaAdsAudience> {
+  const row = await prisma.metaAdsAudience.findFirst({
+    where: { id: args.audienceRowId, tenantId: args.tenantId },
+  });
+  if (!row) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Audience not found.");
+  }
+  if (!row.metaAudienceId) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "Audience was never created on Meta; delete and recreate it.",
+    );
+  }
+
+  const { token } = await getDecryptedToken(args.tenantId);
+  await prisma.metaAdsAudience.update({
+    where: { id: row.id },
+    data: { status: MetaAudienceStatus.REFRESHING, lastSyncError: null },
+  });
+
+  try {
+    const spec = parseFilterSpec(row.filterSpec);
+    const { totalContacts, hashes } = await resolveContactHashes(
+      args.tenantId,
+      spec,
+    );
+    let uploaded = 0;
+    for (let i = 0; i < hashes.length; i += 10_000) {
+      const batch = hashes.slice(i, i + 10_000);
+      await callMeta<unknown>({
+        method: "POST",
+        path: `/${row.metaAudienceId}/users`,
+        accessToken: token,
+        query: {
+          payload: JSON.stringify({
+            schema: ["PHONE"],
+            data: batch.map((h) => [h]),
+          }),
+        },
+      });
+      uploaded += batch.length;
+    }
+    return prisma.metaAdsAudience.update({
+      where: { id: row.id },
+      data: {
+        status: MetaAudienceStatus.READY,
+        contactCount: totalContacts,
+        uploadedCount: uploaded,
+        lastSyncedAt: new Date(),
+        lastSyncError: null,
+      },
+    });
+  } catch (err) {
+    const message = (err as Error).message ?? "Audience refresh failed.";
+    await prisma.metaAdsAudience.update({
+      where: { id: row.id },
+      data: { status: MetaAudienceStatus.FAILED, lastSyncError: message },
+    });
+    throw err;
+  }
+}
+
+export async function listMetaAudiences(
+  tenantId: string,
+): Promise<MetaAdsAudience[]> {
+  return prisma.metaAdsAudience.findMany({
+    where: { tenantId },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
+/**
+ * Delete the audience locally. Meta keeps its own copy (deleting a custom
+ * audience there is destructive and operators usually want to keep the
+ * audience for retargeting in Ads Manager) — slice 3 can add a "delete
+ * on Meta side too" toggle.
+ */
+export async function deleteMetaAudienceLocal(args: {
+  tenantId: string;
+  audienceRowId: string;
+}): Promise<void> {
+  await prisma.metaAdsAudience.deleteMany({
+    where: { id: args.audienceRowId, tenantId: args.tenantId },
+  });
+}
+
+/**
+ * Preview helper used by the UI before creating an audience — returns how
+ * many contacts would land in the audience for a given spec.
+ */
+export async function previewAudienceSize(args: {
+  tenantId: string;
+  spec: SegmentFilterSpec;
+}): Promise<{ contactCount: number; hashableCount: number }> {
+  const { totalContacts, hashes } = await resolveContactHashes(
+    args.tenantId,
+    args.spec,
+  );
+  return { contactCount: totalContacts, hashableCount: hashes.length };
+}
+
+export { type SegmentFilterSpec as MetaAudienceFilterSpec };

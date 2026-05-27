@@ -73,6 +73,33 @@ interface DiscoveredLeadForm {
   page?: { id: string; name?: string };
 }
 
+type AudienceStatus = "CREATING" | "READY" | "REFRESHING" | "FAILED";
+
+interface MetaAudience {
+  id: string;
+  metaAudienceId: string | null;
+  name: string;
+  description: string | null;
+  status: AudienceStatus;
+  contactCount: number;
+  uploadedCount: number;
+  lastSyncedAt: string | null;
+  lastSyncError: string | null;
+  filterSpec: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AudienceSpecInput {
+  tagsAny?: string[];
+  tagsAll?: string[];
+  inactiveSinceDays?: number;
+  interactedWithinDays?: number;
+  aiScoreGte?: number;
+  aiScoreLte?: number;
+  hasEmail?: boolean;
+}
+
 const DATE_PRESETS = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -152,6 +179,23 @@ export default function MetaAdsPage() {
   const [discoverBusy, setDiscoverBusy] = useState(false);
   const [discoverErr, setDiscoverErr] = useState<string | null>(null);
   const [pendingImportTag, setPendingImportTag] = useState("meta-lead");
+
+  // Audiences (slice 3)
+  const [audiences, setAudiences] = useState<MetaAudience[]>([]);
+  const [audiencesBusy, setAudiencesBusy] = useState(false);
+  const [audiencesErr, setAudiencesErr] = useState<string | null>(null);
+  const [showAudienceForm, setShowAudienceForm] = useState(false);
+  const [audienceName, setAudienceName] = useState("");
+  const [audienceDescription, setAudienceDescription] = useState("");
+  const [audienceTagsAny, setAudienceTagsAny] = useState("");
+  const [audienceMinAiScore, setAudienceMinAiScore] = useState("");
+  const [audiencePreview, setAudiencePreview] = useState<{
+    contactCount: number;
+    hashableCount: number;
+  } | null>(null);
+  const [audiencePreviewBusy, setAudiencePreviewBusy] = useState(false);
+  const [audienceSaving, setAudienceSaving] = useState(false);
+  const [audienceSaveErr, setAudienceSaveErr] = useState<string | null>(null);
 
   async function loadConnection() {
     setConnBusy(true);
@@ -299,6 +343,120 @@ export default function MetaAdsPage() {
   useEffect(() => {
     if (conn) void loadLeadForms();
     else setLeadForms([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn?.adAccountId]);
+
+  // Audiences
+  function buildAudienceSpec(): AudienceSpecInput {
+    const spec: AudienceSpecInput = {};
+    const tags = audienceTagsAny
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tags.length > 0) spec.tagsAny = tags;
+    const score = audienceMinAiScore.trim();
+    if (score) {
+      const n = Number(score);
+      if (Number.isFinite(n) && n >= 0 && n <= 1) {
+        spec.aiScoreGte = n;
+      }
+    }
+    return spec;
+  }
+
+  async function loadAudiences() {
+    setAudiencesBusy(true);
+    setAudiencesErr(null);
+    try {
+      const data = await api.get<MetaAudience[]>("/api/v1/meta-ads/audiences");
+      setAudiences(data);
+    } catch (e) {
+      setAudiencesErr(
+        e instanceof ApiClientError
+          ? `Failed to load audiences: ${e.message}`
+          : "Failed to load audiences.",
+      );
+    } finally {
+      setAudiencesBusy(false);
+    }
+  }
+
+  async function handleAudiencePreview() {
+    setAudiencePreviewBusy(true);
+    setAudienceSaveErr(null);
+    try {
+      const data = await api.post<{
+        contactCount: number;
+        hashableCount: number;
+      }>("/api/v1/meta-ads/audiences/preview", buildAudienceSpec());
+      setAudiencePreview(data);
+    } catch (e) {
+      setAudienceSaveErr(
+        e instanceof ApiClientError ? e.message : "Failed to preview audience.",
+      );
+    } finally {
+      setAudiencePreviewBusy(false);
+    }
+  }
+
+  async function handleCreateAudience(e: FormEvent) {
+    e.preventDefault();
+    setAudienceSaving(true);
+    setAudienceSaveErr(null);
+    try {
+      await api.post("/api/v1/meta-ads/audiences", {
+        name: audienceName.trim(),
+        description: audienceDescription.trim() || undefined,
+        spec: buildAudienceSpec(),
+      });
+      setShowAudienceForm(false);
+      setAudienceName("");
+      setAudienceDescription("");
+      setAudienceTagsAny("");
+      setAudienceMinAiScore("");
+      setAudiencePreview(null);
+      await loadAudiences();
+    } catch (e) {
+      setAudienceSaveErr(
+        e instanceof ApiClientError ? e.message : "Failed to create audience.",
+      );
+    } finally {
+      setAudienceSaving(false);
+    }
+  }
+
+  async function handleRefreshAudience(id: string) {
+    try {
+      await api.post(`/api/v1/meta-ads/audiences/${id}/refresh`);
+      await loadAudiences();
+    } catch (e) {
+      setAudiencesErr(
+        e instanceof ApiClientError ? e.message : "Failed to refresh audience.",
+      );
+    }
+  }
+
+  async function handleDeleteAudience(id: string) {
+    if (
+      !window.confirm(
+        "Remove this audience from NexaFlow? The Meta-side audience stays put so your retargeting ads keep working.",
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.delete(`/api/v1/meta-ads/audiences/${id}`);
+      await loadAudiences();
+    } catch (e) {
+      setAudiencesErr(
+        e instanceof ApiClientError ? e.message : "Failed to delete audience.",
+      );
+    }
+  }
+
+  useEffect(() => {
+    if (conn) void loadAudiences();
+    else setAudiences([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conn?.adAccountId]);
 
@@ -809,10 +967,238 @@ export default function MetaAdsPage() {
         </section>
       )}
 
+      {/* Audience export section (slice 3) */}
+      {conn && (
+        <section className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">
+                Custom audience export
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-600">
+                Push a slice of your contact list to Meta as a Custom Audience.
+                Phone numbers are SHA-256 hashed before upload — the raw
+                numbers never leave NexaFlow. Use the audience in Ads Manager
+                for retargeting.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAudienceForm((v) => !v)}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              {showAudienceForm ? "Cancel" : "+ New audience"}
+            </button>
+          </div>
+
+          {audiencesErr && (
+            <div className="m-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {audiencesErr}
+            </div>
+          )}
+
+          {showAudienceForm && (
+            <form
+              onSubmit={handleCreateAudience}
+              className="border-b border-slate-200 bg-slate-50 px-4 py-4 space-y-3"
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Name
+                  <input
+                    required
+                    value={audienceName}
+                    onChange={(e) => setAudienceName(e.target.value)}
+                    maxLength={120}
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                    placeholder="Win-back salon regulars"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Description (optional)
+                  <input
+                    value={audienceDescription}
+                    onChange={(e) => setAudienceDescription(e.target.value)}
+                    maxLength={800}
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                    placeholder="Contacts tagged 'regular' who haven't visited in 30d"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Tags (any of these, comma-separated)
+                  <input
+                    value={audienceTagsAny}
+                    onChange={(e) => setAudienceTagsAny(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm font-mono"
+                    placeholder="regular, vip"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Minimum AI score (0-1)
+                  <input
+                    value={audienceMinAiScore}
+                    onChange={(e) => setAudienceMinAiScore(e.target.value)}
+                    type="number"
+                    min={0}
+                    max={1}
+                    step="0.05"
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+                    placeholder="0.50"
+                  />
+                </label>
+              </div>
+
+              {audiencePreview && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  <strong>{audiencePreview.contactCount.toLocaleString()}</strong>{" "}
+                  contacts match this filter ·{" "}
+                  <strong>{audiencePreview.hashableCount.toLocaleString()}</strong>{" "}
+                  will be uploaded after deduplication.
+                </div>
+              )}
+
+              {audienceSaveErr && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {audienceSaveErr}
+                </div>
+              )}
+
+              <div className="flex justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleAudiencePreview()}
+                  disabled={audiencePreviewBusy}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  {audiencePreviewBusy ? "Counting…" : "Preview size"}
+                </button>
+                <button
+                  type="submit"
+                  disabled={audienceSaving || !audienceName.trim()}
+                  className="rounded-md bg-emerald-600 px-5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {audienceSaving ? "Uploading…" : "Create + upload"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {audiences.length === 0 && !audiencesBusy && !showAudienceForm && (
+            <div className="px-4 py-8 text-center text-sm text-slate-500">
+              No audiences exported yet. Click <em>New audience</em> to send a
+              segment to Meta.
+            </div>
+          )}
+
+          {audiences.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Audience</th>
+                    <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Matched
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Uploaded
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Last sync
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {audiences.map((a) => (
+                    <tr key={a.id} className="hover:bg-slate-50">
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900">
+                          {a.name}
+                        </div>
+                        {a.description && (
+                          <div className="text-[11px] text-slate-500">
+                            {a.description}
+                          </div>
+                        )}
+                        {a.metaAudienceId && (
+                          <div className="font-mono text-[10px] text-slate-500">
+                            meta:{a.metaAudienceId}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            a.status === "READY"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : a.status === "FAILED"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {a.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums text-slate-700">
+                        {a.contactCount.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums text-slate-700">
+                        {a.uploadedCount.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right text-[11px] text-slate-600">
+                        {a.lastSyncedAt
+                          ? new Date(a.lastSyncedAt).toLocaleString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "—"}
+                        {a.lastSyncError && (
+                          <div className="text-red-700">
+                            {a.lastSyncError.slice(0, 80)}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleRefreshAudience(a.id)}
+                            disabled={
+                              a.status === "REFRESHING" || a.status === "CREATING"
+                            }
+                            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                          >
+                            Refresh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteAudience(a.id)}
+                            className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
-        <strong>Slice 2 shipped:</strong> Lead Ads → CRM auto-sync. Still ahead:
-        click-to-WhatsApp ad creation, custom audience export from your contact
-        list, AI campaign optimizer, full Facebook OAuth flow.
+        <strong>Slice 3 shipped:</strong> custom audience export with SHA-256
+        phone hashing + auto-exclusion of opted-out contacts. Still ahead:
+        click-to-WhatsApp ad creation, AI campaign optimizer, full Facebook
+        OAuth flow.
       </div>
     </DashboardShell>
   );

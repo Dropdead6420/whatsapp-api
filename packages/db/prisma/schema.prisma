@@ -175,6 +175,7 @@ model Tenant {
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
   metaAdsLeadForms         MetaAdsLeadForm[]
+  metaAdsAudiences         MetaAdsAudience[]
   googleAdsConnection      GoogleAdsConnection?
 
   createdAt                DateTime         @default(now())
@@ -1659,6 +1660,50 @@ model MetaAdsLeadForm {
   @@unique([tenantId, formId])
   @@index([tenantId, isActive])
   @@index([isActive, lastFetchedAt])
+}
+
+// Custom audience exports to Meta (PRD §3.3.6 retargeting slice).
+// One row per (tenant, audienceId). Tracks the Meta-side custom audience
+// id, the SegmentFilterSpec we built it from, and per-sync counters so
+// operators can see how many contacts landed in the audience.
+enum MetaAudienceStatus {
+  CREATING
+  READY
+  REFRESHING
+  FAILED
+}
+
+model MetaAdsAudience {
+  id              String              @id @default(cuid())
+  tenantId        String
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Meta-side custom audience id (returned on creation). Empty until the
+  // first successful create call; routes refuse refresh when null.
+  metaAudienceId  String?
+
+  name            String
+  description     String?
+  // The filter spec that resolved the contact list at create / last
+  // refresh time. Stored as JSON so we can re-resolve on refresh.
+  // Shape matches SegmentFilterSpec from services/ai.service.ts.
+  filterSpec      Json                @default("{}")
+
+  status          MetaAudienceStatus  @default(CREATING)
+  lastSyncError   String?
+
+  // Counters reflect the most recent successful refresh.
+  lastSyncedAt    DateTime?
+  contactCount    Int                 @default(0)
+  // Meta returns a 24-72h match window so the audience size is eventually
+  // consistent; we only know how many rows we uploaded.
+  uploadedCount   Int                 @default(0)
+
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
 }
 
 model GoogleAdsConnection {
