@@ -39,6 +39,7 @@ import publicApiRoutes from "./routes/public-api.routes";
 import providerRoutesRoutes from "./routes/provider-routes.routes";
 import demoRoutes from "./routes/demo.routes";
 import proposalRoutes from "./routes/proposal.routes";
+import retentionRoutes from "./routes/retention.routes";
 import partnerRoutes from "./routes/partner.routes";
 import flowTemplatesRoutes from "./routes/flow-templates.routes";
 import whitelabelRoutes from "./routes/whitelabel.routes";
@@ -114,6 +115,10 @@ import {
   startCustomerHealthWorker,
   stopCustomerHealthWorker,
 } from "./services/customerHealth.service";
+import {
+  startContactRetentionWorker,
+  stopContactRetentionWorker,
+} from "./services/contactRetention.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -273,6 +278,7 @@ app.use("/api/v1/partner/proposals", proposalRoutes);
 app.use("/api/v1/partner/whitelabel", whitelabelRoutes);
 app.use("/api/v1/partner", partnerRoutes);
 app.use("/api/v1/flow-templates", flowTemplatesRoutes);
+app.use("/api/v1/retention", retentionRoutes);
 app.use("/api/v1/knowledge-base", knowledgeBaseRoutes);
 app.use("/api/v1/ai-agents", aiAgentsRoutes);
 app.use("/api/v1/onboarding", onboardingRoutes);
@@ -318,6 +324,7 @@ async function startWorkers(): Promise<void> {
   await startWalletRiskWorker();
   await startPlatformMonitorWorker();
   startCustomerHealthWorker();
+  startContactRetentionWorker();
 }
 
 function stopWorkers(): void {
@@ -338,6 +345,7 @@ function stopWorkers(): void {
   stopWalletRiskWorker();
   stopPlatformMonitorWorker();
   stopCustomerHealthWorker();
+  stopContactRetentionWorker();
 }
 
 if (START_HTTP) {

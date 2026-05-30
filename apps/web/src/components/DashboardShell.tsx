@@ -59,6 +59,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/pipelines", label: "Pipeline", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/campaigns", label: "Campaigns", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "campaigns" },
       { href: "/drip-sequences", label: "Drip Sequences", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
+      { href: "/retention", label: "Retention", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"], feature: "retentionEngine" },
       { href: "/meta-ads", label: "Meta Ads", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/google-ads", label: "Google Ads", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/compliance", label: "Compliance", roles: ["BUSINESS_ADMIN", "TEAM_LEAD", "SUPER_ADMIN"], feature: "complianceFirewall" },

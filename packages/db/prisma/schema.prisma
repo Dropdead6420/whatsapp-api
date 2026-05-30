@@ -190,6 +190,7 @@ model Tenant {
   platformActionItems      PlatformActionItem[]
   customerHealthScores     CustomerHealthScore[]
   partnerProposals         Proposal[]          @relation("PartnerProposals")
+  contactRetentionScores   ContactRetentionScore[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -476,6 +477,7 @@ model Contact {
   leads                    Lead[]
   appointments             Appointment[]
   dripEnrollments          DripEnrollment[]
+  retentionScores          ContactRetentionScore[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -2150,4 +2152,52 @@ model Proposal {
 
   @@index([partnerTenantId, createdAt(sort: Desc)])
   @@index([partnerTenantId, status])
+}
+
+// ============================================================================
+// AI Retention Engine (PRD-v2 §7, Sprint 4 slice 1)
+//
+// Customer-facing (BUSINESS tenant) contact retention scoring. A scheduled
+// scan rates each contact's engagement decay from cheap Contact-row signals
+// (last interaction recency, opt-out, lifecycle stage, lead score) — no
+// per-contact message fan-out, so it scales to large books. Tier is derived
+// deterministically; slice 2 layers LLM win-back copy + auto-enroll into a
+// designated drip on top.
+//
+// `factors` holds the per-signal breakdown so the customer can see WHY a
+// contact landed in a tier. One row per (tenant, contact, UTC day) via the
+// unique key so a repeated scan upserts instead of duplicating.
+// ============================================================================
+
+enum RetentionTier {
+  ACTIVE   // engaged recently — no action
+  COOLING  // slipping — gentle nudge
+  DORMANT  // gone quiet — win-back candidate
+  LOST     // opted out or long gone
+}
+
+model ContactRetentionScore {
+  id                   String         @id @default(cuid())
+  tenantId             String
+  tenant               Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contactId            String
+  contact              Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  dayKey               String         // YYYY-MM-DD (UTC)
+  assessedAt           DateTime       @default(now())
+
+  // 0-100; higher = healthier retention. Tier derived from score + recency.
+  score                Int
+  tier                 RetentionTier
+  daysSinceInteraction Int
+
+  factors              Json           @default("{}")
+  recommendation       String?
+
+  createdAt            DateTime       @default(now())
+
+  @@unique([tenantId, contactId, dayKey])
+  @@index([tenantId, tier, score])
+  @@index([tenantId, assessedAt(sort: Desc)])
+  @@index([contactId, assessedAt(sort: Desc)])
 }
