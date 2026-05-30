@@ -191,6 +191,7 @@ model Tenant {
   customerHealthScores     CustomerHealthScore[]
   partnerProposals         Proposal[]          @relation("PartnerProposals")
   contactRetentionScores   ContactRetentionScore[]
+  retentionConfig          RetentionConfig?
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -1770,6 +1771,7 @@ model DripSequence {
   steps           Json                  @default("[]")
 
   enrollments     DripEnrollment[]
+  retentionConfigs RetentionConfig[]   @relation("RetentionWinbackSequence")
 
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
@@ -2200,4 +2202,48 @@ model ContactRetentionScore {
   @@index([tenantId, tier, score])
   @@index([tenantId, assessedAt(sort: Desc)])
   @@index([contactId, assessedAt(sort: Desc)])
+}
+
+// ============================================================================
+// Retention autopilot config (PRD-v2 §7, Sprint 4 slice 2)
+//
+// One row per tenant. Implements the cross-cutting Manual / Assisted /
+// Autopilot mode toggle for the win-back engine:
+//   MANUAL    — engine scores + recommends only; no enrollment.
+//   ASSISTED  — autopilot run surfaces candidates for operator approval.
+//   AUTOPILOT — DORMANT, non-opted-out contacts are auto-enrolled into the
+//               designated win-back DripSequence (capped per run).
+//
+// `winbackSequenceId` is SetNull on sequence delete so removing a drip never
+// orphans the config; the autopilot just no-ops until a new one is chosen.
+// ============================================================================
+
+enum RetentionMode {
+  MANUAL
+  ASSISTED
+  AUTOPILOT
+}
+
+model RetentionConfig {
+  id                String         @id @default(cuid())
+  tenantId          String         @unique
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  mode              RetentionMode  @default(MANUAL)
+
+  // Win-back sequence DORMANT contacts get enrolled into under AUTOPILOT.
+  winbackSequenceId String?
+  winbackSequence   DripSequence?  @relation("RetentionWinbackSequence", fields: [winbackSequenceId], references: [id], onDelete: SetNull)
+
+  // Safety cap on enrollments per autopilot run so a first run on a large
+  // dormant book can't fan out thousands of sends at once.
+  maxEnrollPerRun   Int            @default(50)
+
+  lastRunAt         DateTime?
+  lastEnrolledCount Int            @default(0)
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([mode])
 }

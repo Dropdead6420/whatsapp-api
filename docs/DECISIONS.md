@@ -540,3 +540,19 @@ Format:
   - New `ContactRetentionScore` model + `RetentionTier` enum + migration `20260530200000_contact_retention`; new `retentionEngine` feature flag; `GET /api/v1/retention` (refresh + tier filter + summary) and a `/retention` customer page.
   - Slice 2 layers on top without schema churn: LLM-written win-back copy per DORMANT contact, and an autopilot action that auto-enrolls DORMANT contacts into a designated win-back `DripSequence` (the enrollment plumbing already exists).
   - Follow-up: if tier accuracy proves too coarse, add a periodic job that denormalizes reply-cadence onto the Contact row so the engine can read it without fan-out.
+
+## ADR-032 — Retention autopilot: Manual/Assisted/Autopilot gate, enroll into existing drip, idempotent + opt-out-safe
+
+- **Date**: 2026-05-30
+- **Status**: Accepted; PRD-v2 §7 Sprint 4 slice 2 (win-back autopilot)
+- **Context**: Slice 1 (ADR-031) tiers contacts but takes no action. Slice 2 closes the loop: act on DORMANT contacts. The risky shortcut is to build a bespoke win-back sender that blasts messages directly. That duplicates the drip engine's scheduling/throttle/compliance path and — worse — lets an automation send WhatsApp messages to a customer's contacts with no human gate and no re-send protection. Sending on behalf of a business is exactly the kind of irreversible, audience-expanding action that needs an explicit opt-in and strong guardrails.
+- **Decision**:
+  - **Reuse the drip engine; never build a parallel sender.** Autopilot does one thing — it *enrolls* DORMANT contacts into a partner-chosen `DripSequence` via the existing `enrollContact`. All actual sending, delay scheduling, throttle, and compliance checks stay in the one drip path that's already tested and audited. The retention engine decides *who*, the drip engine owns *how*.
+  - **Manual / Assisted / Autopilot gate (the PRD-v2 cross-cutting toggle).** Stored on a per-tenant `RetentionConfig` row, default `MANUAL`. MANUAL = recommendations only, no enrollment. ASSISTED = the run surfaces a candidate count for operator approval but enrolls nothing. AUTOPILOT = candidates are enrolled, capped by `maxEnrollPerRun` (default 50, hard-capped at 500) so a first run on a large dormant book can't fan out thousands of sends.
+  - **Idempotent and opt-out-safe by construction.** Candidates are filtered to non-opted-out contacts not already enrolled in the win-back sequence (any status), so a re-scan never re-spams someone who already went through win-back. `enrollContact` independently re-checks opt-out and ACTIVE-sequence status, so even a stale filter or race can't double-send. A non-ACTIVE win-back sequence short-circuits with a clear reason instead of failing per-contact.
+  - **Config validated + audited.** `winbackSequenceId` is checked to belong to the tenant before persisting (no pointing at another tenant's drip) and is `SetNull` on sequence delete. Mode changes and real (non-dry-run) autopilot runs write audit rows. The route requires `DRIP_SEQUENCE_MANAGE` to change config or run; reads need `CONTACT_READ`.
+  - **Worker self-gates.** The 6-hour retention scan calls `runRetentionAutopilot` per tenant after scoring; it cheaply no-ops unless the tenant is in AUTOPILOT with an ACTIVE sequence. An autopilot error is caught and never aborts the rest of the scan.
+- **Consequences**:
+  - New `RetentionConfig` model + `RetentionMode` enum + migration `20260530210000_retention_config`; routes `GET/PUT /api/v1/retention/config` and `POST /api/v1/retention/autopilot/run` (with `dryRun`).
+  - 7 new unit tests cover the mode gate, the not-configured / not-ACTIVE short-circuits, opt-out + already-enrolled filtering, the enroll cap, and dry-run.
+  - Follow-up: LLM-written win-back copy (a generate-then-approve preview like the proposal/demo tools) and per-contact "enroll now" from the retention table are the next adds; both reuse this config + the drip path.

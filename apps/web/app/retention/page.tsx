@@ -36,6 +36,37 @@ interface RetentionSummary {
   rows: RetentionRow[];
 }
 
+type RetentionMode = "MANUAL" | "ASSISTED" | "AUTOPILOT";
+
+interface RetentionConfig {
+  mode: RetentionMode;
+  winbackSequenceId: string | null;
+  maxEnrollPerRun: number;
+  lastRunAt: string | null;
+  lastEnrolledCount: number;
+}
+
+interface DripSeqLite {
+  id: string;
+  name: string;
+  status: string;
+}
+
+interface AutopilotResult {
+  mode: RetentionMode;
+  winbackSequenceId: string | null;
+  candidates: number;
+  enrolled: number;
+  skipped: number;
+  reason?: string;
+}
+
+const MODE_HELP: Record<RetentionMode, string> = {
+  MANUAL: "Score and recommend only. No contacts are enrolled.",
+  ASSISTED: "Surface win-back candidates for your approval. No auto-enroll.",
+  AUTOPILOT: "Auto-enroll dormant contacts into the win-back sequence each scan.",
+};
+
 const TIERS: RetentionTier[] = ["LOST", "DORMANT", "COOLING", "ACTIVE"];
 
 const TIER_META: Record<
@@ -79,6 +110,12 @@ export default function RetentionPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const [config, setConfig] = useState<RetentionConfig | null>(null);
+  const [sequences, setSequences] = useState<DripSeqLite[]>([]);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [runResult, setRunResult] = useState<AutopilotResult | null>(null);
+  const [running, setRunning] = useState(false);
+
   const load = async (refresh = false) => {
     setBusy(!refresh);
     setRefreshing(refresh);
@@ -100,6 +137,61 @@ export default function RetentionPage() {
   useEffect(() => {
     if (user) void load(false);
   }, [user, tier]);
+
+  useEffect(() => {
+    if (!user) return;
+    api
+      .get<RetentionConfig>("/api/v1/retention/config")
+      .then(setConfig)
+      .catch(() => setConfig(null));
+    api
+      .get<DripSeqLite[]>("/api/v1/drip-sequences")
+      .then((rows) => setSequences(rows ?? []))
+      .catch(() => setSequences([]));
+  }, [user]);
+
+  const saveConfig = async (patch: Partial<RetentionConfig>) => {
+    if (!config) return;
+    const next = { ...config, ...patch };
+    setConfig(next);
+    setSavingConfig(true);
+    setErr(null);
+    try {
+      const saved = await api.put<RetentionConfig>("/api/v1/retention/config", {
+        mode: next.mode,
+        winbackSequenceId: next.winbackSequenceId,
+        maxEnrollPerRun: next.maxEnrollPerRun,
+      });
+      setConfig(saved);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Failed to save autopilot config");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const runAutopilot = async (dryRun: boolean) => {
+    setRunning(true);
+    setErr(null);
+    setRunResult(null);
+    try {
+      const result = await api.post<AutopilotResult>(
+        "/api/v1/retention/autopilot/run",
+        { dryRun },
+      );
+      setRunResult(result);
+      if (!dryRun && result.enrolled > 0) void load(false);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Failed to run autopilot");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const activeSequences = useMemo(
+    () => sequences.filter((s) => s.status === "ACTIVE"),
+    [sequences],
+  );
 
   const riskCount = useMemo(() => {
     if (!summary) return 0;
@@ -180,6 +272,140 @@ export default function RetentionPage() {
           </div>
         </div>
       </section>
+
+      {config && (
+        <section className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50/40 p-5">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+            <div className="max-w-2xl">
+              <h2 className="text-base font-semibold text-slate-950">
+                Win-back autopilot
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                {MODE_HELP[config.mode]}
+              </p>
+              {config.lastRunAt && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Last run {new Date(config.lastRunAt).toLocaleString()} ·{" "}
+                  {config.lastEnrolledCount} enrolled
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runAutopilot(true)}
+                disabled={running || savingConfig}
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Preview candidates
+              </button>
+              <button
+                type="button"
+                onClick={() => void runAutopilot(false)}
+                disabled={
+                  running ||
+                  savingConfig ||
+                  config.mode !== "AUTOPILOT" ||
+                  !config.winbackSequenceId
+                }
+                className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                title={
+                  config.mode !== "AUTOPILOT"
+                    ? "Switch to Autopilot mode to enroll"
+                    : !config.winbackSequenceId
+                      ? "Choose a win-back sequence first"
+                      : undefined
+                }
+              >
+                {running ? "Running..." : "Run autopilot now"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <label className="text-sm">
+              <span className="mb-1 block font-medium text-slate-700">Mode</span>
+              <select
+                value={config.mode}
+                onChange={(e) => void saveConfig({ mode: e.target.value as RetentionMode })}
+                disabled={savingConfig}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+              >
+                <option value="MANUAL">Manual</option>
+                <option value="ASSISTED">Assisted</option>
+                <option value="AUTOPILOT">Autopilot</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block font-medium text-slate-700">
+                Win-back sequence
+              </span>
+              <select
+                value={config.winbackSequenceId ?? ""}
+                onChange={(e) =>
+                  void saveConfig({ winbackSequenceId: e.target.value || null })
+                }
+                disabled={savingConfig}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+              >
+                <option value="">— none —</option>
+                {activeSequences.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {activeSequences.length === 0 && (
+                <span className="mt-1 block text-xs text-amber-700">
+                  No ACTIVE drip sequences. Create one to enable autopilot.
+                </span>
+              )}
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block font-medium text-slate-700">
+                Max enroll per run
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={config.maxEnrollPerRun}
+                onChange={(e) =>
+                  setConfig((c) =>
+                    c ? { ...c, maxEnrollPerRun: Number(e.target.value) } : c,
+                  )
+                }
+                onBlur={(e) =>
+                  void saveConfig({
+                    maxEnrollPerRun: Math.max(1, Math.min(500, Number(e.target.value) || 50)),
+                  })
+                }
+                disabled={savingConfig}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500"
+              />
+            </label>
+          </div>
+
+          {runResult && (
+            <div className="mt-4 rounded-md border border-indigo-200 bg-white px-4 py-3 text-sm text-slate-700">
+              <span className="font-medium">{runResult.candidates}</span> candidate
+              {runResult.candidates === 1 ? "" : "s"}
+              {runResult.enrolled > 0 && (
+                <>
+                  {" · "}
+                  <span className="font-medium text-emerald-700">
+                    {runResult.enrolled} enrolled
+                  </span>
+                </>
+              )}
+              {runResult.skipped > 0 && <> · {runResult.skipped} skipped</>}
+              {runResult.reason && (
+                <span className="ml-1 text-slate-500">— {runResult.reason}</span>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         <table className="w-full text-left text-sm">

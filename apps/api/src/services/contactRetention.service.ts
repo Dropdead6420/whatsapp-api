@@ -16,8 +16,11 @@ import {
   prisma,
   Prisma,
   RetentionTier,
+  RetentionMode,
+  DripSequenceStatus,
   LifecycleStage,
 } from "@nexaflow/db";
+import { ApiError, ErrorCodes } from "@nexaflow/shared";
 
 type FactorKey = "recency" | "lifecycle" | "intent";
 
@@ -426,11 +429,244 @@ export async function scanRetention(): Promise<number> {
     try {
       const summary = await assessTenantRetention(tenant.id);
       scored += summary.totalScored;
+      // Self-gating: no-ops cheaply unless the tenant is in AUTOPILOT with
+      // a configured win-back sequence. Never let an autopilot hiccup abort
+      // the rest of the scan.
+      await runRetentionAutopilot({ tenantId: tenant.id, triggeredBy: "worker" });
     } catch (err) {
       console.error(`[retention] scan failed for tenant ${tenant.id}:`, err);
     }
   }
   return scored;
+}
+
+// ----------------------------------------------------------------------------
+// Retention config + win-back autopilot (slice 2).
+// ----------------------------------------------------------------------------
+
+export interface RetentionConfigView {
+  mode: RetentionMode;
+  winbackSequenceId: string | null;
+  maxEnrollPerRun: number;
+  lastRunAt: Date | null;
+  lastEnrolledCount: number;
+}
+
+const DEFAULT_CONFIG: RetentionConfigView = {
+  mode: RetentionMode.MANUAL,
+  winbackSequenceId: null,
+  maxEnrollPerRun: 50,
+  lastRunAt: null,
+  lastEnrolledCount: 0,
+};
+
+export async function getRetentionConfig(
+  tenantId: string,
+): Promise<RetentionConfigView> {
+  const row = await prisma.retentionConfig.findUnique({ where: { tenantId } });
+  if (!row) return { ...DEFAULT_CONFIG };
+  return {
+    mode: row.mode,
+    winbackSequenceId: row.winbackSequenceId,
+    maxEnrollPerRun: row.maxEnrollPerRun,
+    lastRunAt: row.lastRunAt,
+    lastEnrolledCount: row.lastEnrolledCount,
+  };
+}
+
+export async function upsertRetentionConfig(args: {
+  tenantId: string;
+  mode?: RetentionMode;
+  winbackSequenceId?: string | null;
+  maxEnrollPerRun?: number;
+}): Promise<RetentionConfigView> {
+  // Validate the sequence belongs to this tenant before persisting so a
+  // config can never point at another tenant's drip.
+  if (args.winbackSequenceId) {
+    const seq = await prisma.dripSequence.findFirst({
+      where: { id: args.winbackSequenceId, tenantId: args.tenantId },
+      select: { id: true },
+    });
+    if (!seq) {
+      throw new ApiError(
+        ErrorCodes.NOT_FOUND,
+        404,
+        "Win-back sequence not found for this tenant.",
+      );
+    }
+  }
+
+  const row = await prisma.retentionConfig.upsert({
+    where: { tenantId: args.tenantId },
+    update: {
+      ...(args.mode !== undefined ? { mode: args.mode } : {}),
+      ...(args.winbackSequenceId !== undefined
+        ? { winbackSequenceId: args.winbackSequenceId }
+        : {}),
+      ...(args.maxEnrollPerRun !== undefined
+        ? { maxEnrollPerRun: args.maxEnrollPerRun }
+        : {}),
+    },
+    create: {
+      tenantId: args.tenantId,
+      mode: args.mode ?? RetentionMode.MANUAL,
+      winbackSequenceId: args.winbackSequenceId ?? null,
+      maxEnrollPerRun: args.maxEnrollPerRun ?? 50,
+    },
+  });
+
+  return {
+    mode: row.mode,
+    winbackSequenceId: row.winbackSequenceId,
+    maxEnrollPerRun: row.maxEnrollPerRun,
+    lastRunAt: row.lastRunAt,
+    lastEnrolledCount: row.lastEnrolledCount,
+  };
+}
+
+export interface RetentionAutopilotResult {
+  tenantId: string;
+  mode: RetentionMode;
+  winbackSequenceId: string | null;
+  candidates: number;
+  enrolled: number;
+  skipped: number;
+  reason?: string;
+}
+
+/**
+ * Win-back autopilot. Selects DORMANT, non-opted-out contacts from the
+ * latest scan that aren't already enrolled in the configured win-back
+ * sequence, then:
+ *   - MANUAL    → no-op (recommendations only).
+ *   - ASSISTED  → returns the candidate count for operator approval; no enroll.
+ *   - AUTOPILOT → enrolls up to `maxEnrollPerRun`.
+ * `dryRun` forces candidate-only regardless of mode (used by the preview UI).
+ */
+export async function runRetentionAutopilot(args: {
+  tenantId: string;
+  dryRun?: boolean;
+  triggeredBy?: "worker" | "manual";
+}): Promise<RetentionAutopilotResult> {
+  const config = await prisma.retentionConfig.findUnique({
+    where: { tenantId: args.tenantId },
+  });
+  const mode = config?.mode ?? RetentionMode.MANUAL;
+  const winbackSequenceId = config?.winbackSequenceId ?? null;
+  const cap = Math.max(1, Math.min(config?.maxEnrollPerRun ?? 50, 500));
+  const base: RetentionAutopilotResult = {
+    tenantId: args.tenantId,
+    mode,
+    winbackSequenceId,
+    candidates: 0,
+    enrolled: 0,
+    skipped: 0,
+  };
+
+  if (mode === RetentionMode.MANUAL) {
+    return { ...base, reason: "Mode is MANUAL; no enrollment performed." };
+  }
+  if (!winbackSequenceId) {
+    return { ...base, reason: "No win-back sequence configured." };
+  }
+
+  // The sequence must be ACTIVE with steps, else enrollment would throw for
+  // every contact — surface a clear reason instead.
+  const seq = await prisma.dripSequence.findFirst({
+    where: { id: winbackSequenceId, tenantId: args.tenantId },
+    select: { status: true },
+  });
+  if (!seq) {
+    return { ...base, reason: "Configured win-back sequence no longer exists." };
+  }
+  if (seq.status !== DripSequenceStatus.ACTIVE) {
+    return { ...base, reason: "Win-back sequence is not ACTIVE." };
+  }
+
+  const latest = await prisma.contactRetentionScore.findFirst({
+    where: { tenantId: args.tenantId },
+    orderBy: { assessedAt: "desc" },
+    select: { dayKey: true },
+  });
+  if (!latest) {
+    return { ...base, reason: "No retention scores yet; run a scan first." };
+  }
+
+  const dormant = await prisma.contactRetentionScore.findMany({
+    where: {
+      tenantId: args.tenantId,
+      dayKey: latest.dayKey,
+      tier: RetentionTier.DORMANT,
+    },
+    select: { contactId: true },
+    take: 1000,
+  });
+  if (dormant.length === 0) {
+    return { ...base, reason: "No dormant contacts in the latest scan." };
+  }
+  const dormantIds = dormant.map((d) => d.contactId);
+
+  // Drop opted-out contacts (belt-and-suspenders: enrollContact also guards).
+  const eligible = await prisma.contact.findMany({
+    where: { tenantId: args.tenantId, id: { in: dormantIds }, optedOut: false },
+    select: { id: true },
+  });
+  const eligibleIds = eligible.map((c) => c.id);
+
+  // Skip anyone already enrolled in this sequence (any status) so a
+  // re-scan never re-spams a contact who already went through win-back.
+  const alreadyEnrolled = await prisma.dripEnrollment.findMany({
+    where: {
+      tenantId: args.tenantId,
+      sequenceId: winbackSequenceId,
+      contactId: { in: eligibleIds },
+    },
+    select: { contactId: true },
+  });
+  const enrolledSet = new Set(alreadyEnrolled.map((e) => e.contactId));
+  const toEnroll = eligibleIds.filter((id) => !enrolledSet.has(id)).slice(0, cap);
+  base.candidates = toEnroll.length;
+
+  if (args.dryRun || mode === RetentionMode.ASSISTED) {
+    return {
+      ...base,
+      reason: args.dryRun
+        ? "Dry run; candidates surfaced, no enrollment."
+        : "Mode is ASSISTED; candidates surfaced for approval.",
+    };
+  }
+
+  // AUTOPILOT — enroll each candidate. enrollContact is idempotent and
+  // opt-out-safe, so a race or stale filter can't double-send.
+  const { enrollContact } = await import("./dripSequence.service");
+  let enrolled = 0;
+  let skipped = 0;
+  for (const contactId of toEnroll) {
+    try {
+      await enrollContact({
+        tenantId: args.tenantId,
+        sequenceId: winbackSequenceId,
+        contactId,
+      });
+      enrolled += 1;
+    } catch (err) {
+      skipped += 1;
+      console.warn(
+        `[retention] autopilot enroll skipped contact=${contactId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  try {
+    await prisma.retentionConfig.update({
+      where: { tenantId: args.tenantId },
+      data: { lastRunAt: new Date(), lastEnrolledCount: enrolled },
+    });
+  } catch (err) {
+    console.error("[retention] failed to stamp autopilot run:", err);
+  }
+
+  return { ...base, enrolled, skipped };
 }
 
 export function startContactRetentionWorker(): void {
