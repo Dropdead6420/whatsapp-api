@@ -17,8 +17,10 @@ import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { enqueueCampaign } from "../services/campaign.service";
 import { requireFeature } from "../services/features.service";
-import { enforceCompliance } from "../services/compliance.service";
-import { ComplianceScope } from "@nexaflow/db";
+import {
+  ComplianceScope,
+  enforceCompliance,
+} from "../services/compliance.service";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope, requireFeature("campaigns"));

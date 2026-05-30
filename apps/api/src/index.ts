@@ -48,6 +48,7 @@ import dripSequencesRoutes from "./routes/drip-sequences.routes";
 import metaAdsRoutes from "./routes/meta-ads.routes";
 import googleAdsRoutes from "./routes/google-ads.routes";
 import devicesRoutes from "./routes/devices.routes";
+import complianceRoutes from "./routes/compliance.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -263,6 +264,7 @@ app.use("/api/v1/drip-sequences", dripSequencesRoutes);
 app.use("/api/v1/meta-ads", metaAdsRoutes);
 app.use("/api/v1/google-ads", googleAdsRoutes);
 app.use("/api/v1/devices", devicesRoutes);
+app.use("/api/v1/compliance", complianceRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {

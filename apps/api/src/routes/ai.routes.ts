@@ -28,11 +28,11 @@ import { listTenantTags, specToWhere } from "../services/segment.service";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { requireFeature } from "../services/features.service";
 import {
+  ComplianceScope,
   listRecentChecks,
   recordOverride,
   runComplianceCheck,
 } from "../services/compliance.service";
-import { ComplianceScope } from "@nexaflow/db";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope);
@@ -555,17 +555,17 @@ const checkSchema = z.object({
 
 router.post(
   "/compliance-check",
+  requirePermission(Permissions.COMPLIANCE_REVIEW),
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
       const body = checkSchema.parse(req.body);
       const result = await runComplianceCheck({
         tenantId: req.tenantId!,
-        userId: req.userId,
         scope: body.scope,
         refId: body.refId,
         content: body.content,
-        industry: body.industry,
-        audienceDescription: body.audienceDescription,
+        createdByUserId: req.userId,
+        useAi: true,
       });
       // Audit the check itself so an audit trail exists even when no
       // send follows (preview-only).
@@ -574,8 +574,13 @@ router.post(
         userId: req.userId!,
         action: "COMPLIANCE_CHECK",
         resource: "ComplianceCheck",
-        resourceId: result.id,
-        newValues: { verdict: result.verdict, score: result.score },
+        resourceId: result.check.id,
+        newValues: {
+          verdict: result.check.verdict,
+          score: result.check.score,
+          industry: body.industry,
+          audienceDescription: body.audienceDescription,
+        },
         ...extractRequestMeta(req),
       });
       res.json({ success: true, data: result });
@@ -587,6 +592,7 @@ router.post(
 
 router.get(
   "/compliance-checks",
+  requirePermission(Permissions.COMPLIANCE_REVIEW),
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
       const limit = Number(req.query.limit ?? 100);
@@ -607,6 +613,7 @@ const overrideSchema = z.object({
 
 router.post(
   "/compliance-checks/:id/override",
+  requirePermission(Permissions.COMPLIANCE_REVIEW),
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
       const body = overrideSchema.parse(req.body);

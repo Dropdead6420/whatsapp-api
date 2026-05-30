@@ -21,8 +21,10 @@ import { assertCanAffordMessage, debitMessage } from "../services/billing.servic
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { emitToConversation, emitToTenant } from "../lib/realtime";
 import { emitWebhookEvent } from "../services/webhook.service";
-import { enforceCompliance } from "../services/compliance.service";
-import { ComplianceScope } from "@nexaflow/db";
+import {
+  ComplianceScope,
+  enforceCompliance,
+} from "../services/compliance.service";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope);

@@ -1,411 +1,402 @@
 "use client";
 
-// Compliance Firewall dashboard (PRD-v2 Sprint 2 slice 1).
-//
-// Lists every pre-send check the firewall has made for the tenant, with
-// verdict, score, mode at decision time, and whether an operator
-// overrode a non-PASS verdict. Operators can run an ad-hoc check from
-// the bottom panel to preview a draft before pasting it into a campaign.
-
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
 
-type Scope = "CAMPAIGN" | "DRIP_STEP" | "TEMPLATE" | "REPLY";
-type Verdict = "PASS" | "REVIEW" | "BLOCK";
-type Mode = "MANUAL" | "ASSISTED" | "AUTOPILOT";
+type ComplianceMode = "MANUAL" | "ASSISTED" | "AUTOPILOT";
+type ComplianceScope = "CAMPAIGN" | "DRIP_STEP" | "TEMPLATE" | "REPLY";
+type ComplianceVerdict = "PASS" | "REVIEW" | "BLOCK";
 
-interface ComplianceRow {
-  id: string;
-  scope: Scope;
-  refId: string | null;
-  content: string;
-  verdict: Verdict;
-  score: number;
-  mode: Mode;
-  overridden: boolean;
-  createdAt: string;
-}
-
-interface Violation {
+interface ComplianceViolation {
   code: string;
-  severity: "low" | "medium" | "high";
+  severity: "info" | "warn" | "violation";
   detail: string;
 }
 
-interface CheckResult {
+interface ComplianceCheck {
   id: string;
-  verdict: Verdict;
+  scope: ComplianceScope;
+  refId: string | null;
+  content: string;
+  verdict: ComplianceVerdict;
   score: number;
-  violations: Violation[];
+  violations: ComplianceViolation[] | unknown;
   rewrite: string | null;
   reasoning: string | null;
-  mode: Mode;
-  enforced: boolean;
+  mode: ComplianceMode;
+  overridden: boolean;
+  createdAt: string;
+  decision?: {
+    allowed: boolean;
+    requiresOverride: boolean;
+    blocked: boolean;
+    reason: string | null;
+  };
 }
 
-const VERDICT_COLOR: Record<Verdict, string> = {
-  PASS: "bg-emerald-100 text-emerald-800",
-  REVIEW: "bg-amber-100 text-amber-800",
-  BLOCK: "bg-red-100 text-red-800",
-};
-
-const SEVERITY_COLOR: Record<Violation["severity"], string> = {
-  low: "text-slate-600",
-  medium: "text-amber-700",
-  high: "text-red-700",
-};
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+interface CheckResult {
+  check: ComplianceCheck;
+  cached: boolean;
+  decision: NonNullable<ComplianceCheck["decision"]>;
 }
+
+interface ChecksResponse {
+  items: ComplianceCheck[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+type ModeConfig = {
+  default: ComplianceMode;
+  CAMPAIGN?: ComplianceMode;
+  DRIP_STEP?: ComplianceMode;
+  TEMPLATE?: ComplianceMode;
+  REPLY?: ComplianceMode;
+};
+
+const MODES: ComplianceMode[] = ["MANUAL", "ASSISTED", "AUTOPILOT"];
+const SCOPES: ComplianceScope[] = ["CAMPAIGN", "DRIP_STEP", "TEMPLATE", "REPLY"];
 
 export default function CompliancePage() {
-  const { user, loading, signOut } = useAuth({
+  const { user, features, loading, signOut } = useAuth({
     required: true,
-    roles: ["BUSINESS_ADMIN", "TEAM_LEAD", "WHITE_LABEL_ADMIN", "SUPER_ADMIN"],
+    roles: ["SUPER_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD"],
   });
-
-  const [rows, setRows] = useState<ComplianceRow[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [listErr, setListErr] = useState<string | null>(null);
-
-  const [draftContent, setDraftContent] = useState(
-    "URGENT! Get 50% off — limited time! Click here to claim before it's gone! 💸💸💸",
-  );
-  const [draftScope, setDraftScope] = useState<Scope>("CAMPAIGN");
+  const [mode, setMode] = useState<ModeConfig | null>(null);
+  const [items, setItems] = useState<ComplianceCheck[]>([]);
+  const [scope, setScope] = useState<ComplianceScope>("CAMPAIGN");
+  const [content, setContent] = useState("");
+  const [useAi, setUseAi] = useState(true);
   const [checking, setChecking] = useState(false);
-  const [checkErr, setCheckErr] = useState<string | null>(null);
-  const [result, setResult] = useState<CheckResult | null>(null);
+  const [savingMode, setSavingMode] = useState(false);
+  const [latest, setLatest] = useState<CheckResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setRefreshing(true);
-    setListErr(null);
+  async function load() {
+    setErr(null);
     try {
-      const data = await api.get<ComplianceRow[]>(
-        "/api/v1/ai/compliance-checks?limit=100",
-      );
-      setRows(data);
+      const [nextMode, checks] = await Promise.all([
+        api.get<ModeConfig>("/api/v1/compliance/mode"),
+        api.get<ChecksResponse>("/api/v1/compliance/checks?limit=50"),
+      ]);
+      setMode(nextMode);
+      setItems(checks.items);
     } catch (e) {
-      setListErr(
-        e instanceof ApiClientError
-          ? `Failed to load checks: ${e.message}`
-          : "Failed to load checks.",
-      );
-    } finally {
-      setRefreshing(false);
+      setErr(e instanceof ApiClientError ? e.message : "Failed to load compliance data");
     }
-  }, []);
+  }
 
   useEffect(() => {
-    if (user) void load();
-  }, [user, load]);
+    if (!user) return;
+    void load();
+  }, [user]);
 
-  async function handleCheck(e: FormEvent) {
-    e.preventDefault();
-    setChecking(true);
-    setCheckErr(null);
-    setResult(null);
+  async function updateDefaultMode(next: ComplianceMode) {
+    setSavingMode(true);
+    setErr(null);
     try {
-      const data = await api.post<CheckResult>(
-        "/api/v1/ai/compliance-check",
-        {
-          content: draftContent,
-          scope: draftScope,
-        },
-      );
-      setResult(data);
+      const saved = await api.patch<ModeConfig>("/api/v1/compliance/mode", {
+        default: next,
+      });
+      setMode(saved);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Failed to update mode");
+    } finally {
+      setSavingMode(false);
+    }
+  }
+
+  async function submitCheck(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!content.trim()) return;
+    setChecking(true);
+    setLatest(null);
+    setErr(null);
+    try {
+      const result = await api.post<CheckResult>("/api/v1/compliance/check", {
+        scope,
+        content,
+        useAi,
+      });
+      setLatest(result);
       await load();
     } catch (e) {
-      setCheckErr(
-        e instanceof ApiClientError ? e.message : "Check failed.",
-      );
+      setErr(e instanceof ApiClientError ? e.message : "Failed to run compliance check");
     } finally {
       setChecking(false);
     }
   }
 
+  async function overrideCheck(check: ComplianceCheck) {
+    const reason = window.prompt(
+      "Reason for override. Only use this when a human has reviewed and accepts the risk.",
+    );
+    if (!reason?.trim()) return;
+    setErr(null);
+    try {
+      await api.post(`/api/v1/compliance/checks/${check.id}/override`, {
+        reason,
+      });
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Failed to override check");
+    }
+  }
+
+  const currentModeCopy = useMemo(() => {
+    switch (mode?.default) {
+      case "MANUAL":
+        return "Checks are logged, but operators decide.";
+      case "AUTOPILOT":
+        return "Only passing content can proceed automatically.";
+      default:
+        return "Passing content proceeds; review verdicts require approval.";
+    }
+  }, [mode?.default]);
+
   if (loading || !user) {
     return <div className="p-10 text-sm text-slate-500">Loading…</div>;
   }
 
-  const totals = {
-    pass: rows.filter((r) => r.verdict === "PASS").length,
-    review: rows.filter((r) => r.verdict === "REVIEW").length,
-    block: rows.filter((r) => r.verdict === "BLOCK").length,
-    overridden: rows.filter((r) => r.overridden).length,
-  };
-
   return (
-    <DashboardShell user={user} signOut={signOut}>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Compliance Firewall
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Pre-send safety checks for every outbound campaign, drip step,
-            template, and agent reply. Two-layer review: deterministic
-            heuristics + Claude policy review.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={refreshing}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+    <DashboardShell user={user} features={features} signOut={signOut}>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Compliance Firewall</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Review outbound WhatsApp content before campaigns, drip steps, templates, and replies go out.
+        </p>
       </header>
 
-      {listErr && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {listErr}
+      {err && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {err}
         </div>
       )}
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-4">
-        <StatCard label="Passed" value={totals.pass} accent="emerald" />
-        <StatCard label="Review needed" value={totals.review} accent="amber" />
-        <StatCard label="Blocked" value={totals.block} accent="red" />
-        <StatCard
-          label="Overridden"
-          value={totals.overridden}
-          accent="slate"
-        />
-      </div>
-
-      {/* Inline checker */}
-      <section className="mb-6 rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <h2 className="text-base font-semibold text-slate-900">
-            Check a draft
-          </h2>
-          <p className="mt-0.5 text-xs text-slate-600">
-            Paste any outbound copy to see what the firewall would do.
-            Heuristic checks run on the server; the LLM review only runs
-            when heuristics pass.
-          </p>
-        </div>
-        <form onSubmit={handleCheck} className="space-y-3 px-4 py-4">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <textarea
-              value={draftContent}
-              onChange={(e) => setDraftContent(e.target.value)}
-              rows={4}
-              maxLength={4000}
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
-              placeholder="Outbound message body…"
-              required
-            />
-            <select
-              value={draftScope}
-              onChange={(e) => setDraftScope(e.target.value as Scope)}
-              className="self-start rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="CAMPAIGN">Campaign</option>
-              <option value="DRIP_STEP">Drip step</option>
-              <option value="TEMPLATE">Template</option>
-              <option value="REPLY">Agent reply</option>
-            </select>
+      <section className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Default mode</h2>
+            <p className="mt-1 text-sm text-slate-500">{currentModeCopy}</p>
           </div>
+          <div className="flex rounded-md border border-slate-200 bg-slate-50 p-1">
+            {MODES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                disabled={savingMode}
+                onClick={() => void updateDefaultMode(m)}
+                className={`rounded px-3 py-1.5 text-xs font-medium ${
+                  mode?.default === m
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:bg-white"
+                }`}
+              >
+                {formatMode(m)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
 
-          {checkErr && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              {checkErr}
-            </div>
-          )}
-
-          <div className="flex justify-end">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="text-sm font-semibold text-slate-900">Manual check</h2>
+          <form className="mt-4 space-y-4" onSubmit={submitCheck}>
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">Scope</span>
+              <select
+                value={scope}
+                onChange={(e) => setScope(e.target.value as ComplianceScope)}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+              >
+                {SCOPES.map((s) => (
+                  <option key={s} value={s}>
+                    {formatScope(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-slate-700">Content</span>
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={8}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                placeholder="Paste campaign, template, drip, or reply copy"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={useAi}
+                onChange={(e) => setUseAi(e.target.checked)}
+              />
+              Include AI review
+            </label>
             <button
               type="submit"
-              disabled={checking || !draftContent.trim()}
-              className="rounded-md bg-emerald-600 px-5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+              disabled={checking || !content.trim()}
+              className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {checking ? "Checking…" : "Run check"}
             </button>
-          </div>
-        </form>
+          </form>
 
-        {result && (
-          <div className="border-t border-slate-200 px-4 py-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${VERDICT_COLOR[result.verdict]}`}
-                >
-                  {result.verdict}
+          {latest && (
+            <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className={verdictClass(latest.check.verdict)}>
+                  {latest.check.verdict}
                 </span>
-                <span className="text-sm font-mono text-slate-700">
-                  risk {result.score}/100
-                </span>
-                <span className="text-xs text-slate-500">
-                  mode: {result.mode}
-                </span>
-                {result.enforced && (
-                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-800">
-                    enforced
-                  </span>
-                )}
+                <span className="text-slate-500">Score {latest.check.score}</span>
               </div>
-            </div>
-
-            {result.reasoning && (
-              <p className="mt-2 text-xs italic text-slate-600">
-                {result.reasoning}
-              </p>
-            )}
-
-            {result.violations.length > 0 && (
-              <ul className="mt-3 space-y-1">
-                {result.violations.map((v, idx) => (
-                  <li key={idx} className="text-xs">
-                    <span
-                      className={`font-mono font-semibold ${SEVERITY_COLOR[v.severity]}`}
-                    >
-                      {v.code}
-                    </span>
-                    <span className="text-slate-700"> — {v.detail}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {result.rewrite && (
-              <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                  Suggested rewrite
-                </div>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-emerald-900">
-                  {result.rewrite}
+              <p className="mt-2 text-slate-600">{latest.check.reasoning}</p>
+              {latest.check.rewrite && (
+                <p className="mt-2 rounded bg-white p-2 text-slate-700">
+                  {latest.check.rewrite}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => setDraftContent(result.rewrite!)}
-                  className="mt-2 text-xs font-semibold text-emerald-800 hover:text-emerald-900"
-                >
-                  Use rewrite
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
+              )}
+            </div>
+          )}
+        </section>
 
-      {/* Recent checks */}
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        {rows.length === 0 && !refreshing && (
-          <div className="px-4 py-10 text-center text-sm text-slate-500">
-            No compliance checks yet. Run a check above or wait for a
-            campaign to be created.
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-900">Recent checks</h2>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Refresh
+            </button>
           </div>
-        )}
-        {rows.length > 0 && (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-3 py-2 font-semibold">Verdict</th>
-                  <th className="px-3 py-2 font-semibold">Scope</th>
-                  <th className="px-3 py-2 font-semibold">Content</th>
-                  <th className="px-3 py-2 text-right font-semibold">Score</th>
-                  <th className="px-3 py-2 font-semibold">Mode</th>
-                  <th className="px-3 py-2 font-semibold">When</th>
+                  <th className="px-4 py-3">Verdict</th>
+                  <th className="px-4 py-3">Scope</th>
+                  <th className="px-4 py-3">Score</th>
+                  <th className="px-4 py-3">Content</th>
+                  <th className="px-4 py-3">Reason</th>
+                  <th className="px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${VERDICT_COLOR[row.verdict]}`}
-                      >
-                        {row.verdict}
+                {items.map((check) => (
+                  <tr key={check.id} className="align-top">
+                    <td className="px-4 py-3">
+                      <span className={verdictClass(check.verdict)}>
+                        {check.verdict}
                       </span>
-                      {row.overridden && (
-                        <span className="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-semibold text-slate-700">
-                          OVERRIDE
-                        </span>
+                      {check.overridden && (
+                        <div className="mt-1 text-xs text-amber-700">Overridden</div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-xs text-slate-700">
-                      {row.scope}
+                    <td className="px-4 py-3 text-slate-600">
+                      {formatScope(check.scope)}
+                      {check.refId && <div className="text-xs text-slate-400">{check.refId}</div>}
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="max-w-md truncate text-xs text-slate-700">
-                        {row.content}
-                      </div>
-                      {row.refId && (
-                        <div className="font-mono text-[10px] text-slate-500">
-                          ref:{row.refId}
+                    <td className="px-4 py-3 text-slate-600">{check.score}</td>
+                    <td className="max-w-xs px-4 py-3 text-slate-700">
+                      <div className="line-clamp-3">{check.content}</div>
+                      {formatViolations(check.violations).length > 0 && (
+                        <div className="mt-2 space-y-1 text-xs text-slate-500">
+                          {formatViolations(check.violations).slice(0, 2).map((v, idx) => (
+                            <div key={`${check.id}-${idx}`}>{v.detail}</div>
+                          ))}
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs tabular-nums text-slate-700">
-                      {row.score}
+                    <td className="max-w-sm px-4 py-3 text-slate-600">
+                      <div className="line-clamp-4">{check.reasoning ?? "—"}</div>
+                      {check.rewrite && (
+                        <div className="mt-2 rounded bg-emerald-50 p-2 text-xs text-emerald-800">
+                          {check.rewrite}
+                        </div>
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-xs text-slate-600">
-                      {row.mode}
-                    </td>
-                    <td className="px-3 py-2 text-[11px] text-slate-500">
-                      {formatDateTime(row.createdAt)}
+                    <td className="px-4 py-3">
+                      {check.verdict === "REVIEW" &&
+                      check.mode === "ASSISTED" &&
+                      !check.overridden ? (
+                        <button
+                          type="button"
+                          onClick={() => void overrideCheck(check)}
+                          className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-50"
+                        >
+                          Override
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                      No compliance checks yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-        )}
-      </section>
-
-      <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600">
-        <strong>Slice 1:</strong> the firewall is callable as an endpoint
-        and visible here. Slice 2 wires it inline into the campaign
-        creation flow + drip step validation + agent reply path so blocks
-        actually halt sends before they hit Meta.
+        </section>
       </div>
     </DashboardShell>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent: "slate" | "emerald" | "amber" | "red";
-}) {
-  const accents = {
-    slate: "border-slate-200 bg-white",
-    emerald: "border-emerald-200 bg-emerald-50",
-    amber: "border-amber-200 bg-amber-50",
-    red: "border-red-200 bg-red-50",
-  } as const;
-  const numColor = {
-    slate: "text-slate-900",
-    emerald: "text-emerald-800",
-    amber: "text-amber-800",
-    red: "text-red-800",
-  } as const;
-  return (
-    <div className={`rounded-lg border p-4 ${accents[accent]}`}>
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div
-        className={`mt-1 font-mono text-2xl font-semibold ${numColor[accent]}`}
-      >
-        {value.toLocaleString()}
-      </div>
-    </div>
-  );
+function formatMode(mode: ComplianceMode): string {
+  return mode
+    .toLowerCase()
+    .split("_")
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatScope(scope: ComplianceScope): string {
+  return scope
+    .toLowerCase()
+    .split("_")
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function verdictClass(verdict: ComplianceVerdict): string {
+  const base = "inline-flex rounded-full px-2 py-0.5 text-xs font-semibold";
+  if (verdict === "PASS") return `${base} bg-emerald-50 text-emerald-700`;
+  if (verdict === "REVIEW") return `${base} bg-amber-50 text-amber-700`;
+  return `${base} bg-red-50 text-red-700`;
+}
+
+function formatViolations(raw: unknown): ComplianceViolation[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is ComplianceViolation => {
+      if (!item || typeof item !== "object") return false;
+      const row = item as Record<string, unknown>;
+      return typeof row.detail === "string";
+    })
+    .map((item) => ({
+      code: String(item.code ?? "risk"),
+      severity:
+        item.severity === "info" ||
+        item.severity === "warn" ||
+        item.severity === "violation"
+          ? item.severity
+          : "warn",
+      detail: item.detail,
+    }));
 }

@@ -18,8 +18,12 @@ import { sendWhatsAppTemplate } from "./whatsapp.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { canSendNow, recordSend } from "./sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
-import { enforceCompliance } from "./compliance.service";
-import { ComplianceScope } from "@nexaflow/db";
+import {
+  ComplianceScope,
+  complianceStopMessage,
+  enforceCompliance,
+  runComplianceCheck,
+} from "./compliance.service";
 import { MessageDirection, MessageStatus } from "@nexaflow/shared";
 
 // ----------------------------------------------------------------------------
@@ -463,6 +467,25 @@ export async function processEnrollment(enrollmentId: string): Promise<void> {
         status: DripEnrollmentStatus.FAILED,
         nextStepAt: null,
         lastError: `Template ${step.templateId} no longer exists in this tenant.`,
+      },
+    });
+    return;
+  }
+
+  const compliance = await runComplianceCheck({
+    tenantId: enrollment.tenantId,
+    scope: ComplianceScope.DRIP_STEP,
+    refId: enrollment.id,
+    content: template.bodyText,
+    useAi: true,
+  });
+  if (!compliance.decision.allowed) {
+    await prisma.dripEnrollment.update({
+      where: { id: enrollment.id },
+      data: {
+        status: DripEnrollmentStatus.FAILED,
+        nextStepAt: null,
+        lastError: complianceStopMessage(compliance),
       },
     });
     return;

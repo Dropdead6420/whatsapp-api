@@ -41,6 +41,10 @@ import {
 } from "../services/whatsappWebhook.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { emitToConversation, emitToTenant } from "../lib/realtime";
+import {
+  ComplianceScope,
+  assertComplianceAllowed,
+} from "../services/compliance.service";
 
 const router = Router();
 
@@ -682,6 +686,14 @@ router.post(
         );
       }
 
+      await assertComplianceAllowed({
+        tenantId: req.tenantId!,
+        scope: ComplianceScope.REPLY,
+        refId: contact.id,
+        content: body.body,
+        createdByUserId: req.userId,
+        useAi: false,
+      });
       await assertCanAffordMessage(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
       await assertCanSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });

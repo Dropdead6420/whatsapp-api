@@ -12,6 +12,11 @@ import { canSendNow, recordSend } from "./sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
 import { ApiError } from "@nexaflow/shared";
 import {
+  ComplianceScope,
+  complianceStopMessage,
+  runComplianceCheck,
+} from "./compliance.service";
+import {
   getCampaignQueue,
   getQueueConnection,
   makeBullJobId,
@@ -81,6 +86,28 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
       where: { id: campaign.id },
       data: { status: CampaignStatus.FAILED },
     });
+    return;
+  }
+
+  const compliance = await runComplianceCheck({
+    tenantId: campaign.tenantId,
+    scope: ComplianceScope.CAMPAIGN,
+    refId: campaign.id,
+    content: campaign.template.bodyText,
+    useAi: true,
+  });
+  if (!compliance.decision.allowed) {
+    await prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        status: compliance.decision.requiresOverride
+          ? CampaignStatus.PAUSED
+          : CampaignStatus.FAILED,
+      },
+    });
+    console.warn(
+      `[campaign:${campaign.id}] ${complianceStopMessage(compliance)}`,
+    );
     return;
   }
 
