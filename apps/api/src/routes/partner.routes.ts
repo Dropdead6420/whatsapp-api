@@ -28,7 +28,10 @@ import {
   SupportTicketPriority,
   SupportTicketStatus,
 } from "@nexaflow/db";
-import { listPartnerCustomerHealth } from "../services/customerHealth.service";
+import {
+  listPartnerCustomerHealth,
+  runPartnerAssistantSummary,
+} from "../services/customerHealth.service";
 
 const router = Router();
 
@@ -225,6 +228,27 @@ router.get(
         limit: query.limit,
       });
       res.json({ success: true, data: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/partner/assistant/summary
+//
+// AI Partner Assistant — portfolio-wide summary. Reuses today's
+// CustomerHealthScore rows for the partner's customers (no forced
+// recompute) and calls Claude for headline + top-3 actions. Falls
+// back to a deterministic summary on LLM failure. Billed to the
+// partner tenant.
+router.get(
+  "/assistant/summary",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const summary = await runPartnerAssistantSummary(partner.id);
+      res.json({ success: true, data: summary });
     } catch (err) {
       next(err);
     }

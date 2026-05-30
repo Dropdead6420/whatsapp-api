@@ -183,6 +183,7 @@ export async function assessCustomerHealth(tenantId: string): Promise<CustomerHe
       name: true,
       status: true,
       createdAt: true,
+      parentTenantId: true,
     },
   });
   if (!tenant) {
@@ -259,6 +260,10 @@ export async function assessCustomerHealth(tenantId: string): Promise<CustomerHe
   const tier = tierFromScore(score);
   const recommendation = recommendationFor({ score, tier, metrics });
 
+  // Capture the previous tier BEFORE the upsert so escalation detection
+  // doesn't compare against the row we're about to write.
+  const previousTier = await previousTierFor(tenantId);
+
   const row = await prisma.customerHealthScore.upsert({
     where: { tenantId_dayKey: { tenantId, dayKey: dayKeyUtc() } },
     update: {
@@ -276,6 +281,27 @@ export async function assessCustomerHealth(tenantId: string): Promise<CustomerHe
       factors: factorsJson,
       recommendation,
     },
+  });
+
+  // AI Partner Assistant — slice 2 hooks. Both fire-and-forget so a
+  // hiccup in the LLM or push pipeline can't taint the assessment write.
+  if (tier === CustomerHealthTier.AT_RISK || tier === CustomerHealthTier.CHURNING) {
+    void enrichRecommendationWithLlm({
+      tenantId,
+      tenantName: tenant.name,
+      tier,
+      score,
+      factors,
+      metrics,
+    });
+  }
+  void notifyPartnerOnDowngrade({
+    tenantId,
+    tenantName: tenant.name,
+    parentTenantId: tenant.parentTenantId ?? null,
+    previousTier,
+    currentTier: tier,
+    score,
   });
 
   return {
@@ -376,5 +402,277 @@ export function stopCustomerHealthWorker(): void {
   if (timer) {
     clearInterval(timer);
     timer = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI Partner Assistant (Sprint 3 slice 2)
+//
+// Three thin layers on top of the raw CustomerHealthScore signal:
+//   1. previousTierFor       — look up yesterday's row so we can detect
+//                              tier transitions (escalations only).
+//   2. notifyPartnerOnDowngrade — push to the parent partner's devices
+//                              when a child tenant slips into AT_RISK or
+//                              CHURNING (mirrors walletRisk escalation).
+//   3. enrichRecommendationWithLlm — for AT_RISK / CHURNING rows, ask
+//                              Claude (billed to the partner) to rewrite
+//                              the deterministic recommendation as a
+//                              one-line action the partner can take today.
+//   4. runPartnerAssistantSummary — portfolio-wide top-3 actions list,
+//                              served by GET /partner/assistant/summary.
+//
+// All async hooks are fire-and-forget from the assessment hot path so an
+// LLM/push hiccup never corrupts the deterministic score write.
+// ---------------------------------------------------------------------------
+
+const HEALTH_TIER_RANK: Record<CustomerHealthTier, number> = {
+  [CustomerHealthTier.THRIVING]: 3,
+  [CustomerHealthTier.HEALTHY]: 2,
+  [CustomerHealthTier.AT_RISK]: 1,
+  [CustomerHealthTier.CHURNING]: 0,
+};
+
+/**
+ * Most recent CustomerHealthScore.tier before today's UTC day-key.
+ * Returns null if this is the tenant's first-ever assessment.
+ */
+async function previousTierFor(tenantId: string): Promise<CustomerHealthTier | null> {
+  const prior = await prisma.customerHealthScore.findFirst({
+    where: { tenantId, dayKey: { lt: dayKeyUtc() } },
+    orderBy: { assessedAt: "desc" },
+    select: { tier: true },
+  });
+  return prior?.tier ?? null;
+}
+
+/**
+ * Fire a push notification to the partner that owns this tenant when the
+ * tier worsens into AT_RISK or CHURNING. Silent on upgrades and on
+ * lateral moves (HEALTHY ↔ HEALTHY).
+ */
+async function notifyPartnerOnDowngrade(args: {
+  tenantId: string;
+  tenantName: string;
+  parentTenantId: string | null;
+  previousTier: CustomerHealthTier | null;
+  currentTier: CustomerHealthTier;
+  score: number;
+}): Promise<void> {
+  try {
+    if (!args.parentTenantId) return;
+    if (
+      args.currentTier !== CustomerHealthTier.AT_RISK &&
+      args.currentTier !== CustomerHealthTier.CHURNING
+    ) {
+      return;
+    }
+    // Only push on first detection or on further worsening; skip if we
+    // already pushed for this tier yesterday.
+    if (
+      args.previousTier !== null &&
+      HEALTH_TIER_RANK[args.currentTier] >= HEALTH_TIER_RANK[args.previousTier]
+    ) {
+      return;
+    }
+    const { sendToTenant } = await import("./pushNotification.service");
+    const tierLabel =
+      args.currentTier === CustomerHealthTier.CHURNING ? "Churning" : "At-Risk";
+    await sendToTenant(args.parentTenantId, {
+      title: `${tierLabel}: ${args.tenantName}`,
+      body: `Health score ${args.score}/100. Open Partner dashboard to see the recommended action.`,
+      data: {
+        type: "CUSTOMER_HEALTH_DOWNGRADE",
+        childTenantId: args.tenantId,
+        tier: args.currentTier,
+        score: String(args.score),
+      },
+    });
+  } catch (err) {
+    console.error("[customer-health] push fanout failed:", err);
+  }
+}
+
+/**
+ * For AT_RISK / CHURNING rows, ask Claude to produce a one-line action
+ * the partner can take today. Billed to the partner tenant (the one that
+ * owns the customer), not the child, because the partner is the audience
+ * for this recommendation.
+ */
+async function enrichRecommendationWithLlm(args: {
+  tenantId: string;
+  tenantName: string;
+  tier: CustomerHealthTier;
+  score: number;
+  factors: Record<FactorKey, HealthFactor>;
+  metrics: CustomerHealthRow["metrics"];
+}): Promise<void> {
+  try {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { parentTenantId: true },
+    });
+    const billTo = tenant?.parentTenantId ?? args.tenantId;
+
+    const { runTenantLlmJson } = await import("./ai.service");
+    const weakest = Object.entries(args.factors)
+      .sort(([, a], [, b]) => a.score - b.score)
+      .slice(0, 2)
+      .map(([key, f]) => `${key}: ${f.detail}`);
+
+    const result = await runTenantLlmJson<{ recommendation: string }>({
+      tenantId: billTo,
+      feature: "customer_health_recommendation",
+      system:
+        "You are a SaaS customer-success copilot for a WhatsApp Business platform. " +
+        "Given a customer's health snapshot, write ONE concrete action the partner " +
+        "should take this week. Keep it under 22 words. No fluff, no greetings. " +
+        'Reply ONLY with JSON: {"recommendation":"..."}',
+      prompt: JSON.stringify({
+        tenantName: args.tenantName,
+        tier: args.tier,
+        score: args.score,
+        weakestFactors: weakest,
+        metrics: args.metrics,
+      }),
+      maxTokens: 240,
+    });
+
+    const text = result?.recommendation?.trim();
+    if (!text) return;
+
+    await prisma.customerHealthScore.update({
+      where: {
+        tenantId_dayKey: { tenantId: args.tenantId, dayKey: dayKeyUtc() },
+      },
+      data: { recommendation: text.slice(0, 500) },
+    });
+  } catch (err) {
+    console.error("[customer-health] LLM enrichment failed:", err);
+  }
+}
+
+export interface PartnerAssistantSummary {
+  partnerTenantId: string;
+  generatedAt: Date;
+  totals: Record<CustomerHealthTier, number>;
+  totalTenants: number;
+  headline: string;
+  actions: Array<{
+    title: string;
+    rationale: string;
+    tenantIds: string[];
+  }>;
+  worstAccounts: Array<{
+    tenantId: string;
+    tenantName: string;
+    score: number;
+    tier: CustomerHealthTier;
+    recommendation: string;
+  }>;
+}
+
+/**
+ * Portfolio-wide AI summary for a partner: aggregates their tenants by
+ * tier, then asks Claude for the top-3 actions to take across the whole
+ * book. Falls back to a deterministic summary if the LLM call fails.
+ */
+export async function runPartnerAssistantSummary(
+  partnerTenantId: string,
+): Promise<PartnerAssistantSummary> {
+  const rows = await listPartnerCustomerHealth({
+    partnerTenantId,
+    refresh: false,
+    limit: 100,
+  });
+
+  const totals: Record<CustomerHealthTier, number> = {
+    [CustomerHealthTier.THRIVING]: 0,
+    [CustomerHealthTier.HEALTHY]: 0,
+    [CustomerHealthTier.AT_RISK]: 0,
+    [CustomerHealthTier.CHURNING]: 0,
+  };
+  for (const r of rows) totals[r.tier] += 1;
+
+  const worstAccounts = rows
+    .filter(
+      (r) =>
+        r.tier === CustomerHealthTier.AT_RISK ||
+        r.tier === CustomerHealthTier.CHURNING,
+    )
+    .slice(0, 8)
+    .map((r) => ({
+      tenantId: r.tenantId,
+      tenantName: r.tenantName,
+      score: r.score,
+      tier: r.tier,
+      recommendation: r.recommendation,
+    }));
+
+  // Deterministic fallback — used when the LLM call errors out or the
+  // partner has zero tenants at risk.
+  const fallbackHeadline =
+    rows.length === 0
+      ? "No active customers yet — invite businesses to start onboarding."
+      : `${totals[CustomerHealthTier.CHURNING]} churning, ${totals[CustomerHealthTier.AT_RISK]} at-risk out of ${rows.length} customers.`;
+
+  const fallback: PartnerAssistantSummary = {
+    partnerTenantId,
+    generatedAt: new Date(),
+    totals,
+    totalTenants: rows.length,
+    headline: fallbackHeadline,
+    actions: worstAccounts.slice(0, 3).map((acct) => ({
+      title: `Rescue ${acct.tenantName}`,
+      rationale: acct.recommendation || `Tier ${acct.tier} at score ${acct.score}.`,
+      tenantIds: [acct.tenantId],
+    })),
+    worstAccounts,
+  };
+
+  if (worstAccounts.length === 0) {
+    return fallback;
+  }
+
+  try {
+    const { runTenantLlmJson } = await import("./ai.service");
+    const llm = await runTenantLlmJson<{
+      headline: string;
+      actions: Array<{ title: string; rationale: string; tenantIds: string[] }>;
+    }>({
+      tenantId: partnerTenantId,
+      feature: "partner_assistant_summary",
+      system:
+        "You are an AI account manager for a WhatsApp SaaS partner. Given a roster " +
+        "of the partner's customers with health scores and tiers, return JSON of shape:\n" +
+        '{"headline":"one-line state under 22 words","actions":[{"title":"imperative","rationale":"why","tenantIds":["..."]}]}\n' +
+        "Include up to 3 actions. Each action's tenantIds must be drawn from the input.",
+      prompt: JSON.stringify({
+        totals,
+        totalTenants: rows.length,
+        worstAccounts,
+      }),
+      maxTokens: 700,
+    });
+
+    if (!llm?.headline || !Array.isArray(llm.actions)) return fallback;
+    const validIds = new Set(rows.map((r) => r.tenantId));
+    const actions = llm.actions.slice(0, 3).map((a) => ({
+      title: (a.title ?? "").slice(0, 120),
+      rationale: (a.rationale ?? "").slice(0, 400),
+      tenantIds: (a.tenantIds ?? []).filter((id) => validIds.has(id)).slice(0, 8),
+    }));
+
+    return {
+      partnerTenantId,
+      generatedAt: new Date(),
+      totals,
+      totalTenants: rows.length,
+      headline: llm.headline.slice(0, 220),
+      actions,
+      worstAccounts,
+    };
+  } catch (err) {
+    console.error("[customer-health] portfolio summary LLM failed:", err);
+    return fallback;
   }
 }
