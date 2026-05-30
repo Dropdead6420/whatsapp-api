@@ -23,7 +23,9 @@ export type AuditAction =
   | "LOW_BALANCE_ALERT"
   | "AGENT_DISABLED_ALERT"
   | "REPLY"
-  | "ANNOTATE";
+  | "ANNOTATE"
+  | "COMPLIANCE_CHECK"
+  | "COMPLIANCE_OVERRIDE";
 
 export interface AuditInput {
   tenantId: string;

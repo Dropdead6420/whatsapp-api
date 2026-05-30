@@ -27,6 +27,12 @@ import {
 import { listTenantTags, specToWhere } from "../services/segment.service";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { requireFeature } from "../services/features.service";
+import {
+  listRecentChecks,
+  recordOverride,
+  runComplianceCheck,
+} from "../services/compliance.service";
+import { ComplianceScope } from "@nexaflow/db";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope);
@@ -527,6 +533,103 @@ router.post(
           ],
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ----------------------------------------------------------------------------
+// Compliance Firewall (PRD-v2 Sprint 2 slice 1)
+// ----------------------------------------------------------------------------
+
+const complianceScopeSchema = z.nativeEnum(ComplianceScope);
+
+const checkSchema = z.object({
+  content: z.string().trim().min(1).max(4000),
+  scope: complianceScopeSchema,
+  refId: z.string().max(64).optional(),
+  industry: z.string().trim().max(120).optional(),
+  audienceDescription: z.string().trim().max(400).optional(),
+});
+
+router.post(
+  "/compliance-check",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = checkSchema.parse(req.body);
+      const result = await runComplianceCheck({
+        tenantId: req.tenantId!,
+        userId: req.userId,
+        scope: body.scope,
+        refId: body.refId,
+        content: body.content,
+        industry: body.industry,
+        audienceDescription: body.audienceDescription,
+      });
+      // Audit the check itself so an audit trail exists even when no
+      // send follows (preview-only).
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "COMPLIANCE_CHECK",
+        resource: "ComplianceCheck",
+        resourceId: result.id,
+        newValues: { verdict: result.verdict, score: result.score },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/compliance-checks",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const limit = Number(req.query.limit ?? 100);
+      const rows = await listRecentChecks(
+        req.tenantId!,
+        Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 100,
+      );
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const overrideSchema = z.object({
+  reason: z.string().trim().min(3).max(400),
+});
+
+router.post(
+  "/compliance-checks/:id/override",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = overrideSchema.parse(req.body);
+      const updated = await recordOverride({
+        tenantId: req.tenantId!,
+        checkId: req.params.id,
+        userId: req.userId!,
+        reason: body.reason,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "COMPLIANCE_OVERRIDE",
+        resource: "ComplianceCheck",
+        resourceId: updated.id,
+        newValues: {
+          verdict: updated.verdict,
+          mode: updated.mode,
+          reason: body.reason,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: updated });
     } catch (err) {
       next(err);
     }

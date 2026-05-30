@@ -122,6 +122,14 @@ model Tenant {
   // (validated at the route): { items: [{ key, label, icon, enabled }] }.
   partnerMenuConfig        Json?
 
+  // T-080: per-tenant Compliance Firewall mode. Shape:
+  // { default: "ASSISTED" | "MANUAL" | "AUTOPILOT",
+  //   CAMPAIGN?, DRIP_STEP?, TEMPLATE?, REPLY? }
+  // Missing scopes fall back to `default`; missing `default` is ASSISTED.
+  complianceMode           Json?
+
+  complianceChecks         ComplianceCheck[]
+
   // T-041: Custom email sender (white-label). `emailFromAddress`
   // exists already (declared in the Email Configuration block above).
   // These three extend it: a display name + a verification stamp
@@ -1412,6 +1420,79 @@ model DemoTenant {
   @@index([createdByPartnerId])
   @@index([expiresAt])
   @@index([tenantId])
+}
+
+// ============================================================================
+// COMPLIANCE FIREWALL (PRD-v2 §8, Sprint 2 slice 1)
+//
+// Pre-send safety layer. Every record captures one decision made about one
+// piece of outbound content (campaign body, drip step, template draft,
+// agent reply). Two-layer check:
+//   1. Heuristic (cheap, deterministic): keyword blocklist, ALL-CAPS density,
+//      currency-symbol storms, opted-out audience, opt-out keywords in body.
+//   2. LLM review: Claude reads message + tenant industry + audience and
+//      returns a JSON {spam_risk, violations[], rewrite, reasoning}.
+//
+// Verdict combination — see services/compliance.service.ts. The row's
+// `mode` field captures whether the operator was forced (AUTOPILOT) or
+// allowed to override (MANUAL/ASSISTED).
+// ============================================================================
+
+enum ComplianceScope {
+  CAMPAIGN
+  DRIP_STEP
+  TEMPLATE
+  REPLY
+}
+
+enum ComplianceVerdict {
+  PASS    // good to send
+  REVIEW  // soft violations; operator decides in ASSISTED/MANUAL, blocked in AUTOPILOT
+  BLOCK   // hard violations; never auto-sent regardless of mode
+}
+
+enum ComplianceMode {
+  MANUAL    // operator can override any verdict (with audit log)
+  ASSISTED  // PASS auto-sends; REVIEW pauses for OK; BLOCK is hard stop
+  AUTOPILOT // anything not PASS aborts the send and notifies the operator
+}
+
+model ComplianceCheck {
+  id              String             @id @default(cuid())
+  tenantId        String
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  scope           ComplianceScope
+  // Optional reference to the entity being checked (campaignId, drip
+  // sequence id, template id, conversation id). String so we can point
+  // at any of the four scopes without a polymorphic FK.
+  refId           String?
+
+  content         String
+  // SHA-256 hex of content + scope. Used for short-window idempotency so
+  // re-running the same preview doesn't re-bill the LLM.
+  contentHash     String
+
+  verdict         ComplianceVerdict
+  // 0-100, where higher = more risk. Combined heuristic + LLM score.
+  score           Int
+  // Array of { code, severity, detail } objects.
+  violations      Json               @default("[]")
+  rewrite         String?
+  reasoning       String?
+
+  mode            ComplianceMode     @default(ASSISTED)
+  // Did an operator override a non-PASS verdict? Captured here + in audit.
+  overridden      Boolean            @default(false)
+  overriddenReason String?
+  overriddenByUserId String?
+
+  createdAt       DateTime           @default(now())
+  createdByUserId String?
+
+  @@index([tenantId, scope, createdAt])
+  @@index([tenantId, verdict])
+  @@index([tenantId, contentHash])
 }
 
 // ============================================================================

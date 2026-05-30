@@ -61,6 +61,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/drip-sequences", label: "Drip Sequences", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/meta-ads", label: "Meta Ads", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/google-ads", label: "Google Ads", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
+      { href: "/compliance", label: "Compliance", roles: ["BUSINESS_ADMIN", "TEAM_LEAD", "WHITE_LABEL_ADMIN", "SUPER_ADMIN"] },
       { href: "/templates", label: "Templates", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
       { href: "/whatsapp-settings", label: "WhatsApp", roles: ["BUSINESS_ADMIN"] },
       { href: "/canned-replies", label: "Canned Replies", roles: ["BUSINESS_ADMIN", "TEAM_LEAD"] },
