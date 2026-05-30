@@ -73,6 +73,7 @@ router.post(
         userId: req.userId,
         scope: ComplianceScope.CAMPAIGN,
         content: template.bodyText,
+        heuristicsOnly: true,
       });
 
       const scheduledFor = body.scheduledFor ? new Date(body.scheduledFor) : null;

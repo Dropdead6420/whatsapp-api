@@ -939,4 +939,77 @@ router.patch(
   },
 );
 
+// ----------------------------------------------------------------------------
+// Wallet Risk — portfolio view for SuperAdmin (PRD-v2 §8, Sprint 2 slice 2).
+// Returns the latest WalletRiskAssessment per tenant, severity-first sorted.
+// Optional ?tier=CRITICAL|URGENT|WATCH|OK filter.
+// ----------------------------------------------------------------------------
+
+router.get(
+  "/wallet-risk",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const tier = req.query.tier as string | undefined;
+      const validTiers = new Set(["OK", "WATCH", "URGENT", "CRITICAL"]);
+      const tierFilter =
+        tier && validTiers.has(tier)
+          ? { riskTier: tier as "OK" | "WATCH" | "URGENT" | "CRITICAL" }
+          : {};
+
+      // groupBy gives us the freshest assessedAt per tenant; join back
+      // pulls the row + tenant name. Uses the (tenantId, assessedAt desc)
+      // index we already have on the table.
+      // Prisma requires orderBy when `take` is set on a groupBy. Order
+      // by the latest assessment per tenant; bounded to 500 tenants per
+      // request which is fine for the portfolio view (paginate in slice 3).
+      const newest = await prisma.walletRiskAssessment.groupBy({
+        by: ["tenantId"],
+        _max: { assessedAt: true },
+        where: tierFilter,
+        orderBy: { _max: { assessedAt: "desc" } },
+        take: 500,
+      });
+
+      const pairs = newest
+        .map((row) => ({
+          tenantId: row.tenantId,
+          assessedAt: row._max.assessedAt,
+        }))
+        .filter((p): p is { tenantId: string; assessedAt: Date } =>
+          p.assessedAt !== null,
+        );
+
+      if (pairs.length === 0) {
+        res.json({ success: true, data: [] });
+        return;
+      }
+
+      const rows = await prisma.walletRiskAssessment.findMany({
+        where: {
+          OR: pairs.map((p) => ({
+            tenantId: p.tenantId,
+            assessedAt: p.assessedAt,
+          })),
+        },
+        include: { tenant: { select: { id: true, name: true } } },
+      });
+
+      // Severity-first ordering: CRITICAL → URGENT → WATCH → OK. Ties
+      // broken by stale-first so the operator naturally works the
+      // longest-untouched at the top of the list.
+      const TIER_ORDER = ["CRITICAL", "URGENT", "WATCH", "OK"];
+      rows.sort((a, b) => {
+        const aIdx = TIER_ORDER.indexOf(a.riskTier);
+        const bIdx = TIER_ORDER.indexOf(b.riskTier);
+        if (aIdx !== bIdx) return aIdx - bIdx;
+        return a.assessedAt.getTime() - b.assessedAt.getTime();
+      });
+
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export default router;

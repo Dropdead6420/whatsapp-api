@@ -38,6 +38,10 @@ interface Assessment {
   llmUsed: boolean;
 }
 
+interface PortfolioRow extends Assessment {
+  tenant: { id: string; name: string };
+}
+
 const TIER_COLOR: Record<Tier, string> = {
   OK: "bg-emerald-100 text-emerald-800 border-emerald-200",
   WATCH: "bg-amber-100 text-amber-800 border-amber-200",
@@ -79,6 +83,11 @@ export default function WalletRiskPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const [portfolio, setPortfolio] = useState<PortfolioRow[]>([]);
+  const [portfolioBusy, setPortfolioBusy] = useState(false);
+  const [tierFilter, setTierFilter] = useState<"ALL" | Tier>("ALL");
+
   const load = useCallback(async () => {
     setBusy(true);
     setErr(null);
@@ -99,6 +108,32 @@ export default function WalletRiskPage() {
   useEffect(() => {
     if (user) void load();
   }, [user, load]);
+
+  const loadPortfolio = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    setPortfolioBusy(true);
+    setErr(null);
+    try {
+      const query =
+        tierFilter === "ALL" ? "" : `?tier=${tierFilter}`;
+      const data = await api.get<PortfolioRow[]>(
+        `/api/v1/admin/wallet-risk${query}`,
+      );
+      setPortfolio(data);
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError
+          ? `Failed to load portfolio: ${e.message}`
+          : "Failed to load portfolio.",
+      );
+    } finally {
+      setPortfolioBusy(false);
+    }
+  }, [isSuperAdmin, tierFilter]);
+
+  useEffect(() => {
+    if (isSuperAdmin) void loadPortfolio();
+  }, [isSuperAdmin, loadPortfolio]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -226,6 +261,122 @@ export default function WalletRiskPage() {
             when runway ≤ 30 days. OK otherwise. A zero-burn tenant stays OK
             regardless of balance.
           </div>
+        </section>
+      )}
+
+      {isSuperAdmin && (
+        <section className="mt-8">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Portfolio view
+              </h2>
+              <p className="text-sm text-slate-600">
+                Latest assessment for every tenant in the platform.
+                Severity-first; ties broken by stale assessments at the top.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={tierFilter}
+                onChange={(e) =>
+                  setTierFilter(e.target.value as "ALL" | Tier)
+                }
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+              >
+                <option value="ALL">All tiers</option>
+                <option value="CRITICAL">Critical only</option>
+                <option value="URGENT">Urgent only</option>
+                <option value="WATCH">Watch only</option>
+                <option value="OK">OK only</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => void loadPortfolio()}
+                disabled={portfolioBusy}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+              >
+                {portfolioBusy ? "Loading…" : "Refresh"}
+              </button>
+            </div>
+          </div>
+
+          {!portfolioBusy && portfolio.length === 0 && (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-600">
+              No tenants match this filter, or no assessments have been run
+              yet across the portfolio.
+            </div>
+          )}
+
+          {portfolio.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Tier</th>
+                    <th className="px-3 py-2 font-semibold">Tenant</th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Balance
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Burn / day
+                    </th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Runway
+                    </th>
+                    <th className="px-3 py-2 font-semibold">Action</th>
+                    <th className="px-3 py-2 text-right font-semibold">
+                      Assessed
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {portfolio.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50">
+                      <td className="px-3 py-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${TIER_COLOR[row.riskTier]}`}
+                        >
+                          {row.riskTier}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-slate-900">
+                          {row.tenant.name}
+                        </div>
+                        <div className="font-mono text-[10px] text-slate-500">
+                          {row.tenant.id.slice(0, 12)}…
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                        {fmtNumber(row.balanceCredits)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                        {fmtNumber(row.dailyBurnAvg, 1)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                        {fmtDays(row.daysToZero)}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-700">
+                        {ACTION_LABEL[row.recommendedActionCode]}
+                        {row.recommendedAmountCredits != null && (
+                          <span className="ml-1 font-mono text-[10px] text-slate-500">
+                            ({fmtNumber(row.recommendedAmountCredits)} cr)
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-[11px] text-slate-500">
+                        {new Date(row.assessedAt).toLocaleDateString("en-IN", {
+                          day: "2-digit",
+                          month: "short",
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
     </DashboardShell>

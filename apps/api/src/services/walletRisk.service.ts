@@ -295,6 +295,73 @@ async function runLlmNarrative(args: {
 // Public entrypoint
 // ----------------------------------------------------------------------------
 
+// Tier severity ordering for escalation detection.
+const TIER_RANK: Record<WalletRiskTier, number> = {
+  [WalletRiskTier.OK]: 0,
+  [WalletRiskTier.WATCH]: 1,
+  [WalletRiskTier.URGENT]: 2,
+  [WalletRiskTier.CRITICAL]: 3,
+};
+
+async function lastTierFor(tenantId: string): Promise<WalletRiskTier | null> {
+  const previous = await prisma.walletRiskAssessment.findFirst({
+    where: { tenantId },
+    orderBy: { assessedAt: "desc" },
+    select: { riskTier: true },
+  });
+  return previous?.riskTier ?? null;
+}
+
+/**
+ * Fan out a push notification to every device in the tenant when the tier
+ * escalates (OK→WATCH, WATCH→URGENT, anything→CRITICAL). De-escalations
+ * are silent so we don't ping operators with good news in the middle of
+ * the night. Best-effort: failures are logged and never abort the
+ * assessment write.
+ */
+async function notifyOnEscalation(args: {
+  tenantId: string;
+  previousTier: WalletRiskTier | null;
+  current: WalletRiskAssessment;
+}): Promise<void> {
+  const prev = args.previousTier ?? WalletRiskTier.OK;
+  if (TIER_RANK[args.current.riskTier] <= TIER_RANK[prev]) return;
+
+  // Lazy import — pushNotification.service depends on prisma + audit + envs;
+  // keep the wallet-risk service unaware of those concerns until escalation
+  // actually fires.
+  let sendToTenant: typeof import("./pushNotification.service")["sendToTenant"];
+  try {
+    ({ sendToTenant } = await import("./pushNotification.service"));
+  } catch {
+    return;
+  }
+
+  const days = args.current.daysToZero;
+  const runwayCopy =
+    days != null && Number.isFinite(days)
+      ? days < 1
+        ? "less than a day of runway left"
+        : `~${Math.round(days)} days of runway left`
+      : "wallet balance below threshold";
+  try {
+    await sendToTenant(args.tenantId, {
+      title: `Wallet at risk: ${args.current.riskTier}`,
+      body: `${runwayCopy}. Open Wallet Risk to act.`,
+      data: {
+        type: "wallet_risk",
+        tier: args.current.riskTier,
+        assessmentId: args.current.id,
+      },
+    });
+  } catch (err) {
+    console.warn(
+      `[wallet-risk] escalation push failed (tenant=${args.tenantId}):`,
+      (err as Error).message,
+    );
+  }
+}
+
 export async function assessTenantWalletRisk(
   tenantId: string,
 ): Promise<WalletRiskAssessment | null> {
@@ -345,11 +412,24 @@ export async function assessTenantWalletRisk(
     llmUsed: !!llm,
   };
 
-  return prisma.walletRiskAssessment.upsert({
+  // Capture the previous tier BEFORE the upsert so escalation detection
+  // doesn't compare against the row we're about to write.
+  const previousTier = await lastTierFor(tenant.id);
+
+  const assessment = await prisma.walletRiskAssessment.upsert({
     where: { tenantId_dayKey: { tenantId: tenant.id, dayKey } },
     create: data,
     update: { ...data, assessedAt: new Date() },
   });
+
+  // Best-effort escalation alert. Never aborts the assessment write.
+  void notifyOnEscalation({
+    tenantId: tenant.id,
+    previousTier,
+    current: assessment,
+  });
+
+  return assessment;
 }
 
 export async function getLatestAssessment(
