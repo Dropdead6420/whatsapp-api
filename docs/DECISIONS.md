@@ -524,3 +524,19 @@ Format:
   - New `Proposal` model + `ProposalStatus` enum + migration `20260530190000_proposal`; new audit actions `PROPOSAL_GENERATED` / `PROPOSAL_CREATED` / `PROPOSAL_STATUS_CHANGED`.
   - Unit tests cover the proposal fallback paths and the status-transition guard; the demo blueprint reuses the existing demo provisioning test surface.
   - Follow-up: a public `/p/:shareToken` proposal view and a "send proposal over WhatsApp" action are deferred to a later slice (both expand a proposal's audience and need their own explicit-consent + branding handling).
+
+## ADR-031 — Retention Engine: score from Contact-row signals, not per-contact message fan-out
+
+- **Date**: 2026-05-30
+- **Status**: Accepted; PRD-v2 §7 Sprint 4 slice 1 (customer AI Retention Engine)
+- **Context**: The customer-facing automation layer needs a retention/win-back engine that tells a business *which of their contacts are slipping away* and what to do about it. The accurate-but-naive design scores each contact by querying their message history (last inbound, reply cadence, conversation recency). For a tenant with tens of thousands of contacts that's tens of thousands of aggregate queries per scan — the scan would either hammer the DB or never finish. The CustomerHealthScore engine (ADR-adjacent, Sprint 3) sidesteps this at the *tenant* level by reading a handful of counts; the retention engine operates at the *contact* level where fan-out is the dominant cost.
+- **Decision**:
+  - **Score from cheap Contact-row signals only.** `Contact.lastInteractionAt`, `optedOut`, `lifecycleStage`, and `aiScore` are already maintained by the inbound/CRM pipelines. The whole scan is a single `findMany` per tenant — no per-contact message queries — so it scales to large books. The trade-off (no fine-grained reply-cadence signal) is acceptable for a tiering engine and revisited only if accuracy demands it.
+  - **Deterministic, explainable tiers.** Recency windows map to ACTIVE (≤14d) / COOLING (≤30d) / DORMANT (≤90d) / LOST (>90d); opt-out is terminal LOST with score 0 regardless of recency. The 0-100 score is a weighted composite (recency 0.6, lifecycle 0.25, intent 0.15) with a per-signal `factors` breakdown persisted on each row so the customer sees *why* a contact landed where it did.
+  - **Pure scoring function, isolated and unit-tested.** `scoreContact(contact, now)` is exported and side-effect-free; the persistence/scan/serve layers wrap it. Tests pin the tier boundaries, the opt-out floor, the null-`lastInteractionAt` fallback to `createdAt`, and the lifecycle/intent weighting.
+  - **Idempotent daily upsert.** One row per `(tenantId, contactId, dayKey)` UNIQUE so a repeated scan updates in place. Reads serve the latest persisted `dayKey`; `refresh=true` recomputes and persists on demand (the same pattern as the partner customer-health surface). Tier totals come from a `groupBy` over the full day so the tier filter never distorts the counts.
+  - **Bounded scan worker.** A 6-hour `setInterval` worker scans the 25 most-recently-active BUSINESS tenants, ≤2000 contacts each, `unref`'d so it never holds the process open. Gated behind the new `retentionEngine` feature flag; the route requires `CONTACT_READ`.
+- **Consequences**:
+  - New `ContactRetentionScore` model + `RetentionTier` enum + migration `20260530200000_contact_retention`; new `retentionEngine` feature flag; `GET /api/v1/retention` (refresh + tier filter + summary) and a `/retention` customer page.
+  - Slice 2 layers on top without schema churn: LLM-written win-back copy per DORMANT contact, and an autopilot action that auto-enrolls DORMANT contacts into a designated win-back `DripSequence` (the enrollment plumbing already exists).
+  - Follow-up: if tier accuracy proves too coarse, add a periodic job that denormalizes reply-cadence onto the Contact row so the engine can read it without fan-out.
