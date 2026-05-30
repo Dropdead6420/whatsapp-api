@@ -21,6 +21,8 @@ import { assertCanAffordMessage, debitMessage } from "../services/billing.servic
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { emitToConversation, emitToTenant } from "../lib/realtime";
 import { emitWebhookEvent } from "../services/webhook.service";
+import { enforceCompliance } from "../services/compliance.service";
+import { ComplianceScope } from "@nexaflow/db";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope);
@@ -248,6 +250,19 @@ router.post(
           "Contact has opted out; cannot reply.",
         );
       }
+
+      // Compliance Firewall — heuristics-only on this hot path; the LLM
+      // round-trip on every agent reply would be cost-prohibitive. Hard
+      // violations still hard-block (BLOCK verdict enforced under
+      // ASSISTED + AUTOPILOT modes).
+      await enforceCompliance({
+        tenantId: req.tenantId!,
+        userId: req.userId,
+        scope: ComplianceScope.REPLY,
+        refId: convo.id,
+        content: body,
+        heuristicsOnly: true,
+      });
 
       const tenant = await prisma.tenant.findUnique({
         where: { id: req.tenantId! },

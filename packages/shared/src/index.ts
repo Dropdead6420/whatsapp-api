@@ -358,6 +358,25 @@ export enum TemplateStatus {
   FLAGGED = "FLAGGED",
 }
 
+export enum ComplianceScope {
+  CAMPAIGN = "CAMPAIGN",
+  DRIP_STEP = "DRIP_STEP",
+  TEMPLATE = "TEMPLATE",
+  REPLY = "REPLY",
+}
+
+export enum ComplianceVerdict {
+  PASS = "PASS",
+  REVIEW = "REVIEW",
+  BLOCK = "BLOCK",
+}
+
+export enum ComplianceMode {
+  MANUAL = "MANUAL",
+  ASSISTED = "ASSISTED",
+  AUTOPILOT = "AUTOPILOT",
+}
+
 export interface WhatsAppTemplate {
   id: string;
   tenantId: string;
@@ -477,6 +496,7 @@ export const ErrorCodes = {
   TOKEN_EXPIRED: "TOKEN_EXPIRED",
   TOKEN_REVOKED: "TOKEN_REVOKED",
   QUOTA_EXCEEDED: "QUOTA_EXCEEDED",
+  COMPLIANCE_BLOCKED: "COMPLIANCE_BLOCKED",
   EMAIL_NOT_VERIFIED: "EMAIL_NOT_VERIFIED",
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
 } as const;
@@ -514,6 +534,7 @@ export const Permissions = {
   WABA_CONFIGURE: "waba:configure",
   API_KEYS_MANAGE: "api_keys:manage",
   PROVIDER_ROUTE_MANAGE: "provider_route:manage",
+  COMPLIANCE_REVIEW: "compliance:review",
   KNOWLEDGE_BASE_MANAGE: "knowledge_base:manage",
   AI_AGENT_MANAGE: "ai_agent:manage",
   SUPPORT_TICKET_VIEW: "support_ticket:view",
@@ -563,6 +584,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.WALLET_VIEW,
     Permissions.WABA_CONFIGURE,
     Permissions.API_KEYS_MANAGE,
+    Permissions.COMPLIANCE_REVIEW,
     Permissions.KNOWLEDGE_BASE_MANAGE,
     Permissions.AI_AGENT_MANAGE,
     Permissions.CONVERSATION_READ,
@@ -582,6 +604,7 @@ export const RolePermissions: Record<UserRole, Permission[]> = {
     Permissions.CONTACT_CREATE,
     Permissions.CONTACT_IMPORT,
     Permissions.CONTACT_READ,
+    Permissions.COMPLIANCE_REVIEW,
     Permissions.KNOWLEDGE_BASE_MANAGE,
     Permissions.AI_AGENT_MANAGE,
     Permissions.CONVERSATION_READ,

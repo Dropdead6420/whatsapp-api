@@ -17,6 +17,8 @@ import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { enqueueCampaign } from "../services/campaign.service";
 import { requireFeature } from "../services/features.service";
+import { enforceCompliance } from "../services/compliance.service";
+import { ComplianceScope } from "@nexaflow/db";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope, requireFeature("campaigns"));
@@ -61,6 +63,16 @@ router.post(
         throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Template not found.");
       }
 
+      // Pre-send Compliance Firewall check. Throws ComplianceBlockedError
+      // (→ 403) when the tenant's mode enforces the verdict; otherwise
+      // returns the result for audit logging on the response.
+      const complianceCheck = await enforceCompliance({
+        tenantId: req.tenantId!,
+        userId: req.userId,
+        scope: ComplianceScope.CAMPAIGN,
+        content: template.bodyText,
+      });
+
       const scheduledFor = body.scheduledFor ? new Date(body.scheduledFor) : null;
       const status = scheduledFor ? CampaignStatus.SCHEDULED : CampaignStatus.DRAFT;
 
@@ -87,7 +99,21 @@ router.post(
         ...extractRequestMeta(req),
       });
 
-      res.status(201).json({ success: true, data: campaign });
+      res.status(201).json({
+        success: true,
+        data: campaign,
+        meta: {
+          compliance: {
+            verdict: complianceCheck.verdict,
+            score: complianceCheck.score,
+            mode: complianceCheck.mode,
+            violations: complianceCheck.violations,
+            rewrite: complianceCheck.rewrite,
+            reasoning: complianceCheck.reasoning,
+            checkId: complianceCheck.id,
+          },
+        },
+      });
     } catch (err) {
       next(err);
     }

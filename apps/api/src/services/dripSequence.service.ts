@@ -18,6 +18,8 @@ import { sendWhatsAppTemplate } from "./whatsapp.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 import { canSendNow, recordSend } from "./sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "./billing.service";
+import { enforceCompliance } from "./compliance.service";
+import { ComplianceScope } from "@nexaflow/db";
 import { MessageDirection, MessageStatus } from "@nexaflow/shared";
 
 // ----------------------------------------------------------------------------
@@ -99,6 +101,29 @@ export async function createDripSequence(
     tenantId,
     input.steps.map((s) => s.templateId),
   );
+
+  // Compliance Firewall pass on each step's template body. We fetch all
+  // templates in one query (already-validated to belong to the tenant)
+  // and run each through enforceCompliance — any enforced verdict
+  // throws and aborts the entire sequence creation. The check is
+  // skippable in MANUAL mode at the tenant level via complianceMode.
+  const templates = await prisma.whatsAppTemplate.findMany({
+    where: {
+      tenantId,
+      id: { in: input.steps.map((s) => s.templateId) },
+    },
+    select: { id: true, bodyText: true },
+  });
+  const bodyById = new Map(templates.map((t) => [t.id, t.bodyText]));
+  for (const step of input.steps) {
+    const bodyText = bodyById.get(step.templateId);
+    if (!bodyText) continue;
+    await enforceCompliance({
+      tenantId,
+      scope: ComplianceScope.DRIP_STEP,
+      content: bodyText,
+    });
+  }
 
   return prisma.dripSequence.create({
     data: {

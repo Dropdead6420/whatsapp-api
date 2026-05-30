@@ -45,6 +45,11 @@ export interface ComplianceCheckInput {
   industry?: string;
   /** Optional summary of who's being targeted. */
   audienceDescription?: string;
+  /**
+   * Skip the LLM call entirely. Used by hot paths (agent reply) where
+   * the LLM round-trip is too expensive on every send.
+   */
+  heuristicsOnly?: boolean;
 }
 
 // ----------------------------------------------------------------------------
@@ -458,17 +463,21 @@ export async function runComplianceCheck(
 
   const heuristic = runHeuristics(content, input.scope);
 
-  // Skip the LLM call entirely when heuristics already returned a hard block —
-  // it would just be paying Anthropic to tell us what we already know.
-  const llm = heuristic.hardBlock
-    ? null
-    : await runLlmReview({
-        tenantId: input.tenantId,
-        content,
-        scope: input.scope,
-        industry: input.industry,
-        audienceDescription: input.audienceDescription,
-      });
+  // Skip the LLM call entirely when:
+  //  - heuristics already returned a hard block (paying Anthropic to tell
+  //    us what we already know is wasteful), OR
+  //  - the caller asked for heuristics-only (hot path; agent reply on
+  //    every send is too expensive at LLM rates).
+  const llm =
+    heuristic.hardBlock || input.heuristicsOnly
+      ? null
+      : await runLlmReview({
+          tenantId: input.tenantId,
+          content,
+          scope: input.scope,
+          industry: input.industry,
+          audienceDescription: input.audienceDescription,
+        });
 
   const combined = combineVerdict(heuristic, llm);
 
@@ -594,4 +603,46 @@ export async function recordOverride(args: {
       overriddenByUserId: args.userId,
     },
   });
+}
+
+// ----------------------------------------------------------------------------
+// Enforcement wrapper — call this from send paths instead of runComplianceCheck
+// when you want a hard stop on enforced verdicts.
+// ----------------------------------------------------------------------------
+
+export class ComplianceBlockedError extends ApiError {
+  /**
+   * The persisted ComplianceCheck row, so callers (or route error handlers)
+   * can surface violation + rewrite info to the client.
+   */
+  readonly check: RunComplianceCheckResult;
+
+  constructor(check: RunComplianceCheckResult) {
+    const detail =
+      check.violations.length > 0
+        ? check.violations.map((v) => `${v.code}: ${v.detail}`).join("; ")
+        : "Compliance Firewall blocked this send.";
+    super(
+      ErrorCodes.FORBIDDEN,
+      403,
+      `Compliance Firewall (${check.verdict}, score ${check.score}): ${detail}`,
+    );
+    this.name = "ComplianceBlockedError";
+    this.check = check;
+  }
+}
+
+/**
+ * Run the firewall and throw ComplianceBlockedError if the verdict is
+ * enforced under the tenant's current mode. Use this in send paths; use
+ * runComplianceCheck directly for previews / dashboards.
+ */
+export async function enforceCompliance(
+  input: ComplianceCheckInput,
+): Promise<RunComplianceCheckResult> {
+  const result = await runComplianceCheck(input);
+  if (result.enforced) {
+    throw new ComplianceBlockedError(result);
+  }
+  return result;
 }
