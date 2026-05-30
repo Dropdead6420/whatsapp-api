@@ -6,9 +6,14 @@ import {
   Permissions,
   UserRole,
 } from "@nexaflow/shared";
-import { requireAuth, RequestWithAuth } from "../middleware/auth";
+import {
+  requireAuth,
+  requireTenantScope,
+  RequestWithAuth,
+} from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
+import { requireFeature } from "../services/features.service";
 import {
   createDemoTenant,
   renewDemoTenant,
@@ -16,6 +21,7 @@ import {
   getDemoTenant,
   listPartnerDemos,
 } from "../services/demo.service";
+import { recommendDemoConversion } from "../services/demoConversion.service";
 
 const router = Router();
 
@@ -37,11 +43,15 @@ const listDemosSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
+const recommendConversionSchema = z.object({
+  useAi: z.boolean().default(true),
+});
+
 // ============================================================================
 // MIDDLEWARE
 // ============================================================================
 
-router.use(requireAuth);
+router.use(requireAuth, requireTenantScope);
 router.use(
   requirePermission(Permissions.CLIENT_CREATE)
 );
@@ -67,7 +77,7 @@ router.post("/create", async (req: RequestWithAuth, res, next) => {
     // Verify partner tenant is WHITE_LABEL or DIRECT
     if (
       req.userRole !== UserRole.SUPER_ADMIN &&
-      req.userRole !== UserRole.TEAM_LEAD
+      req.userRole !== UserRole.WHITE_LABEL_ADMIN
     ) {
       throw new ApiError(
         ErrorCodes.FORBIDDEN,
@@ -126,6 +136,46 @@ router.get("/", async (req: RequestWithAuth, res, next) => {
     next(error);
   }
 });
+
+/**
+ * POST /api/v1/partner/demo/:demoId/recommend-conversion
+ *
+ * Automation-first Demo-to-Paid Engine. Scores demo engagement and returns
+ * the next best partner follow-up.
+ */
+router.post(
+  "/:demoId/recommend-conversion",
+  requireFeature("demoToPaid"),
+  async (req: RequestWithAuth, res, next) => {
+    try {
+      const body = recommendConversionSchema.parse(req.body ?? {});
+      const recommendation = await recommendDemoConversion({
+        partnerTenantId: req.tenantId!,
+        demoId: req.params.demoId,
+        useAi: body.useAi,
+      });
+
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "DEMO_CONVERSION_RECOMMENDED",
+        resource: "DEMO_TENANT",
+        resourceId: req.params.demoId,
+        newValues: {
+          score: recommendation.score,
+          stage: recommendation.stage,
+          recommendedAction: recommendation.recommendedAction,
+          aiUsed: recommendation.aiUsed,
+        },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({ success: true, data: recommendation });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /**
  * GET /api/v1/partner/demo/:demoId

@@ -1012,4 +1012,31 @@ router.get(
   },
 );
 
+// ----------------------------------------------------------------------------
+// Provider Router stats (PRD-v2 §8, Sprint 2 slice 1).
+// SuperAdmin-only per-tenant health stats across the WhatsApp providers.
+// ?tenantId= and optional ?windowHours= (default 24, max 168 = 7 days).
+// ----------------------------------------------------------------------------
+
+const providerStatsSchema = z.object({
+  tenantId: z.string().cuid(),
+  windowHours: z.coerce.number().int().min(1).max(168).default(24),
+});
+
+router.get(
+  "/provider-router/stats",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const q = providerStatsSchema.parse(req.query);
+      const { getTenantProviderStats } = await import(
+        "../services/providerRouter.service"
+      );
+      const stats = await getTenantProviderStats(q.tenantId, q.windowHours);
+      res.json({ success: true, data: stats });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export default router;

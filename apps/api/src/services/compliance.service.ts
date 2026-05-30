@@ -58,6 +58,14 @@ export type TenantComplianceModeConfig = {
   REPLY?: ComplianceMode;
 };
 
+type TenantComplianceModeUpdates = {
+  default?: ComplianceMode;
+  CAMPAIGN?: ComplianceMode | null;
+  DRIP_STEP?: ComplianceMode | null;
+  TEMPLATE?: ComplianceMode | null;
+  REPLY?: ComplianceMode | null;
+};
+
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MODE = ComplianceMode.ASSISTED;
 
@@ -180,15 +188,22 @@ export async function getTenantComplianceModeConfig(
 
 export async function setTenantComplianceModeConfig(
   tenantId: string,
-  updates: Partial<TenantComplianceModeConfig>,
+  updates: TenantComplianceModeUpdates,
 ): Promise<TenantComplianceModeConfig> {
   const current = await getTenantComplianceModeConfig(tenantId);
-  const merged: TenantComplianceModeConfig = {
-    ...current,
-    ...Object.fromEntries(
-      Object.entries(updates).filter(([, value]) => value !== undefined),
-    ),
-  };
+  const merged: TenantComplianceModeConfig = { ...current };
+  if (updates.default !== undefined) merged.default = updates.default;
+  for (const scope of [
+    ComplianceScope.CAMPAIGN,
+    ComplianceScope.DRIP_STEP,
+    ComplianceScope.TEMPLATE,
+    ComplianceScope.REPLY,
+  ]) {
+    if (!Object.prototype.hasOwnProperty.call(updates, scope)) continue;
+    const value = updates[scope];
+    if (value === null) delete merged[scope];
+    else if (value !== undefined) merged[scope] = value;
+  }
   // Build a plain Record first — Prisma's InputJsonObject type has a
   // readonly index signature, so we can't mutate it after construction.
   const stored: Record<string, ComplianceMode> = { default: merged.default };

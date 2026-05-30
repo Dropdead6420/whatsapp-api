@@ -765,6 +765,34 @@ router.post(
           "Contact not found or has opted out.",
         );
       }
+      const languageCandidates = Array.from(
+        new Set(
+          [body.languageCode, body.languageCode.split("_")[0]].filter(Boolean),
+        ),
+      );
+      const template = await prisma.whatsAppTemplate.findFirst({
+        where: {
+          tenantId: req.tenantId!,
+          name: body.templateName,
+          language: { in: languageCandidates },
+        },
+        select: { id: true, bodyText: true },
+      });
+      if (!template) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "Template must exist in NexaFlow before sending so Compliance Firewall can review it.",
+        );
+      }
+      await assertComplianceAllowed({
+        tenantId: req.tenantId!,
+        scope: ComplianceScope.TEMPLATE,
+        refId: template.id,
+        content: template.bodyText,
+        createdByUserId: req.userId,
+        useAi: false,
+      });
       await assertCanAffordMessage(req.tenantId!);
       const config = await getTenantWabaConfig(req.tenantId!);
       await assertCanSend(req.tenantId!, { phoneNumberId: config.phoneNumberId });

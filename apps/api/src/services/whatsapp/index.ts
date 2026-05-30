@@ -1,4 +1,4 @@
-import { prisma, WhatsAppProviderKey } from "@nexaflow/db";
+import { prisma, WhatsAppProviderKey, WhatsAppSendKind } from "@nexaflow/db";
 import type {
   SendContext,
   SendResult,
@@ -9,6 +9,7 @@ import type {
 import { metaProvider } from "./providers/meta";
 import { gupshupProvider } from "./providers/gupshup";
 import { decryptTokenIfNeeded } from "../../lib/tokenCrypto";
+import { recordSample } from "../providerRouter.service";
 
 // Factory + back-compat thin wrappers (T-005 steps 1 + 2).
 //
@@ -134,6 +135,111 @@ export function getDefaultProvider(): WhatsAppProvider {
   return metaProvider;
 }
 
+/**
+ * Map adapter `key` (lowercase string union) to the Prisma enum used in
+ * the telemetry table. Keep this exhaustive — a future adapter that
+ * forgets to register here would silently log to "META" by default,
+ * which would be misleading.
+ */
+function providerKeyToEnum(
+  key: WhatsAppProvider["key"],
+): WhatsAppProviderKey {
+  switch (key) {
+    case "meta":
+      return WhatsAppProviderKey.META;
+    case "gupshup":
+      return WhatsAppProviderKey.GUPSHUP;
+    case "360dialog":
+      return WhatsAppProviderKey.DIALOG_360;
+    case "twilio":
+      return WhatsAppProviderKey.TWILIO;
+    case "haptik":
+      return WhatsAppProviderKey.HAPTIK;
+  }
+}
+
+/**
+ * Extract a meaningful error code from an adapter throw. Adapters wrap
+ * provider HTTP responses, so we look for common shapes: a `.code` field,
+ * a `.error.code` from Meta-style envelopes, or fall back to the error
+ * name. Statuses come from `.status` / `.statusCode` for the same
+ * adapters that surface them.
+ */
+function extractErrorMeta(err: unknown): {
+  statusCode: number | null;
+  errorCode: string | null;
+} {
+  if (!err || typeof err !== "object") {
+    return { statusCode: null, errorCode: null };
+  }
+  const e = err as Record<string, unknown>;
+  const status =
+    typeof e.statusCode === "number"
+      ? e.statusCode
+      : typeof e.status === "number"
+        ? e.status
+        : null;
+  const nested =
+    e.error && typeof e.error === "object"
+      ? (e.error as Record<string, unknown>)
+      : null;
+  const code =
+    typeof e.code === "string"
+      ? e.code
+      : typeof e.code === "number"
+        ? String(e.code)
+        : nested && typeof nested.code !== "undefined"
+          ? String(nested.code)
+          : err instanceof Error
+            ? err.name
+            : null;
+  return { statusCode: status, errorCode: code };
+}
+
+/**
+ * Sample the send: time it, record success / failure to
+ * ProviderHealthSample. Best-effort: telemetry must never disturb the
+ * send result or change the thrown error.
+ */
+async function sampledSend<R extends SendResult>(args: {
+  tenantId?: string;
+  phoneNumberId?: string;
+  providerKey: WhatsAppProviderKey;
+  kind: WhatsAppSendKind;
+  send: () => Promise<R>;
+}): Promise<R> {
+  const start = Date.now();
+  try {
+    const result = await args.send();
+    if (args.tenantId) {
+      void recordSample({
+        tenantId: args.tenantId,
+        providerKey: args.providerKey,
+        phoneNumberId: args.phoneNumberId,
+        kind: args.kind,
+        success: true,
+        latencyMs: Date.now() - start,
+      });
+    }
+    return result;
+  } catch (err) {
+    if (args.tenantId) {
+      const meta = extractErrorMeta(err);
+      void recordSample({
+        tenantId: args.tenantId,
+        providerKey: args.providerKey,
+        phoneNumberId: args.phoneNumberId,
+        kind: args.kind,
+        success: false,
+        statusCode: meta.statusCode,
+        errorCode: meta.errorCode,
+        latencyMs: Date.now() - start,
+      });
+    }
+    throw err;
+  }
+}
+
 /** Back-compat: forwards through the factory. Callers can now pass
  *  `tenantId` (and optionally `phoneNumberId`) to opt into routing. */
 export async function sendWhatsAppText(
@@ -143,11 +249,18 @@ export async function sendWhatsAppText(
     tenantId: args.tenantId,
     phoneNumberId: args.phoneNumberId,
   });
-  const result: SendResult = await provider.sendText({
+  const result = await sampledSend({
+    tenantId: args.tenantId,
     phoneNumberId: args.phoneNumberId,
-    accessToken: args.accessToken,
-    to: args.to,
-    body: args.body,
+    providerKey: providerKeyToEnum(provider.key),
+    kind: WhatsAppSendKind.TEXT,
+    send: () =>
+      provider.sendText({
+        phoneNumberId: args.phoneNumberId,
+        accessToken: args.accessToken,
+        to: args.to,
+        body: args.body,
+      }),
   });
   return result.providerMessageId;
 }
@@ -160,13 +273,20 @@ export async function sendWhatsAppTemplate(
     tenantId: args.tenantId,
     phoneNumberId: args.phoneNumberId,
   });
-  const result: SendResult = await provider.sendTemplate({
+  const result = await sampledSend({
+    tenantId: args.tenantId,
     phoneNumberId: args.phoneNumberId,
-    accessToken: args.accessToken,
-    to: args.to,
-    templateName: args.templateName,
-    languageCode: args.languageCode,
-    bodyParams: args.bodyParams,
+    providerKey: providerKeyToEnum(provider.key),
+    kind: WhatsAppSendKind.TEMPLATE,
+    send: () =>
+      provider.sendTemplate({
+        phoneNumberId: args.phoneNumberId,
+        accessToken: args.accessToken,
+        to: args.to,
+        templateName: args.templateName,
+        languageCode: args.languageCode,
+        bodyParams: args.bodyParams,
+      }),
   });
   return result.providerMessageId;
 }

@@ -6,6 +6,7 @@ Codex's operating contract for the NexaFlow AI repo. Companion to [`CLAUDE.md`](
 
 Source documents:
 
+- `/Users/sidharthkumar/Downloads/NexaFlow_AI_Claude_Codex_Final_Package/NexaFlow_Codex_Automation_First_Implementation.pdf` — automation-first implementation roadmap; current source for Compliance Firewall and future automated safety modules.
 - `/Users/sidharthkumar/Downloads/NexaFlow_Codex_FINAL_Full_Implementation_Blueprint_and_Features.pdf` — latest full implementation blueprint and feature scope.
 - `/Users/sidharthkumar/Downloads/NexaFlow_AI_Final_Product_Blueprint.pdf` — product source of truth.
 - `/Users/sidharthkumar/Downloads/NexaFlow_Codex_Playbook.pdf` — Codex implementation workflow source of truth.

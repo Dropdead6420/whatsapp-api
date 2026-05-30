@@ -11,6 +11,7 @@ import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { startFlowRun } from "../services/flow/engine";
 import { listNodeTypes, nodeRegistry } from "../services/flow/nodes";
+import { generateFlowFromPrompt } from "../services/flow/flowGenerator.service";
 import { requireFeature } from "../services/features.service";
 
 const router = Router();
@@ -57,6 +58,11 @@ const createFlowSchema = z.object({
 });
 
 const updateFlowSchema = createFlowSchema.partial();
+
+const generateFlowSchema = z.object({
+  prompt: z.string().trim().min(10).max(2000),
+  useAi: z.boolean().default(true),
+});
 
 function validateFlowDefinition(def: z.infer<typeof flowDefinitionSchema>): void {
   const ids = new Set(def.nodes.map((n) => n.id));
@@ -132,6 +138,62 @@ router.get("/node-types", async (_req, res, next) => {
     next(err);
   }
 });
+
+// POST /flows/generate — turn plain English into an inactive draft flow
+router.post(
+  "/generate",
+  requirePermission(Permissions.FLOW_PUBLISH),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = generateFlowSchema.parse(req.body);
+      const draft = await generateFlowFromPrompt({
+        tenantId: req.tenantId!,
+        prompt: body.prompt,
+        useAi: body.useAi,
+      });
+      validateFlowDefinition(draft.definition);
+
+      const created = await prisma.chatbotFlow.create({
+        data: {
+          tenantId: req.tenantId!,
+          name: draft.name,
+          description: draft.description,
+          isActive: false,
+          trigger: draft.trigger,
+          triggerKeywords: draft.triggerKeywords,
+          nodes: JSON.stringify(draft.definition.nodes),
+          edges: draft.definition.edges ? JSON.stringify(draft.definition.edges) : null,
+        },
+      });
+
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "ChatbotFlow",
+        resourceId: created.id,
+        newValues: {
+          name: created.name,
+          generatedFromPlainEnglish: true,
+          aiUsed: draft.aiUsed,
+        },
+        ...extractRequestMeta(req),
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          ...created,
+          definition: draft.definition,
+          aiUsed: draft.aiUsed,
+          aiFallbackReason: draft.aiFallbackReason,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /flows/:id
 router.get(

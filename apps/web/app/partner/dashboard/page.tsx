@@ -256,10 +256,10 @@ export default function PartnerDashboardPage() {
             <p className="text-xs text-slate-400">Trial packages and low balance thresholds requiring intervention.</p>
           </div>
           <Link
-            href="/partner/wallet"
+            href="/partner/demos"
             className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline"
           >
-            Manage Balances →
+            Open Demo Engine →
           </Link>
         </div>
 
@@ -295,7 +295,7 @@ export default function PartnerDashboardPage() {
                 </td>
                 <td className="px-4 py-3 text-slate-400">2 days left</td>
                 <td className="px-4 py-3 text-indigo-400 font-medium hover:underline">
-                  <Link href="/partner/whitelabel">Activate Account</Link>
+                  <Link href="/partner/demos">Score Demo</Link>
                 </td>
               </tr>
             </tbody>

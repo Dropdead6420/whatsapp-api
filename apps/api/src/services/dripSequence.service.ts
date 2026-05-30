@@ -126,6 +126,7 @@ export async function createDripSequence(
       tenantId,
       scope: ComplianceScope.DRIP_STEP,
       content: bodyText,
+      heuristicsOnly: true,
     });
   }
 

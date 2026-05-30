@@ -20,6 +20,17 @@ _(none)_
 
 ## Next up
 
+### T-080 — Automation-first Compliance Firewall ✅ shipped (2026-05-30)
+- **Priority**: P0
+- **Blueprint**: Automation-first PDF — Compliance Firewall
+- **Scope**: M — Prisma `ComplianceCheck`, mode config, tenant-scoped review API, worker enforcement, direct-send enforcement, and `/compliance` dashboard.
+- **Shipped**:
+  - Heuristic + optional AI checks with 24h tenant/scope/content cache.
+  - Modes: MANUAL logs only, ASSISTED requires override for REVIEW and hard-blocks BLOCK, AUTOPILOT allows PASS only.
+  - Enforcement in campaign dispatch, drip steps, conversation/direct replies, and direct template sends.
+  - RBAC + feature flag: `COMPLIANCE_REVIEW` and `complianceFirewall`.
+- **Follow-ups**: route-level integration tests and a richer template approval workflow can land after the next API test harness pass.
+
 ### T-052 — AI Agent Builder ✅ runtime complete; UI follow-ups pending
 - Slice 1 (schema + service + CRUD API + RBAC) shipped 2026-05-23 (ADR-025).
 - Slice 2 (`aiAgentRunner.service.ts` + `POST /:id/test` endpoint) shipped 2026-05-23 (ADR-026).

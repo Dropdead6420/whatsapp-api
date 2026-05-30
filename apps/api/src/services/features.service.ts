@@ -30,6 +30,7 @@ export type FeatureKey =
   | "appointments"    // Appointment booking
   | "campaigns"       // Broadcast campaigns
   | "complianceFirewall" // Compliance Firewall checks + review UI
+  | "demoToPaid"     // Demo-to-paid recommendation engine for partners
   | "developerPortal" // API keys, webhooks, docs, sandbox
   | "adsIntegration"; // Meta/Google ads (future)
 
@@ -48,6 +49,7 @@ export const ALL_FEATURES: FeatureKey[] = [
   "appointments",
   "campaigns",
   "complianceFirewall",
+  "demoToPaid",
   "developerPortal",
   "adsIntegration",
 ];
@@ -67,6 +69,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   appointments: "Appointment Booking",
   campaigns: "Broadcast Campaigns",
   complianceFirewall: "Compliance Firewall",
+  demoToPaid: "Demo-to-Paid Engine",
   developerPortal: "Developer/API Portal",
   adsIntegration: "Ads Integration",
 };

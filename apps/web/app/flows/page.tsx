@@ -41,6 +41,11 @@ interface FlowRun {
   error: string | null;
 }
 
+interface GeneratedFlowResult extends FlowSummary {
+  aiUsed: boolean;
+  aiFallbackReason?: string;
+}
+
 const FLOW_TRIGGERS = [
   { value: "keyword", label: "Keyword (WhatsApp)" },
   { value: "message_received", label: "Any inbound message" },
@@ -91,6 +96,10 @@ export default function FlowsPage() {
   const [triggerDraft, setTriggerDraft] = useState("");
   const [keywordsDraft, setKeywordsDraft] = useState("");
   const [savingTrigger, setSavingTrigger] = useState(false);
+  const [promptDraft, setPromptDraft] = useState(
+    "When someone asks for pricing, reply with a helpful message, tag them, and create a lead",
+  );
+  const [generating, setGenerating] = useState(false);
 
   async function refresh() {
     try {
@@ -201,6 +210,30 @@ export default function FlowsPage() {
     }
   }
 
+  async function generateFromPrompt() {
+    if (promptDraft.trim().length < 10) return;
+    setGenerating(true);
+    setErr(null);
+    setTestRunStatus(null);
+    try {
+      const created = await api.post<GeneratedFlowResult>("/api/v1/flows/generate", {
+        prompt: promptDraft.trim(),
+        useAi: true,
+      });
+      await refresh();
+      setSelectedId(created.id);
+      setTestRunStatus(
+        created.aiUsed
+          ? `Generated “${created.name}” with AI.`
+          : `Generated “${created.name}” with rules${created.aiFallbackReason ? ` (${created.aiFallbackReason})` : ""}.`,
+      );
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Generate failed");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   async function remove(id: string) {
     if (!confirm("Delete this flow? Running flow instances will not be affected."))
       return;
@@ -259,6 +292,35 @@ export default function FlowsPage() {
           {err}
         </div>
       )}
+
+      <section className="mb-8 rounded-lg border border-emerald-200 bg-emerald-50/60 p-5">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div className="max-w-2xl">
+            <h2 className="text-sm font-semibold text-slate-900">
+              Build a flow from plain English
+            </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Describe the WhatsApp automation. NexaFlow will create an inactive
+              draft you can open in the visual editor.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void generateFromPrompt()}
+            disabled={generating || promptDraft.trim().length < 10}
+            className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-60"
+          >
+            {generating ? "Generating..." : "Generate flow"}
+          </button>
+        </div>
+        <textarea
+          value={promptDraft}
+          onChange={(e) => setPromptDraft(e.target.value)}
+          rows={3}
+          className="mt-4 w-full resize-none rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+          placeholder="Example: When someone says BOOK, ask for date and time, tag booking_interest, then create a lead."
+        />
+      </section>
 
       {templates.length > 0 && (
         <section className="mb-8 rounded-lg border border-slate-200 bg-white p-5">

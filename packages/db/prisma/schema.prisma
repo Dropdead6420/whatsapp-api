@@ -186,6 +186,7 @@ model Tenant {
   metaAdsAudiences         MetaAdsAudience[]
   googleAdsConnection      GoogleAdsConnection?
   walletRiskAssessments    WalletRiskAssessment[]
+  providerHealthSamples    ProviderHealthSample[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -203,6 +204,49 @@ enum WhatsAppProviderKey {
   DIALOG_360
   TWILIO
   HAPTIK
+}
+
+// ============================================================================
+// Provider Router telemetry (PRD-v2 §8, Sprint 2 slice 1).
+//
+// Append-only health-sample ledger written by the WhatsApp send pipeline
+// on every outbound send. Aggregations over a rolling window drive the
+// SuperAdmin per-tenant stats view today; the smart-selection layer that
+// uses these stats to choose between Meta-Direct / Gupshup / 360dialog /
+// Twilio / Haptik per send is slice 2.
+// ============================================================================
+
+enum WhatsAppSendKind {
+  TEXT
+  TEMPLATE
+}
+
+model ProviderHealthSample {
+  id            String              @id @default(cuid())
+  tenantId      String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  providerKey   WhatsAppProviderKey
+  // Which WABA phone-number routed this send (when known). Null for
+  // tenant-default-route sends.
+  phoneNumberId String?
+  kind          WhatsAppSendKind
+
+  success       Boolean
+  // Provider HTTP status when known. Adapters that don't expose one
+  // (e.g. SDK callbacks) leave this null.
+  statusCode    Int?
+  // Provider-shaped error code on failure (e.g. Meta's "131056"). Free-form
+  // because each provider has its own taxonomy; the SuperAdmin view groups
+  // by code so operators can spot patterns.
+  errorCode     String?
+  // Round-trip latency in ms. Null only when timing wasn't captured (very
+  // rare — the wrapper always sets it).
+  latencyMs     Int?
+
+  createdAt     DateTime            @default(now())
+
+  @@index([tenantId, providerKey, createdAt])
+  @@index([providerKey, createdAt])
 }
 
 model ProviderRoute {

@@ -383,21 +383,30 @@ async function seedDemoData(
     },
   ];
 
-  await tx.contact.createMany({ data: sampleContacts });
+  const contacts = await Promise.all(
+    sampleContacts.map(({ firstName, lastName, source, ...contact }) =>
+      tx.contact.create({
+        data: {
+          ...contact,
+          name: `${firstName} ${lastName}`,
+          tags: [source.toLowerCase()],
+        },
+      })
+    )
+  );
 
   // 2. Create sample template
-  await tx.whatsAppTemplate.create({
+  const template = await tx.whatsAppTemplate.create({
     data: {
       tenantId,
-      name: "Welcome Message",
-      body: "Hello {{name}}, welcome to our demo! 👋",
+      name: "welcome_demo",
+      bodyText: "Hello {{name}}, welcome to our NexaFlow demo.",
       status: "APPROVED",
-      headerFormat: "TEXT",
       headerText: "Welcome",
       footerText: "Demo Message",
       language: "en",
       category: "MARKETING",
-      source: "DEMO",
+      variants: [],
     },
   });
 
@@ -409,22 +418,26 @@ async function seedDemoData(
       description: "Sample campaign for demonstration",
       type: "BROADCAST",
       status: "DRAFT",
-      createdBy: "demo",
-      targetList: [],
-      messageTemplate: "Welcome Message",
+      templateId: template.id,
+      targetContacts: JSON.stringify({
+        mode: "contacts",
+        contactIds: contacts.map((contact: { id: string }) => contact.id),
+      }),
+      totalContacts: contacts.length,
     },
   });
 
   // 4. Create sample lead
+  const leadContact = contacts[0];
   await tx.lead.create({
     data: {
       tenantId,
-      firstName: "Sample Lead",
-      email: "lead@example.com",
-      phoneNumber: "+14155552680",
+      contactId: leadContact.id,
+      title: "Sample demo lead",
+      description: "A seeded opportunity for partners to show the lead pipeline.",
       status: LeadStatus.NEW,
-      source: "DEMO",
-      assignedTeamId: null,
+      value: 25000,
+      probability: 0.35,
     },
   });
 }

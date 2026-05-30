@@ -161,6 +161,33 @@ describe("compliance.service", () => {
     expect(result.decision.blocked).toBe(true);
   });
 
+  it("persists sparse mode config and clears per-scope overrides", async () => {
+    mocks.tenantFindUnique.mockResolvedValueOnce({
+      complianceMode: { default: "ASSISTED", REPLY: "AUTOPILOT" },
+    });
+    mocks.tenantUpdate.mockResolvedValue({});
+
+    const { ComplianceMode, setTenantComplianceModeConfig } = await import(
+      "./compliance.service"
+    );
+
+    await setTenantComplianceModeConfig("t_1", {
+      default: ComplianceMode.MANUAL,
+      CAMPAIGN: ComplianceMode.AUTOPILOT,
+      REPLY: null,
+    });
+
+    expect(mocks.tenantUpdate).toHaveBeenCalledWith({
+      where: { id: "t_1" },
+      data: {
+        complianceMode: {
+          default: "MANUAL",
+          CAMPAIGN: "AUTOPILOT",
+        },
+      },
+    });
+  });
+
   it("only allows ASSISTED REVIEW checks to be overridden", async () => {
     mocks.checkFindFirst.mockResolvedValueOnce(
       fakeCheck({ verdict: "BLOCK", mode: "ASSISTED" }),

@@ -33,6 +33,22 @@ vi.mock("@nexaflow/db", () => ({
     TWILIO: "TWILIO",
     HAPTIK: "HAPTIK",
   },
+  ComplianceMode: {
+    MANUAL: "MANUAL",
+    ASSISTED: "ASSISTED",
+    AUTOPILOT: "AUTOPILOT",
+  },
+  ComplianceScope: {
+    CAMPAIGN: "CAMPAIGN",
+    DRIP_STEP: "DRIP_STEP",
+    TEMPLATE: "TEMPLATE",
+    REPLY: "REPLY",
+  },
+  ComplianceVerdict: {
+    PASS: "PASS",
+    REVIEW: "REVIEW",
+    BLOCK: "BLOCK",
+  },
 }));
 
 // scanScheduledCampaigns isn't exported by name, but enqueueCampaign is.

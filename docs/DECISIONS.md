@@ -485,3 +485,24 @@ Format:
   - **New routes** on `/api/v1/ai-agents`: `GET/PATCH /settings` (tenant auto-reply toggle), `POST /:id/set-default`, `POST /:id/clear-default`. All audit-logged.
   - **The "skip reason" log line is gated behind `AI_AGENT_LOG_SKIPS=true`** since the most common case (auto-reply off) would otherwise spam logs at info on every inbound for every non-opted-in tenant. Operators flip the env var when debugging.
   - **T-052 is feature-complete for the API/runtime surface.** What remains is editor palette wiring for `AI_AGENT` and a small operator UI for "make agent default + flip auto-reply" — frontend work. The blueprint §6 AI Agent Builder line item now has end-to-end runtime coverage.
+
+---
+
+## ADR-029 — Compliance Firewall checks before WhatsApp sends
+
+- **Date**: 2026-05-30
+- **Status**: Accepted; first automation-first PDF module (T-080)
+- **Context**: NexaFlow now sends WhatsApp content from multiple paths: campaigns, drip sequences, flow nodes, direct text replies, direct template sends, and AI-assisted replies. The automation-first roadmap calls for a Compliance Firewall that gives operators a fast safety layer before outbound sends without making hot chat paths slow or brittle. The platform already had opt-out and send-throttle gates; this adds content risk review.
+- **Decision**:
+  - **Persist every review as `ComplianceCheck`.** Rows are tenant-scoped and store `scope`, `refId`, content hash, verdict, score, violations, rewrite, mode, created-by user, and override metadata. This gives operators an audit trail for both automated worker decisions and manual checks from `/compliance`.
+  - **Default mode is `ASSISTED`.** `MANUAL` records verdicts without blocking, `ASSISTED` allows `PASS`, pauses/requires override for `REVIEW`, and hard-blocks `BLOCK`; `AUTOPILOT` allows only `PASS`. The mode is stored sparsely in `Tenant.complianceMode` JSON, with optional per-scope overrides.
+  - **Heuristics always run first.** The deterministic pass checks hard policy phrases, aggressive urgency, public short links, all-caps density, currency storms, and punctuation spikes. Optional AI review can raise the risk score or supply a rewrite, but a missing/failed LLM falls back to the heuristic verdict and records that in `reasoning`.
+  - **Cache by tenant + scope + content hash for 24 hours.** Re-running the same content should not re-bill the LLM. When the caller changes `refId` or mode, the service clones the cached verdict into a new row so the audit trail still points at the current entity.
+  - **Workers may use AI; hot HTTP send paths stay heuristic-only.** Campaign and drip background sends can afford the extra review latency and use the AI reviewer. Conversation replies, direct text sends, campaign creation previews, drip creation previews, and direct template sends use heuristic-only checks so agents and admins do not wait on an LLM in the request path.
+  - **Direct template sends must resolve a local template row.** Sending a Meta template by name without a local `WhatsAppTemplate.bodyText` would bypass content review. The `/whatsapp/send-template` route now requires the local template and checks that body before billing, throttle, WABA, or message creation.
+  - **Override is narrow.** Only `REVIEW` verdicts in `ASSISTED` mode can be overridden, and the route requires `COMPLIANCE_REVIEW` plus a reason. `BLOCK` remains a hard stop.
+- **Consequences**:
+  - New UI surface: `/compliance` with mode selector, manual checker, recent checks table, rewrite/reasoning display, and REVIEW override.
+  - New enforcement points: campaign worker pauses/fails before the first send, drip worker fails enrollment before the step send, reply/direct text routes return 409 and do not call WhatsApp, direct template sends require a local checked template.
+  - Feature flag `complianceFirewall` and permission `COMPLIANCE_REVIEW` gate the module. Business admins and team leads can review/override; agents can trigger reply checks but cannot override.
+  - Follow-up: add route-level integration tests once the Express test harness is expanded. Core service behavior is covered by unit tests and the full API test suite.

@@ -82,10 +82,10 @@ router.patch(
       const body = modeSchema.parse(req.body);
       const updates = {
         default: body.default,
-        CAMPAIGN: body.CAMPAIGN === null ? undefined : body.CAMPAIGN,
-        DRIP_STEP: body.DRIP_STEP === null ? undefined : body.DRIP_STEP,
-        TEMPLATE: body.TEMPLATE === null ? undefined : body.TEMPLATE,
-        REPLY: body.REPLY === null ? undefined : body.REPLY,
+        CAMPAIGN: body.CAMPAIGN,
+        DRIP_STEP: body.DRIP_STEP,
+        TEMPLATE: body.TEMPLATE,
+        REPLY: body.REPLY,
       };
       const mode = await setTenantComplianceModeConfig(req.tenantId!, updates);
       await logAudit({
