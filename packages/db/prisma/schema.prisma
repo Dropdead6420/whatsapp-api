@@ -185,6 +185,7 @@ model Tenant {
   metaAdsLeadForms         MetaAdsLeadForm[]
   metaAdsAudiences         MetaAdsAudience[]
   googleAdsConnection      GoogleAdsConnection?
+  walletRiskAssessments    WalletRiskAssessment[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -893,12 +894,80 @@ model Wallet {
 
   transactions             WalletTransaction[] @relation("WalletTransactions")
   counterpartyTransactions WalletTransaction[] @relation("CounterpartyWallet")
+  riskAssessments          WalletRiskAssessment[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
   @@index([status])
   @@index([billingMode])
+}
+
+// ============================================================================
+// AI Wallet Risk Engine (PRD-v2 §8, Sprint 2)
+//
+// One row per assessment. The scheduled worker runs every few hours and
+// writes a row per tenant; uniqueness on (tenantId, dayKey) so re-runs
+// inside the same UTC day upsert instead of bloating history. Reads:
+//   - Latest row (riskTier + recommendation) drives the wallet banner UI.
+//   - Time series (assessedAt desc) drives the SuperAdmin trend chart.
+// ============================================================================
+
+enum WalletRiskTier {
+  OK
+  WATCH
+  URGENT
+  CRITICAL
+}
+
+enum WalletRiskAction {
+  NONE
+  RECHARGE
+  ENABLE_AUTO_RECHARGE
+  THROTTLE_CAMPAIGNS
+  SWITCH_TO_POSTPAID
+  UPGRADE_PLAN
+}
+
+model WalletRiskAssessment {
+  id                       String           @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  walletId                 String
+  wallet                   Wallet           @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  // UTC date key (YYYY-MM-DD) — gives the (tenantId, dayKey) uniqueness
+  // that keeps repeat scans idempotent within a day.
+  dayKey                   String
+  assessedAt               DateTime         @default(now())
+
+  // Snapshot of inputs at assessment time so a re-read isn't dependent on
+  // the live wallet (which may have moved since).
+  balanceCredits           Int
+  lowBalanceThreshold      Int
+
+  // 14-day rolling stats. Float because the average isn't an integer when
+  // burn happens in small increments per send.
+  dailyBurnAvg             Float
+  dailyBurnP90             Float
+  daysToLowBalance         Float?
+  daysToZero               Float?
+
+  riskTier                 WalletRiskTier
+  recommendedActionCode    WalletRiskAction @default(NONE)
+  recommendedAmountCredits Int?
+  reasoning                String?
+
+  // True when the LLM was consulted. Tiers below WATCH skip the LLM call
+  // to keep AI spend bounded; the row still exists with deterministic
+  // math, just without a narrative.
+  llmUsed                  Boolean          @default(false)
+
+  createdAt                DateTime         @default(now())
+
+  @@unique([tenantId, dayKey])
+  @@index([tenantId, assessedAt(sort: Desc)])
+  @@index([riskTier, assessedAt(sort: Desc)])
 }
 
 model WalletTransaction {

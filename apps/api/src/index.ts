@@ -49,6 +49,7 @@ import metaAdsRoutes from "./routes/meta-ads.routes";
 import googleAdsRoutes from "./routes/google-ads.routes";
 import devicesRoutes from "./routes/devices.routes";
 import complianceRoutes from "./routes/compliance.routes";
+import walletRiskRoutes from "./routes/wallet-risk.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -99,6 +100,10 @@ import {
   startMetaLeadSyncWorker,
   stopMetaLeadSyncWorker,
 } from "./services/metaAds.service";
+import {
+  startWalletRiskWorker,
+  stopWalletRiskWorker,
+} from "./services/walletRisk.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -265,6 +270,7 @@ app.use("/api/v1/meta-ads", metaAdsRoutes);
 app.use("/api/v1/google-ads", googleAdsRoutes);
 app.use("/api/v1/devices", devicesRoutes);
 app.use("/api/v1/compliance", complianceRoutes);
+app.use("/api/v1/wallet-risk", walletRiskRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
@@ -297,6 +303,7 @@ async function startWorkers(): Promise<void> {
   await startDripWorker();
   await startLeadAutoScoreWorker();
   await startMetaLeadSyncWorker();
+  await startWalletRiskWorker();
 }
 
 function stopWorkers(): void {
@@ -314,6 +321,7 @@ function stopWorkers(): void {
   stopDripWorker();
   stopLeadAutoScoreWorker();
   stopMetaLeadSyncWorker();
+  stopWalletRiskWorker();
 }
 
 if (START_HTTP) {
