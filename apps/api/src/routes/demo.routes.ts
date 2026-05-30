@@ -22,6 +22,7 @@ import {
   listPartnerDemos,
 } from "../services/demo.service";
 import { recommendDemoConversion } from "../services/demoConversion.service";
+import { generateDemoBlueprint } from "../services/demoBlueprint.service";
 
 const router = Router();
 
@@ -45,6 +46,62 @@ const listDemosSchema = z.object({
 
 const recommendConversionSchema = z.object({
   useAi: z.boolean().default(true),
+});
+
+// AI Demo Builder — brief input shape (Sprint 3 slice 3).
+const briefSchema = z.object({
+  prospectName: z.string().min(1).max(120),
+  industry: z.string().min(1).max(80),
+  goals: z.string().max(800).optional(),
+  scale: z.string().max(120).optional(),
+  channels: z.string().max(120).optional(),
+  language: z.string().max(8).optional(),
+});
+
+// AI Demo Builder — DemoSeedPlan shape accepted by createDemoTenant.
+const seedPlanSchema = z.object({
+  industry: z.string().max(80).optional(),
+  contacts: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(120),
+        phoneNumber: z.string().min(5).max(24),
+        email: z.string().email().max(200).optional(),
+        tags: z.array(z.string().max(40)).max(8).optional(),
+      }),
+    )
+    .max(25)
+    .optional(),
+  templates: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(60),
+        bodyText: z.string().min(1).max(1024),
+        category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]).optional(),
+        headerText: z.string().max(60).optional(),
+        footerText: z.string().max(60).optional(),
+        language: z.string().max(8).optional(),
+      }),
+    )
+    .max(10)
+    .optional(),
+  campaignName: z.string().max(120).optional(),
+  leadTitle: z.string().max(200).optional(),
+  leadValue: z.number().int().min(0).max(10_000_000).optional(),
+  agentPersona: z
+    .object({
+      name: z.string().min(1).max(120),
+      role: z.string().min(1).max(240),
+      systemPrompt: z.string().min(10).max(4000),
+    })
+    .optional(),
+  welcomeMessage: z.string().max(500).optional(),
+});
+
+const createWithBlueprintSchema = z.object({
+  demoName: z.string().min(3).max(100).optional(),
+  expiryDays: z.number().int().min(7).max(90).default(30),
+  blueprint: seedPlanSchema,
 });
 
 // ============================================================================
@@ -117,8 +174,93 @@ router.post("/create", async (req: RequestWithAuth, res, next) => {
 });
 
 /**
+ * POST /api/v1/partner/demo/blueprint
+ *
+ * AI Demo Builder — preview only. Takes a one-line prospect brief
+ * (industry + goals + scale) and returns a structured demo blueprint
+ * (contacts, templates, campaign name, AI agent persona). No DB write;
+ * the partner reviews/edits and then calls /create-with-blueprint to
+ * provision. Billed to the partner tenant.
+ */
+router.post("/blueprint", async (req: RequestWithAuth, res, next) => {
+  try {
+    if (
+      req.userRole !== UserRole.SUPER_ADMIN &&
+      req.userRole !== UserRole.WHITE_LABEL_ADMIN
+    ) {
+      throw new ApiError(
+        ErrorCodes.FORBIDDEN,
+        403,
+        "Only partners can generate demo blueprints.",
+      );
+    }
+    const brief = briefSchema.parse(req.body);
+    const result = await generateDemoBlueprint({
+      partnerTenantId: req.tenantId!,
+      brief,
+    });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/v1/partner/demo/create-with-blueprint
+ *
+ * Provisions a fresh demo tenant and seeds the partner-approved
+ * blueprint instead of the canned five-contact default. The blueprint
+ * itself is validated server-side (length caps, no real PII fields)
+ * before any data hits the DB.
+ */
+router.post(
+  "/create-with-blueprint",
+  async (req: RequestWithAuth, res, next) => {
+    try {
+      if (
+        req.userRole !== UserRole.SUPER_ADMIN &&
+        req.userRole !== UserRole.WHITE_LABEL_ADMIN
+      ) {
+        throw new ApiError(
+          ErrorCodes.FORBIDDEN,
+          403,
+          "Only partners can create demo tenants.",
+        );
+      }
+      const body = createWithBlueprintSchema.parse(req.body);
+      const demoInfo = await createDemoTenant({
+        partnerTenantId: req.tenantId!,
+        demoName: body.demoName,
+        expiryDays: body.expiryDays,
+        seedPlan: body.blueprint,
+      });
+
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "DEMO_TENANT_CREATED",
+        resource: "DEMO_TENANT",
+        resourceId: demoInfo.demoTenantId,
+        newValues: {
+          demoTenantId: demoInfo.tenantId,
+          expiresAt: demoInfo.expiresAt,
+          seededFromBlueprint: true,
+          contactCount: body.blueprint.contacts?.length ?? 0,
+          templateCount: body.blueprint.templates?.length ?? 0,
+        },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({ success: true, data: demoInfo });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
  * GET /api/v1/partner/demo
- * 
+ *
  * List all demo tenants created by the partner
  */
 router.get("/", async (req: RequestWithAuth, res, next) => {

@@ -34,6 +34,26 @@ interface CustomerHealthRow {
   };
 }
 
+interface PartnerAssistantSummary {
+  partnerTenantId: string;
+  generatedAt: string;
+  totals: Record<CustomerHealthRow["tier"], number>;
+  totalTenants: number;
+  headline: string;
+  actions: Array<{
+    title: string;
+    rationale: string;
+    tenantIds: string[];
+  }>;
+  worstAccounts: Array<{
+    tenantId: string;
+    tenantName: string;
+    score: number;
+    tier: CustomerHealthRow["tier"];
+    recommendation: string;
+  }>;
+}
+
 export default function PartnerDashboardPage() {
   const { user, loading, signOut } = useAuth({
     required: true,
@@ -42,6 +62,9 @@ export default function PartnerDashboardPage() {
 
   const [data, setData] = useState<PartnerDashboard | null>(null);
   const [healthRows, setHealthRows] = useState<CustomerHealthRow[]>([]);
+  const [assistantSummary, setAssistantSummary] =
+    useState<PartnerAssistantSummary | null>(null);
+  const [assistantLoading, setAssistantLoading] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"7d" | "30d" | "all">("30d");
   const [currency, setCurrency] = useState<string>("INR");
 
@@ -61,6 +84,14 @@ export default function PartnerDashboardPage() {
         return "₹";
     }
   };
+
+  function refreshAssistantSummary() {
+    setAssistantLoading(true);
+    api.get<PartnerAssistantSummary>("/api/v1/partner/assistant/summary")
+      .then(setAssistantSummary)
+      .catch(() => setAssistantSummary(null))
+      .finally(() => setAssistantLoading(false));
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -88,6 +119,7 @@ export default function PartnerDashboardPage() {
     api.get<CustomerHealthRow[]>("/api/v1/partner/customer-health?limit=6")
       .then(setHealthRows)
       .catch(() => setHealthRows([]));
+    refreshAssistantSummary();
   }, [user]);
 
   if (loading || !user) {
@@ -181,6 +213,79 @@ export default function PartnerDashboardPage() {
           badge="99.4% SLA"
           badgeColor="text-purple-400 bg-purple-500/10 border-purple-500/20"
         />
+      </div>
+
+      <div className="mb-6 rounded-xl border border-indigo-500/20 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/40 p-6 backdrop-blur-md">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div className="max-w-3xl">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-indigo-400/20 bg-indigo-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                AI Partner Assistant
+              </span>
+              {assistantSummary && (
+                <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                  {assistantSummary.totalTenants} customers scanned
+                </span>
+              )}
+            </div>
+            <h2 className="text-xl font-black tracking-tight text-white">
+              {assistantSummary?.headline ??
+                (assistantLoading ? "Reading portfolio signals…" : "Portfolio assistant is ready.")}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              {assistantSummary
+                ? "Top actions are generated from customer health, wallet risk, compliance, and engagement signals."
+                : "Open customer accounts or refresh the summary after new health scans finish."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={refreshAssistantSummary}
+            disabled={assistantLoading}
+            className="w-fit rounded-lg border border-indigo-400/20 bg-indigo-500/10 px-4 py-2 text-xs font-bold text-indigo-200 transition hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {assistantLoading ? "Refreshing…" : "Refresh assistant"}
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
+            {(["THRIVING", "HEALTHY", "AT_RISK", "CHURNING"] as const).map((tier) => (
+              <div key={tier} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <TierBadge tier={tier} />
+                  <span className="text-xl font-black text-white">
+                    {assistantSummary?.totals[tier] ?? 0}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {(assistantSummary?.actions.length ? assistantSummary.actions : [
+              {
+                title: "No urgent partner actions",
+                rationale: "Health scans have not found at-risk customers in this portfolio yet.",
+                tenantIds: [],
+              },
+            ]).slice(0, 3).map((action, index) => (
+              <div key={`${action.title}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/40 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-white">{action.title}</div>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">{action.rationale}</p>
+                  </div>
+                  {action.tenantIds.length > 0 && (
+                    <span className="w-fit rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-400">
+                      {action.tenantIds.length} account{action.tenantIds.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {healthRows.length > 0 && (
