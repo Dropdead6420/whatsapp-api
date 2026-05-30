@@ -22,6 +22,7 @@ export const QueueNames = {
   LEAD_AUTOSCORE: "lead-autoscore",
   META_LEAD_SYNC: "meta-lead-sync",
   WALLET_RISK: "wallet-risk",
+  PLATFORM_MONITOR: "platform-monitor",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -61,6 +62,7 @@ export type DripJobData = { kind: "scan" };
 export type LeadAutoScoreJobData = { kind: "scan" };
 export type MetaLeadSyncJobData = { kind: "scan" };
 export type WalletRiskJobData = { kind: "scan" } | { kind: "assess"; tenantId: string };
+export type PlatformMonitorJobData = { kind: "scan" };
 
 const queueSingletons = new Map<string, Queue>();
 
@@ -140,6 +142,10 @@ export function getMetaLeadSyncQueue(): Queue<MetaLeadSyncJobData> {
 
 export function getWalletRiskQueue(): Queue<WalletRiskJobData> {
   return makeQueue<WalletRiskJobData>(QueueNames.WALLET_RISK);
+}
+
+export function getPlatformMonitorQueue(): Queue<PlatformMonitorJobData> {
+  return makeQueue<PlatformMonitorJobData>(QueueNames.PLATFORM_MONITOR);
 }
 
 // Test/shutdown helper. Closes the singleton + all registered workers.
