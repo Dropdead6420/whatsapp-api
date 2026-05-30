@@ -188,6 +188,7 @@ model Tenant {
   walletRiskAssessments    WalletRiskAssessment[]
   providerHealthSamples    ProviderHealthSample[]
   platformActionItems      PlatformActionItem[]
+  customerHealthScores     CustomerHealthScore[]
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -1997,6 +1998,58 @@ enum PlatformActionCode {
   AI_USAGE_SPIKE
   CHURN_RISK
   ONBOARDING_STALLED
+}
+
+// ============================================================================
+// Customer Health Score (PRD-v2 §8, Sprint 3 foundation).
+//
+// Per-customer-tenant rolling health metric driven by signals from the
+// other Sprint-2 engines (wallet risk + compliance) plus raw activity
+// (messages, leads, conversations). Partners see their portfolio sorted
+// by tier; the AI Partner Assistant (slice 2 of Sprint 3) uses the same
+// rows to drive upsell + churn-prevention nudges.
+//
+// (tenantId, dayKey) uniqueness lets the daily scan upsert without
+// bloating history.
+// ============================================================================
+
+enum CustomerHealthTier {
+  THRIVING   // score >= 80
+  HEALTHY    // score >= 60
+  AT_RISK    // score >= 40
+  CHURNING   // score < 40
+}
+
+model CustomerHealthScore {
+  id              String              @id @default(cuid())
+  tenantId        String
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  dayKey          String              // YYYY-MM-DD (UTC)
+  assessedAt      DateTime            @default(now())
+
+  // Composite score 0-100. Tier derived deterministically from score
+  // (no LLM in this slice; slice 2 layers an LLM narrative on top).
+  score           Int
+  tier            CustomerHealthTier
+
+  // Per-factor breakdown so partners + the AI assistant can see WHY a
+  // tenant scored where they did. Shape:
+  //   { activity: { score: 0-1, weight: 0-1, contribution: 0-100, detail: "..." },
+  //     wallet: { ... },
+  //     compliance: { ... },
+  //     engagement: { ... },
+  //     onboarding: { ... } }
+  factors         Json                @default("{}")
+
+  // Optional short recommendation (filled by the AI assistant in slice 2).
+  recommendation  String?
+
+  createdAt       DateTime            @default(now())
+
+  @@unique([tenantId, dayKey])
+  @@index([tenantId, assessedAt(sort: Desc)])
+  @@index([tier, assessedAt(sort: Desc)])
 }
 
 model PlatformActionItem {

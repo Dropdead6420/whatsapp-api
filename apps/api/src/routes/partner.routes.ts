@@ -28,6 +28,7 @@ import {
   SupportTicketPriority,
   SupportTicketStatus,
 } from "@nexaflow/db";
+import { listPartnerCustomerHealth } from "../services/customerHealth.service";
 
 const router = Router();
 
@@ -198,6 +199,32 @@ router.get(
           totalPages: Math.max(1, Math.ceil(total / q.limit)),
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/partner/customer-health
+router.get(
+  "/customer-health",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const query = z
+        .object({
+          refresh: z.coerce.boolean().default(false),
+          limit: z.coerce.number().int().min(1).max(100).default(25),
+        })
+        .parse(req.query);
+
+      const rows = await listPartnerCustomerHealth({
+        partnerTenantId: partner.id,
+        refresh: query.refresh,
+        limit: query.limit,
+      });
+      res.json({ success: true, data: rows });
     } catch (err) {
       next(err);
     }

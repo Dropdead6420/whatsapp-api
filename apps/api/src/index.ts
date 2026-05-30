@@ -109,6 +109,10 @@ import {
   startPlatformMonitorWorker,
   stopPlatformMonitorWorker,
 } from "./services/platformMonitor.service";
+import {
+  startCustomerHealthWorker,
+  stopCustomerHealthWorker,
+} from "./services/customerHealth.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -311,6 +315,7 @@ async function startWorkers(): Promise<void> {
   await startMetaLeadSyncWorker();
   await startWalletRiskWorker();
   await startPlatformMonitorWorker();
+  startCustomerHealthWorker();
 }
 
 function stopWorkers(): void {
@@ -330,6 +335,7 @@ function stopWorkers(): void {
   stopMetaLeadSyncWorker();
   stopWalletRiskWorker();
   stopPlatformMonitorWorker();
+  stopCustomerHealthWorker();
 }
 
 if (START_HTTP) {

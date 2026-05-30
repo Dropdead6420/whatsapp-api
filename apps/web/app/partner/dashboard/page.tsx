@@ -18,6 +18,22 @@ interface PartnerDashboard {
   demosExpiringSoon: number;
 }
 
+interface CustomerHealthRow {
+  tenantId: string;
+  tenantName: string;
+  status: string;
+  score: number;
+  tier: "THRIVING" | "HEALTHY" | "AT_RISK" | "CHURNING";
+  recommendation: string;
+  assessedAt: string;
+  metrics: {
+    messages30d: number;
+    complianceReview30d: number;
+    complianceBlock30d: number;
+    walletRiskTier: string | null;
+  };
+}
+
 export default function PartnerDashboardPage() {
   const { user, loading, signOut } = useAuth({
     required: true,
@@ -25,6 +41,7 @@ export default function PartnerDashboardPage() {
   });
 
   const [data, setData] = useState<PartnerDashboard | null>(null);
+  const [healthRows, setHealthRows] = useState<CustomerHealthRow[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<"7d" | "30d" | "all">("30d");
   const [currency, setCurrency] = useState<string>("INR");
 
@@ -68,6 +85,9 @@ export default function PartnerDashboardPage() {
         };
         setData(mockDashboard);
       });
+    api.get<CustomerHealthRow[]>("/api/v1/partner/customer-health?limit=6")
+      .then(setHealthRows)
+      .catch(() => setHealthRows([]));
   }, [user]);
 
   if (loading || !user) {
@@ -95,6 +115,10 @@ export default function PartnerDashboardPage() {
     { month: "Apr", profit: agencyProfits * 1.1, usage: 41000 },
     { month: "May", profit: agencyProfits * 1.25, usage: 48900 },
   ];
+
+  const atRiskCount = healthRows.filter((row) =>
+    row.tier === "AT_RISK" || row.tier === "CHURNING"
+  ).length;
 
   return (
     <PartnerShell user={user} signOut={signOut}>
@@ -158,6 +182,56 @@ export default function PartnerDashboardPage() {
           badgeColor="text-purple-400 bg-purple-500/10 border-purple-500/20"
         />
       </div>
+
+      {healthRows.length > 0 && (
+        <div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-md">
+          <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="text-base font-bold text-white">Customer Health Radar</h2>
+              <p className="text-xs text-slate-400">
+                Daily score from wallet risk, compliance, engagement, onboarding, and message activity.
+              </p>
+            </div>
+            <span className={`w-fit rounded-full border px-3 py-1 text-[10px] font-semibold ${
+              atRiskCount > 0
+                ? "border-rose-500/20 bg-rose-500/10 text-rose-300"
+                : "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+            }`}>
+              {atRiskCount > 0 ? `${atRiskCount} need attention` : "Portfolio stable"}
+            </span>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {healthRows.slice(0, 6).map((row) => (
+              <div key={row.tenantId} className="rounded-lg border border-slate-800 bg-slate-950/40 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-white">{row.tenantName}</div>
+                    <div className="mt-1 text-[10px] uppercase tracking-wider text-slate-500">{row.status}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-black text-white">{row.score}</div>
+                    <TierBadge tier={row.tier} />
+                  </div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className={`h-full rounded-full ${tierBarColor(row.tier)}`}
+                    style={{ width: `${row.score}%` }}
+                  />
+                </div>
+                <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-400">
+                  {row.recommendation}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-slate-500">
+                  <span>{row.metrics.messages30d.toLocaleString()} msgs</span>
+                  <span>{row.metrics.walletRiskTier ?? "wallet n/a"}</span>
+                  <span>{row.metrics.complianceBlock30d} blocked</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Main Grid: Revenue chart and plans */}
       <div className="grid gap-6 lg:grid-cols-3 mb-6">
@@ -331,4 +405,27 @@ function StatCard({
       <div className="mt-1 text-xs text-slate-400">{subtext}</div>
     </div>
   );
+}
+
+function TierBadge({ tier }: { tier: CustomerHealthRow["tier"] }) {
+  const className =
+    tier === "THRIVING"
+      ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+      : tier === "HEALTHY"
+        ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/20"
+        : tier === "AT_RISK"
+          ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+          : "bg-rose-500/10 text-rose-300 border-rose-500/20";
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${className}`}>
+      {tier.replace("_", " ")}
+    </span>
+  );
+}
+
+function tierBarColor(tier: CustomerHealthRow["tier"]) {
+  if (tier === "THRIVING") return "bg-emerald-500";
+  if (tier === "HEALTHY") return "bg-indigo-500";
+  if (tier === "AT_RISK") return "bg-amber-500";
+  return "bg-rose-500";
 }
