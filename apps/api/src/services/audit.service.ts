@@ -26,7 +26,10 @@ export type AuditAction =
   | "REPLY"
   | "ANNOTATE"
   | "COMPLIANCE_CHECK"
-  | "COMPLIANCE_OVERRIDE";
+  | "COMPLIANCE_OVERRIDE"
+  | "PROPOSAL_GENERATED"
+  | "PROPOSAL_CREATED"
+  | "PROPOSAL_STATUS_CHANGED";
 
 export interface AuditInput {
   tenantId: string;

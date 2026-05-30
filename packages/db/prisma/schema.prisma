@@ -189,6 +189,7 @@ model Tenant {
   providerHealthSamples    ProviderHealthSample[]
   platformActionItems      PlatformActionItem[]
   customerHealthScores     CustomerHealthScore[]
+  partnerProposals         Proposal[]          @relation("PartnerProposals")
 
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
@@ -2083,4 +2084,70 @@ model PlatformActionItem {
   @@index([status, severity, createdAt])
   @@index([targetTenantId, status])
   @@index([code, createdAt])
+}
+
+// ============================================================================
+// AI Proposal Generator (PRD-v2 §6, Sprint 3 slice 4)
+//
+// A partner submits a one-line prospect brief (business name, industry,
+// goals, scale) and Claude drafts a structured sales proposal: executive
+// summary, pain points, a recommended plan with pricing, an ROI estimate,
+// and an implementation timeline. The partner reviews/edits, saves, and
+// later marks it SENT / ACCEPTED / DECLINED as the deal moves.
+//
+// `content` holds the full structured draft (see proposal.service.ts for
+// the shape). Scalar `title` / `currency` / `estimatedValue` are denorm'd
+// for cheap list views. `shareToken` is reserved for a future public
+// read-only view — no unauthenticated route is exposed in this slice.
+// ============================================================================
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+}
+
+model Proposal {
+  id              String          @id @default(cuid())
+
+  // Partner tenant that owns this proposal (the seller, not the prospect).
+  partnerTenantId String
+  partnerTenant   Tenant          @relation("PartnerProposals", fields: [partnerTenantId], references: [id], onDelete: Cascade)
+
+  // Prospect is free-text — they are not a tenant yet.
+  prospectName    String
+  industry        String
+
+  // The brief the partner submitted, kept so a proposal can be regenerated.
+  brief           Json            @default("{}")
+
+  // Full AI-generated structured draft. Shape:
+  //   { executiveSummary, painPoints[],
+  //     recommendedPlan { name, priceMonthly, currency, features[] },
+  //     roiEstimate { summary, metrics[] },
+  //     timeline [{ phase, duration, detail }],
+  //     callToAction }
+  content         Json            @default("{}")
+
+  // Denormalized for list views without parsing `content`.
+  title           String
+  currency        String          @default("INR")
+  estimatedValue  Int?            // recommended plan price, whole currency units
+
+  status          ProposalStatus  @default(DRAFT)
+  source          String          @default("ai") // "ai" | "fallback"
+
+  // Reserved for a future public read-only share page. Unique so it can
+  // back a /p/:shareToken route later; not exposed unauthenticated yet.
+  shareToken      String          @unique @default(cuid())
+
+  createdByUserId String?
+  sentAt          DateTime?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([partnerTenantId, createdAt(sort: Desc)])
+  @@index([partnerTenantId, status])
 }

@@ -17,6 +17,7 @@ type MenuConfig = Partial<
     | "Dashboard"
     | "Customers"
     | "Demos"
+    | "Proposals"
     | "Wallet"
     | "Whitelabel"
     | "Theme"
@@ -121,6 +122,7 @@ export function PartnerShell({
     { key: "Dashboard", href: "/partner/dashboard", label: "Dashboard", icon: "📊" },
     { key: "Customers", href: "/partner/customers", label: "Customers", icon: "👥" },
     { key: "Demos", href: "/partner/demos", label: "Demo-to-Paid", icon: "🚀" },
+    { key: "Proposals", href: "/partner/proposals", label: "Proposals", icon: "📄" },
     { key: "Wallet", href: "/partner/wallet", label: "Wallet & Recharge", icon: "💳" },
     { key: "Whitelabel", href: "/partner/whitelabel", label: "White-label Setup", icon: "🏷️" },
     { key: "Theme", href: "/partner/theme", label: "Theme Builder", icon: "🎨" },
