@@ -362,7 +362,7 @@ function formatMode(mode: ComplianceMode): string {
   return mode
     .toLowerCase()
     .split("_")
-    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
 
@@ -370,7 +370,7 @@ function formatScope(scope: ComplianceScope): string {
   return scope
     .toLowerCase()
     .split("_")
-    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
 
