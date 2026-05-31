@@ -34,7 +34,7 @@ interface AuditResponse {
 export default function AuditLogsPage() {
   const { user, loading, signOut } = useAuth({
     required: true,
-    roles: ["SUPER_ADMIN", "BUSINESS_ADMIN"],
+    roles: ["SUPER_ADMIN", "BUSINESS_ADMIN", "WHITE_LABEL_ADMIN"],
   });
   const [logs, setLogs] = useState<AuditResponse | null>(null);
   const [action, setAction] = useState("");
