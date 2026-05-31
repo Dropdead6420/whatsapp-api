@@ -1,6 +1,15 @@
 "use client";
 
-import { CheckCircle2, FileText, Save, Send, Sparkles, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  Clipboard,
+  ExternalLink,
+  FileText,
+  Save,
+  Send,
+  Sparkles,
+  XCircle,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { PartnerShell } from "../../../src/components/PartnerShell";
@@ -52,6 +61,7 @@ interface ProposalRow {
   estimatedValue: number | null;
   status: ProposalStatus;
   source: string;
+  shareToken: string;
   sentAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -77,6 +87,7 @@ export default function PartnerProposalsPage() {
   const [proposals, setProposals] = useState<ProposalRow[]>([]);
   const [statusFilter, setStatusFilter] = useState<ProposalStatus | "ALL">("ALL");
   const [busy, setBusy] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   async function load() {
@@ -156,6 +167,18 @@ export default function PartnerProposalsPage() {
       setErr(e instanceof ApiClientError ? e.message : "Failed to update proposal");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function copyShareLink(proposal: ProposalRow) {
+    if (proposal.status !== "SENT" && proposal.status !== "ACCEPTED") return;
+    const url = `${window.location.origin}/p/${proposal.shareToken}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedId(proposal.id);
+      window.setTimeout(() => setCopiedId(null), 1800);
+    } catch {
+      setErr("Could not copy the proposal link. Open it and copy from the address bar.");
     }
   }
 
@@ -398,6 +421,25 @@ export default function PartnerProposalsPage() {
                           onClick={() => setProposalStatus(proposal.id, "SENT")}
                           icon={<Send className="h-4 w-4" />}
                         />
+                      )}
+                      {(proposal.status === "SENT" || proposal.status === "ACCEPTED") && (
+                        <>
+                          <IconAction
+                            label={copiedId === proposal.id ? "Copied" : "Copy share link"}
+                            onClick={() => void copyShareLink(proposal)}
+                            icon={<Clipboard className="h-4 w-4" />}
+                          />
+                          <a
+                            href={`/p/${proposal.shareToken}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open public proposal"
+                            aria-label="Open public proposal"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </>
                       )}
                       {proposal.status === "SENT" && (
                         <>

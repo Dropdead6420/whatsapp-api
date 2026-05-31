@@ -2104,8 +2104,8 @@ model PlatformActionItem {
 //
 // `content` holds the full structured draft (see proposal.service.ts for
 // the shape). Scalar `title` / `currency` / `estimatedValue` are denorm'd
-// for cheap list views. `shareToken` is reserved for a future public
-// read-only view — no unauthenticated route is exposed in this slice.
+// for cheap list views. `shareToken` backs the public read-only
+// /p/:shareToken proposal view. Only SENT / ACCEPTED proposals are exposed.
 // ============================================================================
 
 enum ProposalStatus {
@@ -2145,8 +2145,8 @@ model Proposal {
   status          ProposalStatus  @default(DRAFT)
   source          String          @default("ai") // "ai" | "fallback"
 
-  // Reserved for a future public read-only share page. Unique so it can
-  // back a /p/:shareToken route later; not exposed unauthenticated yet.
+  // Public read-only share page token. The API only exposes SENT / ACCEPTED
+  // proposals so drafts and declined deals stay private.
   shareToken      String          @unique @default(cuid())
 
   createdByUserId String?

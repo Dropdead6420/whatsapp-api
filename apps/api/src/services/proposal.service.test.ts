@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   proposalFindFirst: vi.fn(),
+  proposalFindUnique: vi.fn(),
   proposalUpdate: vi.fn(),
   proposalCreate: vi.fn(),
   runTenantLlmJson: vi.fn(),
@@ -11,6 +12,7 @@ vi.mock("@nexaflow/db", () => ({
   prisma: {
     proposal: {
       findFirst: mocks.proposalFindFirst,
+      findUnique: mocks.proposalFindUnique,
       update: mocks.proposalUpdate,
       create: mocks.proposalCreate,
     },
@@ -31,6 +33,7 @@ vi.mock("./ai.service", () => ({
 import { ProposalStatus } from "@nexaflow/db";
 import {
   generateProposalDraft,
+  getPublicProposalByToken,
   updateProposalStatus,
 } from "./proposal.service";
 
@@ -173,6 +176,76 @@ describe("updateProposalStatus", () => {
       expect.objectContaining({
         where: { id: "pr_other", partnerTenantId: "partner_1" },
       }),
+    );
+  });
+});
+
+describe("getPublicProposalByToken", () => {
+  const baseProposal = {
+    shareToken: "share_token_123",
+    prospectName: "Acme Co",
+    industry: "retail",
+    title: "NexaFlow proposal for Acme",
+    currency: "USD",
+    estimatedValue: 9999,
+    content: {
+      executiveSummary: "Summary",
+      painPoints: ["Slow replies"],
+      recommendedPlan: {
+        name: "Growth",
+        priceMonthly: 9999,
+        currency: "USD",
+        features: ["Team inbox"],
+      },
+      roiEstimate: { summary: "ROI", metrics: [{ label: "Speed", value: "Fast" }] },
+      timeline: [{ phase: "Week 1", duration: "5 days", detail: "Setup" }],
+      callToAction: "Start now.",
+    },
+    sentAt: new Date("2026-05-01T00:00:00.000Z"),
+    createdAt: new Date("2026-04-30T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-01T00:00:00.000Z"),
+    partnerTenant: {
+      name: "Partner Co",
+      domain: "partner.example",
+      logoUrl: null,
+      brandColors: null,
+    },
+  };
+
+  it("returns SENT proposals by share token", async () => {
+    mocks.proposalFindUnique.mockResolvedValue({
+      ...baseProposal,
+      status: "SENT",
+    });
+
+    const result = await getPublicProposalByToken("share_token_123");
+
+    expect(result.partner.name).toBe("Partner Co");
+    expect(result.content.recommendedPlan.name).toBe("Growth");
+    expect(mocks.proposalFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { shareToken: "share_token_123" },
+      }),
+    );
+  });
+
+  it("hides DRAFT and DECLINED proposals", async () => {
+    mocks.proposalFindUnique.mockResolvedValue({
+      ...baseProposal,
+      status: "DRAFT",
+    });
+
+    await expect(getPublicProposalByToken("share_token_123")).rejects.toThrow(
+      /not found/i,
+    );
+
+    mocks.proposalFindUnique.mockResolvedValue({
+      ...baseProposal,
+      status: "DECLINED",
+    });
+
+    await expect(getPublicProposalByToken("share_token_123")).rejects.toThrow(
+      /not found/i,
     );
   });
 });

@@ -49,6 +49,26 @@ export interface GeneratedProposal {
   source: "ai" | "fallback";
 }
 
+export interface PublicProposal {
+  shareToken: string;
+  prospectName: string;
+  industry: string;
+  title: string;
+  currency: string;
+  estimatedValue: number | null;
+  status: ProposalStatus;
+  content: ProposalContent;
+  sentAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  partner: {
+    name: string;
+    domain: string | null;
+    logoUrl: string | null;
+    brandColors: string | null;
+  };
+}
+
 const DEFAULT_CURRENCY = "INR";
 
 function clampStr(value: unknown, max: number, fallback = ""): string {
@@ -290,6 +310,7 @@ export async function listProposals(args: {
       estimatedValue: true,
       status: true,
       source: true,
+      shareToken: true,
       sentAt: true,
       createdAt: true,
       updatedAt: true,
@@ -312,6 +333,62 @@ export async function getProposal(args: {
     throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Proposal not found.");
   }
   return proposal;
+}
+
+/**
+ * Public, read-only proposal lookup. Draft and declined proposals remain
+ * private so partners can safely iterate before sending a prospect link.
+ */
+export async function getPublicProposalByToken(
+  shareToken: string,
+): Promise<PublicProposal> {
+  const proposal = await prisma.proposal.findUnique({
+    where: { shareToken },
+    select: {
+      shareToken: true,
+      prospectName: true,
+      industry: true,
+      title: true,
+      currency: true,
+      estimatedValue: true,
+      status: true,
+      content: true,
+      sentAt: true,
+      createdAt: true,
+      updatedAt: true,
+      partnerTenant: {
+        select: {
+          name: true,
+          domain: true,
+          logoUrl: true,
+          brandColors: true,
+        },
+      },
+    },
+  });
+
+  if (
+    !proposal ||
+    (proposal.status !== ProposalStatus.SENT &&
+      proposal.status !== ProposalStatus.ACCEPTED)
+  ) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Proposal not found.");
+  }
+
+  return {
+    shareToken: proposal.shareToken,
+    prospectName: proposal.prospectName,
+    industry: proposal.industry,
+    title: proposal.title,
+    currency: proposal.currency,
+    estimatedValue: proposal.estimatedValue,
+    status: proposal.status,
+    content: proposal.content as unknown as ProposalContent,
+    sentAt: proposal.sentAt,
+    createdAt: proposal.createdAt,
+    updatedAt: proposal.updatedAt,
+    partner: proposal.partnerTenant,
+  };
 }
 
 const STATUS_ORDER: Record<ProposalStatus, number> = {
