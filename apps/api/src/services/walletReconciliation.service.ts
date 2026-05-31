@@ -254,6 +254,10 @@ export async function startWalletReconciliationWorker(): Promise<void> {
           `[wallet-reconciliation] scan clean — ${summary.scanned} wallet${summary.scanned === 1 ? "" : "s"} reconciled`,
         );
       }
+      // Return the summary so BullMQ stores it on Job.returnvalue —
+      // getLastReconciliationRun reads this back without a separate
+      // persistence layer (ADR-040 pattern).
+      return summary;
     },
     {
       connection: getQueueConnection(),
@@ -278,4 +282,48 @@ export function stopWalletReconciliationWorker(): void {
   if (!walletReconciliationWorker) return;
   void walletReconciliationWorker.close();
   walletReconciliationWorker = null;
+}
+
+// ----------------------------------------------------------------------------
+// Last-run inspection (Sprint 6 slice 6, ADR-040 pattern). BullMQ's own
+// completed-jobs storage is the source of truth — no parallel state to
+// keep in sync. The operator question this answers: "did the nightly
+// wallet reconciliation actually run, and was anything off?"
+// ----------------------------------------------------------------------------
+
+export interface LastReconciliationRun {
+  ranAt: Date;
+  result: ReconcileAllSummary;
+  jobId: string | null;
+}
+
+export async function getLastReconciliationRun(): Promise<LastReconciliationRun | null> {
+  try {
+    const q = getWalletReconciliationQueue();
+    const completed = await q.getJobs(["completed"], 0, 50);
+    let best: { finishedOn: number; job: (typeof completed)[number] } | null =
+      null;
+    for (const job of completed) {
+      if (job.name !== SCAN_JOB_NAME) continue;
+      const finishedOn = job.finishedOn ?? 0;
+      if (!finishedOn) continue;
+      if (!best || finishedOn > best.finishedOn) {
+        best = { finishedOn, job };
+      }
+    }
+    if (!best) return null;
+    const returnvalue = best.job.returnvalue as ReconcileAllSummary | undefined;
+    if (!returnvalue) return null;
+    return {
+      ranAt: new Date(best.finishedOn),
+      result: returnvalue,
+      jobId: best.job.id ?? null,
+    };
+  } catch (err) {
+    console.warn(
+      "[wallet-reconciliation] last-run inspection failed:",
+      (err as Error).message,
+    );
+    return null;
+  }
 }

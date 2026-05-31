@@ -25,6 +25,7 @@ import {
 import {
   reconcileAllWallets,
   reconcileWallet,
+  getLastReconciliationRun,
 } from "../services/walletReconciliation.service";
 import {
   runComplianceAuditor,
@@ -504,6 +505,23 @@ router.post(
         ...extractRequestMeta(req),
       });
       res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/admin/wallet-reconciliation/last-run — when did the
+// scheduled nightly reconciliation last fire, and what did it return.
+// Reads BullMQ's own completed-jobs storage (ADR-040 pattern); no
+// parallel state. Returns null when the worker hasn't produced a
+// scheduled run yet (fresh install, freshly-cleared queue).
+router.get(
+  "/wallet-reconciliation/last-run",
+  async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const lastRun = await getLastReconciliationRun();
+      res.json({ success: true, data: lastRun });
     } catch (err) {
       next(err);
     }
