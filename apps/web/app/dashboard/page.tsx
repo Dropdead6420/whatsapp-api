@@ -154,6 +154,20 @@ function formatCurrencyFromPaisa(value?: number) {
   }).format(value / 100);
 }
 
+// AI usage cost is recorded as USD cents on AiUsage rows (Claude pricing is
+// USD-denominated). We surface it in USD on the dashboard to stay honest —
+// converting to INR without a tracked FX rate would be more confusing
+// than helpful.
+function formatCurrencyFromCents(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value / 100);
+}
+
 function SuperAdminCards({ summary }: { summary: DashboardSummary | null }) {
   const totals = summary?.totals;
   return (
@@ -182,7 +196,7 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
   const quota = summary?.sendQuota;
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Contacts" value={totals?.contacts?.toString() ?? "—"} />
         <StatCard
           label="Campaigns"
@@ -193,6 +207,11 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
           label="Open conversations"
           value={totals?.activeConversations?.toString() ?? "—"}
           hint={`${totals?.leads ?? "—"} leads in pipeline`}
+        />
+        <StatCard
+          label="AI spend"
+          value={formatCurrencyFromCents(totals?.aiCostInCentsThisMonth)}
+          hint="USD, this month"
         />
       </div>
 
