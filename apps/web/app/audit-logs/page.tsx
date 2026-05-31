@@ -34,12 +34,21 @@ interface AuditResponse {
 export default function AuditLogsPage() {
   const { user, loading, signOut } = useAuth({
     required: true,
-    roles: ["SUPER_ADMIN"],
+    roles: ["SUPER_ADMIN", "BUSINESS_ADMIN"],
   });
   const [logs, setLogs] = useState<AuditResponse | null>(null);
   const [action, setAction] = useState("");
   const [resource, setResource] = useState("");
   const [err, setErr] = useState<string | null>(null);
+
+  // SuperAdmin sees the cross-tenant feed; BUSINESS_ADMIN only sees
+  // their own tenant's trail. The two endpoints share a wire format
+  // so the rest of this page renders identically — the only visible
+  // difference is the Tenant column, hidden for the own-tenant view.
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const endpointBase = isSuperAdmin
+    ? "/api/v1/admin/audit-logs"
+    : "/api/v1/audit-logs";
 
   async function loadLogs(nextAction = action, nextResource = resource) {
     setErr(null);
@@ -48,7 +57,7 @@ export default function AuditLogsPage() {
     if (nextResource.trim()) params.set("resource", nextResource.trim());
     try {
       const data = await api.get<AuditResponse>(
-        `/api/v1/admin/audit-logs?${params.toString()}`,
+        `${endpointBase}?${params.toString()}`,
       );
       setLogs(data);
     } catch (e) {
@@ -75,7 +84,9 @@ export default function AuditLogsPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Audit Logs</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Security and mutation trail across the platform.
+          {isSuperAdmin
+            ? "Security and mutation trail across the platform."
+            : "Security and mutation trail for your workspace — who changed what and when."}
         </p>
       </header>
 
@@ -122,7 +133,7 @@ export default function AuditLogsPage() {
             <tr>
               <th className="px-4 py-3">Time</th>
               <th className="px-4 py-3">Actor</th>
-              <th className="px-4 py-3">Tenant</th>
+              {isSuperAdmin && <th className="px-4 py-3">Tenant</th>}
               <th className="px-4 py-3">Action</th>
               <th className="px-4 py-3">Resource</th>
               <th className="px-4 py-3">IP</th>
@@ -138,7 +149,11 @@ export default function AuditLogsPage() {
                   <div className="font-medium">{log.user?.name ?? log.userId}</div>
                   <div className="text-xs text-slate-500">{log.user?.email}</div>
                 </td>
-                <td className="px-4 py-3 text-slate-600">{log.tenant?.name ?? log.tenantId}</td>
+                {isSuperAdmin && (
+                  <td className="px-4 py-3 text-slate-600">
+                    {log.tenant?.name ?? log.tenantId}
+                  </td>
+                )}
                 <td className="px-4 py-3">
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                     {log.action}
@@ -155,7 +170,10 @@ export default function AuditLogsPage() {
             ))}
             {logs?.items.length === 0 && !err && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td
+                  colSpan={isSuperAdmin ? 6 : 5}
+                  className="px-4 py-10 text-center text-sm text-slate-500"
+                >
                   No audit logs found.
                 </td>
               </tr>

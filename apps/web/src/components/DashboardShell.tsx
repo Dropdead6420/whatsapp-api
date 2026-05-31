@@ -73,6 +73,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Developer",
     items: [
       { href: "/developer", label: "API Keys", roles: ["BUSINESS_ADMIN"], feature: "developerPortal" },
+      { href: "/audit-logs", label: "Audit Log", roles: ["BUSINESS_ADMIN"] },
     ],
   },
   {
