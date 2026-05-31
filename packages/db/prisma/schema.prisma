@@ -306,6 +306,8 @@ model Domain {
   lastCheckedAt            DateTime?
   lastError                String?
 
+  healthSamples            DomainHealthSample[]
+
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
@@ -2003,6 +2005,7 @@ enum PlatformActionCode {
   AI_USAGE_SPIKE
   CHURN_RISK
   ONBOARDING_STALLED
+  DOMAIN_HEALTH_DEGRADED
 }
 
 // ============================================================================
@@ -2246,4 +2249,47 @@ model RetentionConfig {
   updatedAt         DateTime       @updatedAt
 
   @@index([mode])
+}
+
+// ============================================================================
+// White-label Domain Health (PRD-v2 §5, Sprint 5 slice 1)
+//
+// Append-only sample ledger written by the 6-hour DNS/SSL drift monitor.
+// One row per (domain, scan-tick). The Domain row carries the current
+// authoritative state (dnsStatus / sslStatus / status / lastError); samples
+// are kept for trend display and to drive the consecutive-failure
+// escalation rule (>=3 consecutive non-OK samples → PlatformActionItem
+// DOMAIN_HEALTH_DEGRADED).
+// ============================================================================
+
+enum DomainHealthOutcome {
+  OK              // DNS + SSL both pass
+  DNS_DRIFT       // domain was LIVE; CNAME or TXT no longer resolves
+  SSL_FAILED      // DNS still good; SSL handshake failed
+  UNREACHABLE     // sample errored (network / DNS timeout)
+}
+
+model DomainHealthSample {
+  id           String              @id @default(cuid())
+  domainId     String
+  domain       Domain              @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  // Denormalized so we can group/list by partner without an extra join.
+  tenantId        String
+  partnerTenantId String?
+
+  outcome      DomainHealthOutcome
+  cnameOk      Boolean
+  txtOk        Boolean
+  sslOk        Boolean
+  // Round-trip latency for the worker's slowest check, ms (debugging only).
+  latencyMs    Int?
+  // Short, bounded error string when outcome != OK.
+  error        String?
+
+  observedAt   DateTime            @default(now())
+
+  @@index([domainId, observedAt(sort: Desc)])
+  @@index([tenantId, observedAt(sort: Desc)])
+  @@index([partnerTenantId, outcome, observedAt(sort: Desc)])
 }

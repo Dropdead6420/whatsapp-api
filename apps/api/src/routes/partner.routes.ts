@@ -32,6 +32,10 @@ import {
   listPartnerCustomerHealth,
   runPartnerAssistantSummary,
 } from "../services/customerHealth.service";
+import {
+  listPartnerDomainHealth,
+  scanDomainHealth,
+} from "../services/domainHealth.service";
 
 const router = Router();
 
@@ -249,6 +253,41 @@ router.get(
       const partner = await assertPartnerTenant(req.tenantId!);
       const summary = await runPartnerAssistantSummary(partner.id);
       res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/partner/domains/health — snapshot of every white-label
+// domain owned by this partner with its most recent health samples and
+// the current failing streak. Powers the partner's domain health card.
+router.get(
+  "/domains/health",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const rows = await listPartnerDomainHealth({ partnerTenantId: partner.id });
+      res.json({ success: true, data: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/partner/domains/health/refresh — force one scan tick now.
+// Useful for a partner who just fixed a registrar record and doesn't
+// want to wait for the next 6-hour worker tick. The scan is global —
+// not partner-scoped — so we guard rate via the 6h worker as well.
+router.post(
+  "/domains/health/refresh",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      await assertPartnerTenant(req.tenantId!);
+      const result = await scanDomainHealth();
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
