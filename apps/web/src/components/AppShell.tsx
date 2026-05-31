@@ -34,6 +34,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { activeHrefFromPath, isActiveRoute } from "../lib/navActive";
 
 type RoleName =
   | "SUPER_ADMIN"
@@ -275,39 +276,9 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function routeMatchScore(pathname: string, item: AppNavItem) {
-  const routes = [item.href, ...(item.activeRoutes ?? [])];
-  let score = -1;
-
-  for (const route of routes) {
-    if (pathname === route) {
-      score = Math.max(score, route.length + 1000);
-    } else if (route !== "/dashboard" && pathname.startsWith(`${route}/`)) {
-      score = Math.max(score, route.length);
-    }
-  }
-
-  return score;
-}
-
-function isActiveRoute(pathname: string, item: AppNavItem) {
-  return routeMatchScore(pathname, item) >= 0;
-}
-
-function activeHrefFromPath(pathname: string, sections: AppNavSection[]) {
-  let best: { href: string; score: number } | null = null;
-
-  for (const section of sections) {
-    for (const item of section.items) {
-      const score = routeMatchScore(pathname, item);
-      if (score > (best?.score ?? -1)) {
-        best = { href: item.href, score };
-      }
-    }
-  }
-
-  return best?.href ?? null;
-}
+// Route-match scoring lives in src/lib/navActive.ts so it can be
+// unit-tested in isolation — see navActive.test.ts for the pinned
+// rules (exact > prefix, longest-wins, /dashboard blocklist).
 
 function filterSections(
   user: AuthUserPublic,

@@ -29,6 +29,10 @@ export default defineConfig({
     root: repoRoot,
     include: [
       "apps/api/src/**/*.{test,spec}.{ts,tsx,js}",
+      // `apps/web/src/lib/**` holds pure helpers that vitest can run
+      // without a React DOM environment. App-component tests live under
+      // `apps/web/e2e/` and are owned by Playwright (excluded below).
+      "apps/web/src/lib/**/*.{test,spec}.{ts,tsx,js}",
       "packages/**/src/**/*.{test,spec}.{ts,tsx,js}",
     ],
     exclude: [
