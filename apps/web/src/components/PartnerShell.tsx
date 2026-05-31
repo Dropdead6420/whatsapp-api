@@ -20,6 +20,7 @@ type MenuConfig = Partial<
     | "Proposals"
     | "Wallet"
     | "Whitelabel"
+    | "Domains"
     | "Theme"
     | "Menu"
     | "Products"
@@ -125,6 +126,7 @@ export function PartnerShell({
     { key: "Proposals", href: "/partner/proposals", label: "Proposals", icon: "📄" },
     { key: "Wallet", href: "/partner/wallet", label: "Wallet & Recharge", icon: "💳" },
     { key: "Whitelabel", href: "/partner/whitelabel", label: "White-label Setup", icon: "🏷️" },
+    { key: "Domains", href: "/partner/domains", label: "Domain Health", icon: "🌐" },
     { key: "Theme", href: "/partner/theme", label: "Theme Builder", icon: "🎨" },
     { key: "Menu", href: "/partner/menu", label: "UI/Menu Manager", icon: "⚙️" },
     { key: "Products", href: "/partner/products", label: "Portfolio Catalog", icon: "📦" },
