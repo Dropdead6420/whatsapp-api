@@ -556,3 +556,20 @@ Format:
   - New `RetentionConfig` model + `RetentionMode` enum + migration `20260530210000_retention_config`; routes `GET/PUT /api/v1/retention/config` and `POST /api/v1/retention/autopilot/run` (with `dryRun`).
   - 7 new unit tests cover the mode gate, the not-configured / not-ACTIVE short-circuits, opt-out + already-enrolled filtering, the enroll cap, and dry-run.
   - Follow-up: LLM-written win-back copy (a generate-then-approve preview like the proposal/demo tools) and per-contact "enroll now" from the retention table are the next adds; both reuse this config + the drip path.
+
+## ADR-033 — LLM win-back copy: generate-only, opt-out is a hard 400, never auto-send
+
+- **Date**: 2026-05-30
+- **Status**: Accepted; PRD-v2 §7 Sprint 4 slice 3 (LLM win-back copy)
+- **Context**: Slice 1 scored contacts and slice 2 enrolled them into a partner-chosen drip. Operators still need help with the *words*: the "what should I actually say to Priya who's been quiet 45 days?" problem. The tempting design is a one-click "draft and send" that runs the LLM, writes the message, and dispatches over WhatsApp. That couples a non-deterministic model directly to an irreversible outbound message to a customer's customer — exactly the move ADR-030 banned for partner sales tools, and the stakes are higher here because the *recipient* is a third party who hasn't opted into AI-written outreach. The right shape is the same one that worked for proposals and demos: generate-then-approve.
+- **Decision**:
+  - **Generation-only endpoint, no send.** `POST /retention/winback-copy` returns a `{message, variants, source}` draft. The operator reviews, edits, and pastes into a template, campaign, or drip. There is no "send this now" option in this slice; if outreach is wanted, the existing drip auto-enroll (slice 2) handles delivery with all its compliance/throttle plumbing intact.
+  - **Opt-out is a hard 400.** Even though the response is just text, drafting outreach to an opted-out contact normalizes a workflow where the next click sends. The service rejects with a 400 before the LLM is called, and the UI hides the suggest button on opted-out rows. Cheaper than the LLM, and the audit trail is cleaner.
+  - **Same fallback pattern as ADR-030.** A deterministic, name-personalized fallback message is returned (tagged `source: "fallback"`) whenever the LLM errors, the platform has no API key, or the model returns nothing usable. The UI is never empty. When the LLM only returns `variants`, the first is promoted to `message` so the response shape stays consistent.
+  - **Billed to the tenant.** Uses the existing `runTenantLlmJson` plumbing — `assertCanAffordAi` + `debitAi` against the customer tenant, recorded on `aiUsage`. Spend is capped, audited, and matched to the tenant whose customers benefit.
+  - **Sanitized output, bounded prompt.** Message and each variant clamped to 1000 chars; up to 3 variants kept; empty strings filtered. System prompt forbids ALL-CAPS, fake urgency, and multi-emoji spam — guardrails the model can still violate, but the operator-review step is the real safety net.
+  - **Surface only on at-risk rows.** The `/retention` table shows "✦ Suggest win-back copy" on COOLING / DORMANT / LOST rows (not ACTIVE) and not on opted-out rows. Result panel shows the message, alternates as a collapsed `<details>`, copy buttons, and a regenerate button. A "Generation only — nothing has been sent" footer keeps expectations clear.
+- **Consequences**:
+  - New service export `generateWinbackCopy` + `POST /api/v1/retention/winback-copy` route; gated by the existing `retentionEngine` feature flag and `CONTACT_READ`. No new schema, no migration, no audit action — text drafts aren't stored, only the `aiUsage` debit row is.
+  - 6 new unit tests pin: AI happy path with variant sanitization, opt-out 400 with no LLM call, 404 cross-tenant scoping, LLM-throw fallback, empty-response fallback, variants-only promotion to `message`.
+  - Follow-up: a "save as template" / "save as drip step" shortcut on the draft panel would close the loop without inventing a new sender; both are pure DB writes against existing tables.

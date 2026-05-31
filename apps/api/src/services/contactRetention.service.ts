@@ -688,3 +688,116 @@ export function stopContactRetentionWorker(): void {
     timer = null;
   }
 }
+
+// ----------------------------------------------------------------------------
+// LLM win-back copy (slice 3). Generate-then-approve: this only DRAFTS a
+// message for a single at-risk contact — it never sends. The operator
+// reviews/edits and pastes it into a template, campaign, or drip. Billed to
+// the tenant; deterministic fallback so the UI is never empty.
+// ----------------------------------------------------------------------------
+
+export interface WinbackCopyResult {
+  contactId: string;
+  message: string;
+  variants: string[];
+  source: "ai" | "fallback";
+}
+
+function clampText(value: unknown, max: number, fallback = ""): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : fallback;
+}
+
+export async function generateWinbackCopy(args: {
+  tenantId: string;
+  contactId: string;
+  tone?: string;
+  businessName?: string;
+}): Promise<WinbackCopyResult> {
+  const contact = await prisma.contact.findFirst({
+    where: { id: args.contactId, tenantId: args.tenantId },
+    select: {
+      id: true,
+      name: true,
+      lifecycleStage: true,
+      optedOut: true,
+      aiScore: true,
+      lastInteractionAt: true,
+      createdAt: true,
+      tags: true,
+    },
+  });
+  if (!contact) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Contact not found.");
+  }
+  // Never help craft outreach to someone who opted out.
+  if (contact.optedOut) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "Contact has opted out; cannot draft outreach.",
+    );
+  }
+
+  const scored = scoreContact(
+    { ...contact, phoneNumber: "" },
+    new Date(),
+  );
+  const firstName = (contact.name || "there").split(" ")[0] || "there";
+
+  const fallback: WinbackCopyResult = {
+    contactId: contact.id,
+    message: `Hi ${firstName}, we've missed you! It's been a little while — is there anything we can help you with today? Just reply here and we'll take care of it. 💬`,
+    variants: [
+      `Hey ${firstName}, checking in 👋 We'd love to have you back — can we help with anything?`,
+      `Hi ${firstName}, a quick nudge from us: reply to pick up right where you left off. We're one message away.`,
+    ],
+    source: "fallback",
+  };
+
+  try {
+    const { runTenantLlmJson } = await import("./ai.service");
+    const llm = await runTenantLlmJson<{ message?: string; variants?: string[] }>({
+      tenantId: args.tenantId,
+      feature: "retention_winback_copy",
+      system:
+        "You are a WhatsApp win-back copywriter for a business re-engaging a " +
+        "quiet contact. Write warm, concise, non-pushy messages that invite a " +
+        "reply. Under 320 characters each, at most one emoji, no spammy ALL-CAPS, " +
+        "no fake urgency, and always respect that the person can ignore it. " +
+        'Return JSON: {"message":"primary message","variants":["alt 1","alt 2"]}',
+      prompt: JSON.stringify({
+        firstName,
+        businessName: args.businessName,
+        lifecycleStage: contact.lifecycleStage,
+        daysSinceInteraction: scored.daysSinceInteraction,
+        tier: scored.tier,
+        tags: (contact.tags ?? []).slice(0, 5),
+        tone: args.tone ?? "warm and friendly",
+      }),
+      maxTokens: 500,
+      temperature: 0.7,
+    });
+
+    const message = clampText(llm.message, 1000);
+    const variants = Array.isArray(llm.variants)
+      ? llm.variants
+          .filter((v) => typeof v === "string" && v.trim())
+          .slice(0, 3)
+          .map((v) => v.trim().slice(0, 1000))
+      : [];
+
+    if (!message && variants.length === 0) return fallback;
+
+    return {
+      contactId: contact.id,
+      message: message || variants[0],
+      variants: message ? variants : variants.slice(1),
+      source: "ai",
+    };
+  } catch (err) {
+    console.error("[retention] winback copy generation failed:", err);
+    return fallback;
+  }
+}

@@ -15,6 +15,7 @@ import {
   getRetentionConfig,
   upsertRetentionConfig,
   runRetentionAutopilot,
+  generateWinbackCopy,
 } from "../services/contactRetention.service";
 
 const router = Router();
@@ -40,6 +41,12 @@ const configSchema = z.object({
 
 const autopilotRunSchema = z.object({
   dryRun: z.boolean().default(false),
+});
+
+const winbackCopySchema = z.object({
+  contactId: z.string().min(1),
+  tone: z.string().max(80).optional(),
+  businessName: z.string().max(120).optional(),
 });
 
 /**
@@ -149,6 +156,32 @@ router.post(
           ...extractRequestMeta(req),
         });
       }
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /api/v1/retention/winback-copy
+ *
+ * Generate-then-approve LLM draft of a win-back WhatsApp message for one
+ * at-risk contact. Generation only — no sending. The operator reviews,
+ * edits, and pastes into a template / campaign / drip. Opt-out is a hard
+ * stop. Falls back to a deterministic message on LLM failure.
+ */
+router.post(
+  "/winback-copy",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = winbackCopySchema.parse(req.body);
+      const result = await generateWinbackCopy({
+        tenantId: req.tenantId!,
+        contactId: body.contactId,
+        tone: body.tone,
+        businessName: body.businessName,
+      });
       res.json({ success: true, data: result });
     } catch (err) {
       next(err);

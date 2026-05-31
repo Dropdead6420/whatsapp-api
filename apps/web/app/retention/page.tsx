@@ -116,6 +116,11 @@ export default function RetentionPage() {
   const [runResult, setRunResult] = useState<AutopilotResult | null>(null);
   const [running, setRunning] = useState(false);
 
+  const [winbackDrafts, setWinbackDrafts] = useState<
+    Record<string, { message: string; variants: string[]; source: "ai" | "fallback" } | "loading">
+  >({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
   const load = async (refresh = false) => {
     setBusy(!refresh);
     setRefreshing(refresh);
@@ -192,6 +197,37 @@ export default function RetentionPage() {
     () => sequences.filter((s) => s.status === "ACTIVE"),
     [sequences],
   );
+
+  const suggestWinback = async (contactId: string) => {
+    setWinbackDrafts((prev) => ({ ...prev, [contactId]: "loading" }));
+    setErr(null);
+    try {
+      const result = await api.post<{
+        message: string;
+        variants: string[];
+        source: "ai" | "fallback";
+      }>("/api/v1/retention/winback-copy", { contactId });
+      setWinbackDrafts((prev) => ({ ...prev, [contactId]: result }));
+    } catch (e) {
+      setWinbackDrafts((prev) => {
+        const next = { ...prev };
+        delete next[contactId];
+        return next;
+      });
+      setErr(e instanceof ApiClientError ? e.message : "Failed to draft win-back copy");
+    }
+  };
+
+  const copyDraft = async (contactId: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(contactId);
+      setTimeout(() => setCopiedId((c) => (c === contactId ? null : c)), 1500);
+    } catch {
+      // Clipboard API not available — show inline so the operator can hand-copy.
+      setCopiedId(null);
+    }
+  };
 
   const riskCount = useMemo(() => {
     if (!summary) return 0;
@@ -452,7 +488,41 @@ export default function RetentionPage() {
                   </div>
                 </td>
                 <td className="px-4 py-4 text-sm leading-6 text-slate-600">
-                  {row.recommendation}
+                  <div>{row.recommendation}</div>
+                  {!row.optedOut &&
+                    (row.tier === "DORMANT" ||
+                      row.tier === "COOLING" ||
+                      row.tier === "LOST") && (
+                      <div className="mt-2">
+                        {winbackDrafts[row.contactId] === "loading" ? (
+                          <span className="text-xs text-slate-500">
+                            Drafting message...
+                          </span>
+                        ) : winbackDrafts[row.contactId] ? (
+                          <DraftPanel
+                            draft={
+                              winbackDrafts[row.contactId] as {
+                                message: string;
+                                variants: string[];
+                                source: "ai" | "fallback";
+                              }
+                            }
+                            copiedId={copiedId}
+                            contactId={row.contactId}
+                            onCopy={(text) => void copyDraft(row.contactId, text)}
+                            onRegenerate={() => void suggestWinback(row.contactId)}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void suggestWinback(row.contactId)}
+                            className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                          >
+                            ✦ Suggest win-back copy
+                          </button>
+                        )}
+                      </div>
+                    )}
                 </td>
               </tr>
             ))}
@@ -510,5 +580,76 @@ function TierBadge({ tier }: { tier: RetentionTier }) {
     >
       {TIER_META[tier].label}
     </span>
+  );
+}
+
+function DraftPanel({
+  draft,
+  copiedId,
+  contactId,
+  onCopy,
+  onRegenerate,
+}: {
+  draft: { message: string; variants: string[]; source: "ai" | "fallback" };
+  copiedId: string | null;
+  contactId: string;
+  onCopy: (text: string) => void;
+  onRegenerate: () => void;
+}) {
+  const isCopied = copiedId === contactId;
+  return (
+    <div className="rounded-md border border-indigo-200 bg-indigo-50/60 p-3 text-xs">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-semibold uppercase tracking-wide text-indigo-700">
+          {draft.source === "ai" ? "AI draft" : "Suggested copy"}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onCopy(draft.message)}
+            className="rounded border border-indigo-300 bg-white px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-100"
+          >
+            {isCopied ? "Copied!" : "Copy"}
+          </button>
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
+            title="Generate another"
+          >
+            ↻
+          </button>
+        </div>
+      </div>
+      <p className="whitespace-pre-wrap text-slate-800">{draft.message}</p>
+      {draft.variants.length > 0 && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-indigo-700">
+            {draft.variants.length} alternate variant
+            {draft.variants.length === 1 ? "" : "s"}
+          </summary>
+          <ul className="mt-1 space-y-1">
+            {draft.variants.map((v, i) => (
+              <li
+                key={i}
+                className="flex items-start justify-between gap-2 rounded bg-white/70 p-2"
+              >
+                <span className="flex-1 whitespace-pre-wrap text-slate-700">{v}</span>
+                <button
+                  type="button"
+                  onClick={() => onCopy(v)}
+                  className="shrink-0 rounded border border-slate-300 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100"
+                >
+                  Copy
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <p className="mt-2 text-[10px] text-slate-500">
+        Generation only — nothing has been sent. Review before using.
+      </p>
+    </div>
   );
 }
