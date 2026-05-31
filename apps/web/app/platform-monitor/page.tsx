@@ -175,6 +175,7 @@ export default function PlatformMonitorPage() {
         webhookItems: number;
         aiUsageItems: number;
         churnRiskItems: number;
+        onboardingStalledItems: number;
         total: number;
       }>("/api/v1/admin/platform-monitor/refresh");
       await load();

@@ -306,6 +306,140 @@ async function gatherChurnRiskSignals(now: Date): Promise<number> {
 }
 
 // ----------------------------------------------------------------------------
+// Onboarding-stalled signals (Sprint 6 slice 9). The onboarding.service
+// already computes 4 deterministic steps per tenant from existing tables
+// (WhatsApp connected, contacts imported, agent created, message sent).
+// A new BUSINESS tenant that's been around for a week+ without completing
+// any of those steps is stuck — the operator (or the owning partner)
+// should reach out before the tenant churns.
+//
+// We deliberately bound the window to 7-30 days. Younger than 7 days
+// is too early to call "stalled" — first-week effort spikes are common.
+// Older than 30 days flows to the CustomerHealthScore engine (CHURN_RISK
+// already surfaces these), so we don't want to duplicate the noise.
+// ----------------------------------------------------------------------------
+
+const ONBOARDING_STALL_MIN_AGE_DAYS = 7;
+const ONBOARDING_STALL_MAX_AGE_DAYS = 30;
+const ONBOARDING_HIGH_TIER_AGE_DAYS = 14;
+
+export interface OnboardingStallClassification {
+  severity: PlatformActionSeverity | null;
+}
+
+/**
+ * Pure classifier — exported for tests.
+ *
+ *   age < 7 days                                  → null (too early)
+ *   age >= 30 days                                → null (CHURN_RISK owns this)
+ *   completedSteps == totalSteps                  → null (not stalled)
+ *   age 14-30 days AND completedSteps <= 2        → HIGH (worrying)
+ *   age 7-14 days AND completedSteps <= 1         → MEDIUM (still recoverable)
+ *   else                                          → null (acceptable progress)
+ */
+export function classifyOnboardingStall(args: {
+  accountAgeDays: number;
+  completedSteps: number;
+  totalSteps: number;
+}): OnboardingStallClassification {
+  if (args.accountAgeDays < ONBOARDING_STALL_MIN_AGE_DAYS) {
+    return { severity: null };
+  }
+  if (args.accountAgeDays >= ONBOARDING_STALL_MAX_AGE_DAYS) {
+    return { severity: null };
+  }
+  if (args.completedSteps >= args.totalSteps) {
+    return { severity: null };
+  }
+  if (
+    args.accountAgeDays >= ONBOARDING_HIGH_TIER_AGE_DAYS &&
+    args.completedSteps <= 2
+  ) {
+    return { severity: PlatformActionSeverity.HIGH };
+  }
+  if (
+    args.accountAgeDays >= ONBOARDING_STALL_MIN_AGE_DAYS &&
+    args.completedSteps <= 1
+  ) {
+    return { severity: PlatformActionSeverity.MEDIUM };
+  }
+  return { severity: null };
+}
+
+async function gatherOnboardingStalledSignals(now: Date): Promise<number> {
+  const maxAge = new Date(
+    now.getTime() - ONBOARDING_STALL_MAX_AGE_DAYS * 86_400_000,
+  );
+  const minAge = new Date(
+    now.getTime() - ONBOARDING_STALL_MIN_AGE_DAYS * 86_400_000,
+  );
+  const tenants = await prisma.tenant.findMany({
+    where: {
+      type: TenantType.BUSINESS,
+      status: "ACTIVE",
+      createdAt: { gte: maxAge, lt: minAge },
+    },
+    select: { id: true, name: true, parentTenantId: true, createdAt: true },
+    take: 200,
+  });
+  if (tenants.length === 0) return 0;
+
+  // Reuse the existing onboarding signal source — never duplicate the
+  // step-completion logic so the queue and the in-app onboarding page
+  // can't drift. Lazy import keeps platformMonitor's circular-edge
+  // surface minimal.
+  const { getOnboardingStatus } = await import("./onboarding.service");
+  let written = 0;
+  const today = dayKey(now);
+  for (const tenant of tenants) {
+    const accountAgeDays = Math.floor(
+      (now.getTime() - tenant.createdAt.getTime()) / 86_400_000,
+    );
+    let status;
+    try {
+      status = await getOnboardingStatus(tenant.id);
+    } catch (err) {
+      console.warn(
+        `[platform-monitor] onboarding status failed for ${tenant.id}:`,
+        (err as Error).message,
+      );
+      continue;
+    }
+    const classification = classifyOnboardingStall({
+      accountAgeDays,
+      completedSteps: status.completedSteps,
+      totalSteps: status.totalSteps,
+    });
+    if (!classification.severity) continue;
+
+    const remainingSteps = status.steps.filter((s) => !s.done).map((s) => s.key);
+    await upsertItem({
+      code: PlatformActionCode.ONBOARDING_STALLED,
+      severity: classification.severity,
+      title: `${tenant.name}: stalled at ${status.completedSteps}/${status.totalSteps} steps`,
+      body:
+        `${tenant.name} signed up ${accountAgeDays} day${accountAgeDays === 1 ? "" : "s"} ago ` +
+        `but has only completed ${status.completedSteps} of ${status.totalSteps} onboarding steps. ` +
+        `Next blockers: ${remainingSteps.slice(0, 2).join(", ") || "(none surfaced)"}. ` +
+        "Reach out before they churn.",
+      targetTenantId: tenant.id,
+      context: {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        partnerTenantId: tenant.parentTenantId,
+        accountAgeDays,
+        completedSteps: status.completedSteps,
+        totalSteps: status.totalSteps,
+        remainingSteps,
+      },
+      dedupeKey: `${PlatformActionCode.ONBOARDING_STALLED}:${tenant.id}:${today}`,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+// ----------------------------------------------------------------------------
 // AI usage spike signals (Sprint 6 slice 2). A tenant whose 24h AI spend
 // is multiples of their own 7-day rolling daily average raises an
 // AI_USAGE_SPIKE PlatformActionItem. Alert-only: unlike webhook auto-
@@ -678,6 +812,7 @@ export interface ScanResult {
   webhookItems: number;
   aiUsageItems: number;
   churnRiskItems: number;
+  onboardingStalledItems: number;
   total: number;
 }
 
@@ -692,6 +827,7 @@ export async function runDailyScan(): Promise<ScanResult> {
   let webhookItems = 0;
   let aiUsageItems = 0;
   let churnRiskItems = 0;
+  let onboardingStalledItems = 0;
   try {
     walletItems = await gatherWalletRiskSignals(now);
   } catch (err) {
@@ -737,6 +873,14 @@ export async function runDailyScan(): Promise<ScanResult> {
       (err as Error).message,
     );
   }
+  try {
+    onboardingStalledItems = await gatherOnboardingStalledSignals(now);
+  } catch (err) {
+    console.warn(
+      "[platform-monitor] onboarding stall scan failed:",
+      (err as Error).message,
+    );
+  }
   return {
     walletItems,
     complianceItems,
@@ -744,13 +888,15 @@ export async function runDailyScan(): Promise<ScanResult> {
     webhookItems,
     aiUsageItems,
     churnRiskItems,
+    onboardingStalledItems,
     total:
       walletItems +
       complianceItems +
       providerItems +
       webhookItems +
       aiUsageItems +
-      churnRiskItems,
+      churnRiskItems +
+      onboardingStalledItems,
   };
 }
 
