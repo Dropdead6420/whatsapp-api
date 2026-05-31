@@ -329,7 +329,7 @@ async function startWorkers(): Promise<void> {
   await startPlatformMonitorWorker();
   startCustomerHealthWorker();
   startContactRetentionWorker();
-  startDomainHealthWorker();
+  await startDomainHealthWorker();
 }
 
 function stopWorkers(): void {

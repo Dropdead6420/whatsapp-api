@@ -22,6 +22,7 @@
 
 import dns from "node:dns/promises";
 import https from "node:https";
+import { Worker } from "bullmq";
 import {
   prisma,
   Prisma,
@@ -33,14 +34,22 @@ import {
   PlatformActionStatus,
 } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import {
+  getDomainHealthQueue,
+  getQueueConnection,
+  QueueNames,
+  trackWorker,
+  type DomainHealthJobData,
+} from "../lib/queue";
 
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const SCAN_JOB_NAME = "domain-health-scan";
 const BATCH_SIZE = 100;
 const CONSECUTIVE_FAILS_TO_ESCALATE = 3;
 const SAMPLE_RETENTION_DAYS = 14;
 const SSL_PROBE_TIMEOUT_MS = 5000;
 
-let timer: ReturnType<typeof setInterval> | null = null;
+let domainHealthWorker: Worker<DomainHealthJobData> | null = null;
 
 const HEALTHY_STATES: DomainStatus[] = [
   DomainStatus.LIVE,
@@ -375,24 +384,112 @@ export async function scanDomainHealth(): Promise<{ scanned: number; escalated: 
   return { scanned, escalated };
 }
 
-export function startDomainHealthWorker(): void {
-  if (timer) return;
-  timer = setInterval(() => {
-    void scanDomainHealth().catch((err) => {
-      console.error("[domain-health] scan failed:", err);
-    });
-  }, SCAN_INTERVAL_MS);
-  (timer as { unref?: () => void }).unref?.();
-  // First scan kicks off shortly after boot, not blocking startup.
-  void scanDomainHealth().catch((err) => {
-    console.error("[domain-health] initial scan failed:", err);
+/**
+ * Start the BullMQ-backed scan scheduler (Sprint 6 slice 7).
+ *
+ * Migrated from `setInterval` because that fires once per process and
+ * therefore N times under multi-instance deploys (Render scale-out, k8s).
+ * BullMQ's job scheduler holds the cadence centrally in Redis so the
+ * scan runs once per platform tick regardless of replica count.
+ *
+ * The worker returns the typed scan summary so BullMQ stores it on
+ * `Job.returnvalue` — `getLastDomainHealthScan()` reads that back
+ * without a parallel state store (ADR-040 pattern).
+ */
+export async function startDomainHealthWorker(): Promise<void> {
+  if (domainHealthWorker) return;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    console.warn("[domain-health] database unavailable; worker not started.");
+    return;
+  }
+
+  const q = getDomainHealthQueue();
+  try {
+    await q.removeJobScheduler(SCAN_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SCAN_JOB_NAME,
+      { every: SCAN_INTERVAL_MS },
+      { name: SCAN_JOB_NAME, data: { kind: "scan" } },
+    );
+  } catch (err) {
+    console.warn(
+      "[domain-health] could not register scan scheduler:",
+      (err as Error).message,
+    );
+    return;
+  }
+
+  domainHealthWorker = new Worker<DomainHealthJobData>(
+    QueueNames.DOMAIN_HEALTH,
+    async () => {
+      // Return the result so BullMQ stores it on Job.returnvalue —
+      // getLastDomainHealthScan reads this without parallel state.
+      return scanDomainHealth();
+    },
+    { connection: getQueueConnection(), concurrency: 1 },
+  );
+  domainHealthWorker.on("failed", (job, err) => {
+    console.error(
+      `[domain-health] job ${job?.id} (${job?.name}) failed:`,
+      err.message,
+    );
   });
+  domainHealthWorker.on("error", (err) => {
+    console.error("[domain-health] worker error:", err.message);
+  });
+  trackWorker(domainHealthWorker);
 }
 
 export function stopDomainHealthWorker(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+  if (!domainHealthWorker) return;
+  void domainHealthWorker.close();
+  domainHealthWorker = null;
+}
+
+// ----------------------------------------------------------------------------
+// Last-run inspection (ADR-040 pattern, third instance after platform
+// monitor summary + wallet reconciliation). Queue's own state is the
+// source of truth — no parallel state to drift.
+// ----------------------------------------------------------------------------
+
+export interface LastDomainHealthScan {
+  ranAt: Date;
+  result: { scanned: number; escalated: number };
+  jobId: string | null;
+}
+
+export async function getLastDomainHealthScan(): Promise<LastDomainHealthScan | null> {
+  try {
+    const q = getDomainHealthQueue();
+    const completed = await q.getJobs(["completed"], 0, 50);
+    let best: { finishedOn: number; job: (typeof completed)[number] } | null =
+      null;
+    for (const job of completed) {
+      if (job.name !== SCAN_JOB_NAME) continue;
+      const finishedOn = job.finishedOn ?? 0;
+      if (!finishedOn) continue;
+      if (!best || finishedOn > best.finishedOn) {
+        best = { finishedOn, job };
+      }
+    }
+    if (!best) return null;
+    const returnvalue = best.job.returnvalue as
+      | { scanned: number; escalated: number }
+      | undefined;
+    if (!returnvalue) return null;
+    return {
+      ranAt: new Date(best.finishedOn),
+      result: returnvalue,
+      jobId: best.job.id ?? null,
+    };
+  } catch (err) {
+    console.warn(
+      "[domain-health] last-run inspection failed:",
+      (err as Error).message,
+    );
+    return null;
   }
 }
 

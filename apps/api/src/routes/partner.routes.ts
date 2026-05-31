@@ -36,6 +36,7 @@ import {
   listPartnerDomainHealth,
   scanDomainHealth,
   explainDomainError,
+  getLastDomainHealthScan,
 } from "../services/domainHealth.service";
 
 const router = Router();
@@ -271,6 +272,26 @@ router.get(
       const partner = await assertPartnerTenant(req.tenantId!);
       const rows = await listPartnerDomainHealth({ partnerTenantId: partner.id });
       res.json({ success: true, data: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/partner/domains/health/last-run — when did the scheduled
+// BullMQ-backed domain health scan last fire and what did it find. Reads
+// BullMQ's own completed-jobs storage (ADR-040 pattern). Useful for a
+// partner verifying the monitor is alive after a redeploy or long quiet
+// stretch — the "Refresh now" button below runs a one-off, but only the
+// scheduled tick gives evidence the monitor is healthy.
+router.get(
+  "/domains/health/last-run",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      await assertPartnerTenant(req.tenantId!);
+      const lastRun = await getLastDomainHealthScan();
+      res.json({ success: true, data: lastRun });
     } catch (err) {
       next(err);
     }

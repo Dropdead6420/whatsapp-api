@@ -49,6 +49,12 @@ interface ScanResult {
   escalated: number;
 }
 
+interface LastRun {
+  ranAt: string;
+  result: { scanned: number; escalated: number };
+  jobId: string | null;
+}
+
 interface Explanation {
   domainId: string;
   outcome: DomainHealthOutcome | "UNKNOWN";
@@ -117,6 +123,7 @@ export default function PartnerDomainsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
   const [explanations, setExplanations] = useState<
     Record<string, Explanation | "loading">
   >({});
@@ -143,6 +150,24 @@ export default function PartnerDomainsPage() {
   useEffect(() => {
     if (user) void load();
   }, [user, load]);
+
+  // Surface the BullMQ-backed scheduled scan timestamp so partners can
+  // tell "no drift today because the monitor is healthy" from "no drift
+  // today because the scheduler hasn't run since last redeploy."
+  const loadLastRun = useCallback(async () => {
+    try {
+      const data = await api.get<LastRun | null>(
+        "/api/v1/partner/domains/health/last-run",
+      );
+      setLastRun(data);
+    } catch {
+      setLastRun(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) void loadLastRun();
+  }, [user, loadLastRun]);
 
   const explain = async (domainId: string) => {
     setExplanations((prev) => ({ ...prev, [domainId]: "loading" }));
@@ -231,6 +256,29 @@ export default function PartnerDomainsPage() {
           {refreshing ? "Scanning…" : "Refresh now"}
         </button>
       </header>
+
+      {lastRun && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+          <span>
+            Last scheduled scan:{" "}
+            <span className="font-medium text-slate-700">
+              {timeAgo(lastRun.ranAt)}
+            </span>
+          </span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5">
+            {lastRun.result.scanned} domain
+            {lastRun.result.scanned === 1 ? "" : "s"} scanned
+            {lastRun.result.escalated > 0 && (
+              <>
+                {" · "}
+                <span className="font-medium text-amber-800">
+                  {lastRun.result.escalated} escalated
+                </span>
+              </>
+            )}
+          </span>
+        </div>
+      )}
 
       {err && (
         <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">

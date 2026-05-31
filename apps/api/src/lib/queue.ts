@@ -23,6 +23,7 @@ export const QueueNames = {
   META_LEAD_SYNC: "meta-lead-sync",
   WALLET_RISK: "wallet-risk",
   PLATFORM_MONITOR: "platform-monitor",
+  DOMAIN_HEALTH: "domain-health",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -65,6 +66,7 @@ export type WalletRiskJobData = { kind: "scan" } | { kind: "assess"; tenantId: s
 export type PlatformMonitorJobData =
   | { kind: "scan" }
   | { kind: "summary" };
+export type DomainHealthJobData = { kind: "scan" };
 
 const queueSingletons = new Map<string, Queue>();
 
@@ -148,6 +150,10 @@ export function getWalletRiskQueue(): Queue<WalletRiskJobData> {
 
 export function getPlatformMonitorQueue(): Queue<PlatformMonitorJobData> {
   return makeQueue<PlatformMonitorJobData>(QueueNames.PLATFORM_MONITOR);
+}
+
+export function getDomainHealthQueue(): Queue<DomainHealthJobData> {
+  return makeQueue<DomainHealthJobData>(QueueNames.DOMAIN_HEALTH);
 }
 
 // Test/shutdown helper. Closes the singleton + all registered workers.
