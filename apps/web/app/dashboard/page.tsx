@@ -29,6 +29,12 @@ interface DashboardSummary {
     perSecondLimit: number;
     percentUsed: number;
   };
+  planQuotas?: {
+    contacts: { used: number; limit: number };
+    campaigns: { used: number; limit: number };
+    agentSeats: { used: number; limit: number };
+    aiCreditsPerMonth: number;
+  } | null;
 }
 
 interface WalletAlert {
@@ -191,9 +197,53 @@ function SuperAdminCards({ summary }: { summary: DashboardSummary | null }) {
   );
 }
 
+function PlanQuotaBar({
+  label,
+  used,
+  limit,
+}: {
+  label: string;
+  used: number;
+  limit: number;
+}) {
+  // Treat 0 / negative limit as "unlimited on this plan" — show count only.
+  if (!limit || limit <= 0) {
+    return (
+      <div>
+        <div className="flex justify-between text-xs text-slate-600">
+          <span className="font-medium">{label}</span>
+          <span>{used.toLocaleString()} · unlimited</span>
+        </div>
+      </div>
+    );
+  }
+  const pct = Math.min(100, Math.round((used / limit) * 100));
+  const tone =
+    pct >= 90
+      ? "bg-red-500"
+      : pct >= 70
+        ? "bg-amber-500"
+        : "bg-emerald-500";
+  return (
+    <div>
+      <div className="flex justify-between text-xs text-slate-600">
+        <span className="font-medium">{label}</span>
+        <span>
+          {used.toLocaleString()} / {limit.toLocaleString()}
+          <span className="ml-2 text-slate-500">({pct}%)</span>
+        </span>
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
   const totals = summary?.totals;
   const quota = summary?.sendQuota;
+  const plan = summary?.planQuotas;
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -255,6 +305,37 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
             Per-second smoothing capped at {quota.perSecondLimit} sends/sec to
             protect your Meta quality rating.
           </p>
+        </section>
+      )}
+
+      {plan && (
+        <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Plan usage
+          </div>
+          <div className="mt-4 space-y-3">
+            <PlanQuotaBar
+              label="Contacts"
+              used={plan.contacts.used}
+              limit={plan.contacts.limit}
+            />
+            <PlanQuotaBar
+              label="Campaigns"
+              used={plan.campaigns.used}
+              limit={plan.campaigns.limit}
+            />
+            <PlanQuotaBar
+              label="Agent seats"
+              used={plan.agentSeats.used}
+              limit={plan.agentSeats.limit}
+            />
+          </div>
+          {plan.aiCreditsPerMonth > 0 && (
+            <p className="mt-3 text-[11px] text-slate-500">
+              Monthly AI credit budget: {plan.aiCreditsPerMonth.toLocaleString()}.
+              Check the AI spend card above for this month's burn.
+            </p>
+          )}
         </section>
       )}
     </>

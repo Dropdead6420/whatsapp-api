@@ -169,6 +169,28 @@ async function getTenantSummary(tenantId: string) {
 
   const sendStats = await getTenantSendStats(tenantId);
 
+  // Plan-level quotas live on the Tenant row (set at create-time by
+  // SuperAdmin / partner). Today they're not all hard-enforced server-
+  // side (only messageQuotaPerMonth + wallet credits gate sends), but
+  // tenants still benefit from seeing "you're 80 of 100 campaigns into
+  // your plan" before they hit it. The agent count is human seats with
+  // the AGENT role — separate from AiAgent (AI agents have their own
+  // page + lifecycle).
+  const [tenant, agentSeatCount] = await Promise.all([
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        contactLimit: true,
+        campaignLimit: true,
+        agentLimit: true,
+        aiCreditsPerMonth: true,
+      },
+    }),
+    prisma.user.count({
+      where: { tenantId, role: "AGENT", status: "ACTIVE" },
+    }),
+  ]);
+
   return {
     scope: "tenant" as const,
     tenantId,
@@ -195,6 +217,14 @@ async function getTenantSummary(tenantId: string) {
         (sendStats.monthlyUsed / Math.max(1, sendStats.monthlyQuota)) * 100,
       ),
     },
+    planQuotas: tenant
+      ? {
+          contacts: { used: contacts, limit: tenant.contactLimit },
+          campaigns: { used: campaigns, limit: tenant.campaignLimit },
+          agentSeats: { used: agentSeatCount, limit: tenant.agentLimit },
+          aiCreditsPerMonth: tenant.aiCreditsPerMonth,
+        }
+      : null,
     leadsByStatus: normalizeCounts(Object.values(LeadStatus), leadGroups),
     campaignsByStatus: normalizeCounts(Object.values(CampaignStatus), campaignGroups),
   };
