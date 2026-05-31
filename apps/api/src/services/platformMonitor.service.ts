@@ -1054,3 +1054,74 @@ export async function runScheduledPlatformSummary(): Promise<ScheduledSummaryRes
     };
   }
 }
+
+// ----------------------------------------------------------------------------
+// Last-run inspection + manual trigger (Sprint 6 slice 5). The scheduler
+// runs every 24h, but an operator setting up FCM for the first time, or
+// returning from a quiet stretch, needs to verify the pipeline is alive
+// without waiting a day. We use BullMQ's own completed-jobs storage as
+// the source of truth for "when did the last summary run, and what
+// happened" — no new schema, no audit-log abuse.
+// ----------------------------------------------------------------------------
+
+export interface LastSummaryRun {
+  ranAt: Date;
+  result: ScheduledSummaryResult;
+  jobId: string | null;
+}
+
+/**
+ * Most recent completed `summary` job from the BullMQ queue. Reads up to
+ * the last 50 completed jobs and picks the freshest `summary` by
+ * `finishedOn`. Returns null when the worker has never produced one
+ * (fresh install, just-cleared queue, etc).
+ */
+export async function getLastSummaryRun(): Promise<LastSummaryRun | null> {
+  try {
+    const q = getPlatformMonitorQueue();
+    const completed = await q.getJobs(["completed"], 0, 50);
+    let best: { finishedOn: number; job: (typeof completed)[number] } | null =
+      null;
+    for (const job of completed) {
+      if (job.name !== SUMMARY_JOB_NAME) continue;
+      const finishedOn = job.finishedOn ?? 0;
+      if (!finishedOn) continue;
+      if (!best || finishedOn > best.finishedOn) {
+        best = { finishedOn, job };
+      }
+    }
+    if (!best) return null;
+    return {
+      ranAt: new Date(best.finishedOn),
+      result: best.job.returnvalue as ScheduledSummaryResult,
+      jobId: best.job.id ?? null,
+    };
+  } catch (err) {
+    console.warn(
+      "[platform-monitor] last-run inspection failed:",
+      (err as Error).message,
+    );
+    return null;
+  }
+}
+
+/**
+ * Enqueue a one-off summary job. The worker picks it up and runs
+ * `runScheduledPlatformSummary`, so the result lands in completed jobs
+ * just like the scheduled tick. Returns the job id immediately —
+ * caller polls `getLastSummaryRun` to see the result.
+ *
+ * Idempotency window: same operator click within 5 seconds collapses to
+ * one job via a time-bucketed jobId. Prevents accidental double-tap from
+ * burning two LLM calls.
+ */
+export async function triggerSummaryNow(): Promise<{ jobId: string | null }> {
+  const q = getPlatformMonitorQueue();
+  const bucket = Math.floor(Date.now() / 5000);
+  const job = await q.add(
+    SUMMARY_JOB_NAME,
+    { kind: "summary" } as PlatformMonitorJobData,
+    { jobId: `summary-manual-${bucket}` },
+  );
+  return { jobId: job.id ?? null };
+}

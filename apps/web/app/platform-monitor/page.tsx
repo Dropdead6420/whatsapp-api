@@ -46,6 +46,18 @@ const STATUS_COLOR: Record<Status, string> = {
   SNOOZED: "bg-purple-100 text-purple-800",
 };
 
+function timeAgo(iso: string): string {
+  const diff = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(diff) || diff < 0) return "just now";
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
+
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
     day: "2-digit",
@@ -74,6 +86,16 @@ export default function PlatformMonitorPage() {
     source: "ai" | "fallback";
   } | null>(null);
   const [summarizing, setSummarizing] = useState(false);
+  const [lastRun, setLastRun] = useState<{
+    ranAt: string;
+    result: {
+      pushed: boolean;
+      reason?: string;
+      urgentCount?: number;
+      highCount?: number;
+    };
+  } | null>(null);
+  const [sendingNow, setSendingNow] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -98,6 +120,49 @@ export default function PlatformMonitorPage() {
   useEffect(() => {
     if (user) void load();
   }, [user, load]);
+
+  // Load the last-run state once on mount and after a manual trigger so
+  // operators can verify the FCM pipeline without waiting on the 24h cadence.
+  const loadLastRun = useCallback(async () => {
+    try {
+      const data = await api.get<{
+        ranAt: string;
+        result: {
+          pushed: boolean;
+          reason?: string;
+          urgentCount?: number;
+          highCount?: number;
+        };
+      } | null>("/api/v1/admin/platform-monitor/summary/last-run");
+      setLastRun(data);
+    } catch {
+      // Non-fatal — the banner just won't render. Real errors surface elsewhere.
+      setLastRun(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) void loadLastRun();
+  }, [user, loadLastRun]);
+
+  async function handleSendNow() {
+    setSendingNow(true);
+    setErr(null);
+    try {
+      await api.post<{ jobId: string | null }>(
+        "/api/v1/admin/platform-monitor/summary/send-now",
+      );
+      // The worker runs the job async — poll once after a short delay so the
+      // operator sees the new "Last sent" timestamp without a manual reload.
+      setTimeout(() => void loadLastRun(), 1500);
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError ? e.message : "Failed to enqueue summary.",
+      );
+    } finally {
+      setSendingNow(false);
+    }
+  }
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -191,6 +256,15 @@ export default function PlatformMonitorPage() {
           </button>
           <button
             type="button"
+            onClick={() => void handleSendNow()}
+            disabled={sendingNow}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            title="Manually trigger the scheduled morning-briefing push for verifying FCM setup"
+          >
+            {sendingNow ? "Sending…" : "📲 Send me one now"}
+          </button>
+          <button
+            type="button"
             onClick={() => void handleRefresh()}
             disabled={refreshing || busy}
             className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
@@ -199,6 +273,30 @@ export default function PlatformMonitorPage() {
           </button>
         </div>
       </header>
+
+      {lastRun && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+          <span>
+            Last scheduled push:{" "}
+            <span className="font-medium text-slate-700">
+              {timeAgo(lastRun.ranAt)}
+            </span>
+          </span>
+          {lastRun.result.pushed ? (
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-800">
+              Delivered · {lastRun.result.urgentCount ?? 0} urgent ·{" "}
+              {lastRun.result.highCount ?? 0} high
+            </span>
+          ) : (
+            <span
+              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600"
+              title={lastRun.result.reason ?? ""}
+            >
+              Skipped · {lastRun.result.reason ?? "no reason given"}
+            </span>
+          )}
+        </div>
+      )}
 
       {summary && (
         <section className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50/60 p-5">

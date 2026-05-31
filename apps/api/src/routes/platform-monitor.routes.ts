@@ -17,6 +17,8 @@ import {
   runDailyScan,
   updateItemStatus,
   runPlatformMonitorSummary,
+  getLastSummaryRun,
+  triggerSummaryNow,
 } from "../services/platformMonitor.service";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 
@@ -120,6 +122,53 @@ router.post(
         billToTenantId: req.tenantId,
       });
       res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/admin/platform-monitor/summary/last-run
+//
+// Inspect when the scheduled summary last fired and what it did. Reads
+// BullMQ's own completed-jobs storage — no separate state to maintain.
+// Returns null when the worker hasn't produced a summary yet.
+router.get(
+  "/summary/last-run",
+  async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const lastRun = await getLastSummaryRun();
+      res.json({ success: true, data: lastRun });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/admin/platform-monitor/summary/send-now
+//
+// Manually trigger one scheduled summary run. Useful for verifying FCM
+// setup after first-time configuration, or forcing a digest after a
+// long quiet stretch. The worker picks up the job and the result
+// surfaces via /summary/last-run within a second or two.
+//
+// Idempotent within a 5-second window — a double-tap collapses to one
+// job so the operator can't burn two LLM calls by accident.
+router.post(
+  "/summary/send-now",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const result = await triggerSummaryNow();
+      await logAudit({
+        tenantId: req.tenantId ?? req.userId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "PlatformSummaryRun",
+        resourceId: result.jobId ?? "manual",
+        newValues: { trigger: "manual", jobId: result.jobId },
+        ...extractRequestMeta(req),
+      });
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
