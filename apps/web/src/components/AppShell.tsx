@@ -275,11 +275,38 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function isActiveRoute(pathname: string, item: AppNavItem) {
+function routeMatchScore(pathname: string, item: AppNavItem) {
   const routes = [item.href, ...(item.activeRoutes ?? [])];
-  return routes.some(
-    (route) => pathname === route || pathname.startsWith(`${route}/`),
-  );
+  let score = -1;
+
+  for (const route of routes) {
+    if (pathname === route) {
+      score = Math.max(score, route.length + 1000);
+    } else if (route !== "/dashboard" && pathname.startsWith(`${route}/`)) {
+      score = Math.max(score, route.length);
+    }
+  }
+
+  return score;
+}
+
+function isActiveRoute(pathname: string, item: AppNavItem) {
+  return routeMatchScore(pathname, item) >= 0;
+}
+
+function activeHrefFromPath(pathname: string, sections: AppNavSection[]) {
+  let best: { href: string; score: number } | null = null;
+
+  for (const section of sections) {
+    for (const item of section.items) {
+      const score = routeMatchScore(pathname, item);
+      if (score > (best?.score ?? -1)) {
+        best = { href: item.href, score };
+      }
+    }
+  }
+
+  return best?.href ?? null;
 }
 
 function filterSections(
@@ -323,6 +350,8 @@ export function NavItem({
       href={item.href}
       title={collapsed ? item.label : undefined}
       aria-current={active ? "page" : undefined}
+      data-nav-href={item.href}
+      data-nav-active={active ? "true" : "false"}
       onClick={onNavigate}
       className={cn(
         "group flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition",
@@ -345,14 +374,14 @@ export function NavItem({
 
 export function Sidebar({
   sections,
-  pathname,
+  activeHref,
   collapsed,
   onToggleCollapsed,
   user,
   signOut,
 }: {
   sections: AppNavSection[];
-  pathname: string;
+  activeHref: string | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   user: AuthUserPublic;
@@ -417,7 +446,7 @@ export function Sidebar({
                 <NavItem
                   key={item.href}
                   item={item}
-                  active={isActiveRoute(pathname, item)}
+                  active={item.href === activeHref}
                   collapsed={collapsed}
                 />
               ))}
@@ -483,14 +512,14 @@ function SidebarUserCard({
 export function MobileDrawer({
   open,
   sections,
-  pathname,
+  activeHref,
   onClose,
   user,
   signOut,
 }: {
   open: boolean;
   sections: AppNavSection[];
-  pathname: string;
+  activeHref: string | null;
   onClose: () => void;
   user: AuthUserPublic;
   signOut: () => void;
@@ -548,7 +577,7 @@ export function MobileDrawer({
                   <NavItem
                     key={item.href}
                     item={item}
-                    active={isActiveRoute(pathname, item)}
+                    active={item.href === activeHref}
                     onNavigate={onClose}
                   />
                 ))}
@@ -689,17 +718,17 @@ export function UserMenu({
 
 export function BottomNav({
   items,
-  pathname,
+  activeHref,
 }: {
   items: AppNavItem[];
-  pathname: string;
+  activeHref: string | null;
 }) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
       <div className="mx-auto grid h-16 max-w-md grid-cols-5">
         {items.map((item) => {
           const Icon = item.icon;
-          const active = isActiveRoute(pathname, item);
+          const active = item.href === activeHref;
           return (
             <Link
               key={item.href}
@@ -742,15 +771,16 @@ export function AppShell({
   const sections = useMemo(() => filterSections(user, features), [features, user]);
   const flatItems = sections.flatMap((section) => section.items);
   const title = pageTitleFromPath(pathname, sections);
+  const activeHref = activeHrefFromPath(pathname, sections);
   const bottomItems = BOTTOM_NAV_ITEMS.map((href) =>
     flatItems.find((item) => item.href === href),
   ).filter(Boolean) as AppNavItem[];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50" data-active-href={activeHref ?? ""}>
       <Sidebar
         sections={sections}
-        pathname={pathname}
+        activeHref={activeHref}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
         user={user}
@@ -759,7 +789,7 @@ export function AppShell({
       <MobileDrawer
         open={drawerOpen}
         sections={sections}
-        pathname={pathname}
+        activeHref={activeHref}
         onClose={() => setDrawerOpen(false)}
         user={user}
         signOut={signOut}
@@ -777,7 +807,7 @@ export function AppShell({
         </main>
       </div>
 
-      <BottomNav items={bottomItems} pathname={pathname} />
+      <BottomNav items={bottomItems} activeHref={activeHref} />
     </div>
   );
 }
