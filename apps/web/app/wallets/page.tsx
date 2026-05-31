@@ -23,8 +23,13 @@ interface Wallet {
   creditLimit: number;
   lowBalanceThreshold: number;
   autoRechargeEnabled: boolean;
+  autoRechargeAmountCredits?: number;
+  autoRechargePaymentProvider?: "razorpay" | "stripe" | null;
+  autoRechargePaymentMethodToken?: string | null;
   updatedAt: string;
 }
+
+type AutoRechargeProvider = "razorpay" | "stripe" | "";
 
 interface WalletRow {
   tenant: TenantSummary;
@@ -89,6 +94,16 @@ export default function WalletsPage() {
   const [creditLimit, setCreditLimit] = useState("0");
   const [lowBalanceThreshold, setLowBalanceThreshold] = useState("100");
 
+  // Auto-recharge config (T-021). The back-end already runs the
+  // scheduled scanAutoRecharge worker on these fields; this UI gives
+  // the tenant a way to turn it on without filing a SuperAdmin ticket.
+  const [autoRechargeEnabled, setAutoRechargeEnabled] = useState(false);
+  const [autoRechargeAmount, setAutoRechargeAmount] = useState("0");
+  const [autoRechargeProvider, setAutoRechargeProvider] =
+    useState<AutoRechargeProvider>("");
+  const [autoRechargeToken, setAutoRechargeToken] = useState("");
+  const [savingAutoRecharge, setSavingAutoRecharge] = useState(false);
+
   const [toTenantId, setToTenantId] = useState("");
   const [transferAmount, setTransferAmount] = useState("500");
   const [transferReason, setTransferReason] = useState("Credit transfer");
@@ -131,6 +146,12 @@ export default function WalletsPage() {
     setStatus(wallet.status);
     setCreditLimit(String(wallet.creditLimit));
     setLowBalanceThreshold(String(wallet.lowBalanceThreshold));
+    setAutoRechargeEnabled(wallet.autoRechargeEnabled);
+    setAutoRechargeAmount(String(wallet.autoRechargeAmountCredits ?? 0));
+    setAutoRechargeProvider(
+      (wallet.autoRechargePaymentProvider ?? "") as AutoRechargeProvider,
+    );
+    setAutoRechargeToken(wallet.autoRechargePaymentMethodToken ?? "");
   }
 
   useEffect(() => {
@@ -180,6 +201,50 @@ export default function WalletsPage() {
       await loadWallets();
     } catch (error) {
       setErr(error instanceof ApiClientError ? error.message : "Settings update failed");
+    }
+  }
+
+  async function saveAutoRecharge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected || !canManage) return;
+    setErr(null);
+    setNotice(null);
+
+    // When the operator turns auto-recharge on, validate they've
+    // filled the dependent fields. The back-end accepts partial
+    // saves (each field is optional on the PATCH), but enabling
+    // without an amount/provider would silently no-op every scan
+    // — easy to miss, so we surface it here instead.
+    if (autoRechargeEnabled) {
+      const amount = Number(autoRechargeAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setErr("Recharge amount must be greater than 0 when auto-recharge is on.");
+        return;
+      }
+      if (!autoRechargeProvider) {
+        setErr("Pick a payment provider before turning auto-recharge on.");
+        return;
+      }
+      if (!autoRechargeToken.trim()) {
+        setErr("Add a saved payment method token before turning auto-recharge on.");
+        return;
+      }
+    }
+
+    setSavingAutoRecharge(true);
+    try {
+      await api.patch(`/api/v1/wallets/${selected.tenant.id}/settings`, {
+        autoRechargeEnabled,
+        autoRechargeAmountCredits: Number(autoRechargeAmount),
+        autoRechargePaymentProvider: autoRechargeProvider || null,
+        autoRechargePaymentMethodToken: autoRechargeToken.trim() || null,
+      });
+      setNotice("Auto-recharge config saved.");
+      await loadWallets();
+    } catch (error) {
+      setErr(error instanceof ApiClientError ? error.message : "Save failed");
+    } finally {
+      setSavingAutoRecharge(false);
     }
   }
 
@@ -345,6 +410,93 @@ export default function WalletsPage() {
                     />
                     <button className="mt-3 w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">
                       Save settings
+                    </button>
+                  </form>
+
+                  <form
+                    onSubmit={saveAutoRecharge}
+                    className="rounded-lg border border-slate-200 bg-white p-5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h2 className="text-sm font-semibold">Auto-recharge</h2>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Top up automatically when the balance drops below the
+                          low-balance alert above.
+                        </p>
+                      </div>
+                      <label className="inline-flex shrink-0 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={autoRechargeEnabled}
+                          onChange={(event) =>
+                            setAutoRechargeEnabled(event.target.checked)
+                          }
+                          disabled={!canManage}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-xs font-medium text-slate-700">
+                          {autoRechargeEnabled ? "On" : "Off"}
+                        </span>
+                      </label>
+                    </div>
+
+                    <label className="mt-4 block text-xs text-slate-600">
+                      Top-up amount (credits)
+                      <input
+                        value={autoRechargeAmount}
+                        onChange={(event) => setAutoRechargeAmount(event.target.value)}
+                        type="number"
+                        min={0}
+                        disabled={!canManage}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="e.g. 5000"
+                      />
+                    </label>
+
+                    <label className="mt-3 block text-xs text-slate-600">
+                      Payment provider
+                      <select
+                        value={autoRechargeProvider}
+                        onChange={(event) =>
+                          setAutoRechargeProvider(
+                            event.target.value as AutoRechargeProvider,
+                          )
+                        }
+                        disabled={!canManage}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      >
+                        <option value="">— select —</option>
+                        <option value="razorpay">Razorpay</option>
+                        <option value="stripe">Stripe</option>
+                      </select>
+                    </label>
+
+                    <label className="mt-3 block text-xs text-slate-600">
+                      Saved payment method token
+                      <input
+                        value={autoRechargeToken}
+                        onChange={(event) => setAutoRechargeToken(event.target.value)}
+                        type="text"
+                        disabled={!canManage}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono text-xs"
+                        placeholder="e.g. pm_xxx (Stripe) / token_xxx (Razorpay)"
+                      />
+                    </label>
+
+                    <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+                      The token is opaque to NexaFlow — your payment provider
+                      generates and validates it. Live charge integrations
+                      (T-021b) are stubs today; the scheduler will log a charge
+                      attempt and record the result without actually billing
+                      until the integration ships.
+                    </p>
+
+                    <button
+                      disabled={!canManage || savingAutoRecharge}
+                      className="mt-3 w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {savingAutoRecharge ? "Saving..." : "Save auto-recharge"}
                     </button>
                   </form>
 
