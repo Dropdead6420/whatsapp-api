@@ -66,6 +66,14 @@ export default function PlatformMonitorPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"ALL" | Status>("OPEN");
+  const [summary, setSummary] = useState<{
+    headline: string;
+    actions: Array<{ title: string; rationale: string; itemIds: string[] }>;
+    totals: Record<Severity, number>;
+    totalOpen: number;
+    source: "ai" | "fallback";
+  } | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -113,6 +121,27 @@ export default function PlatformMonitorPage() {
     }
   }
 
+  async function handleSummarize() {
+    setSummarizing(true);
+    setErr(null);
+    try {
+      const result = await api.post<{
+        headline: string;
+        actions: Array<{ title: string; rationale: string; itemIds: string[] }>;
+        totals: Record<Severity, number>;
+        totalOpen: number;
+        source: "ai" | "fallback";
+      }>("/api/v1/admin/platform-monitor/summary");
+      setSummary(result);
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError ? e.message : "Failed to summarize queue.",
+      );
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
   async function changeStatus(id: string, status: Status) {
     setErr(null);
     try {
@@ -151,15 +180,76 @@ export default function PlatformMonitorPage() {
             tap <em>Refresh</em> to run one now.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleRefresh()}
-          disabled={refreshing || busy}
-          className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-        >
-          {refreshing ? "Scanning…" : "Refresh now"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleSummarize()}
+            disabled={summarizing || busy}
+            className="rounded-md border border-indigo-200 bg-white px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+          >
+            {summarizing ? "Summarizing…" : "✦ Daily summary"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleRefresh()}
+            disabled={refreshing || busy}
+            className="rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {refreshing ? "Scanning…" : "Refresh now"}
+          </button>
+        </div>
       </header>
+
+      {summary && (
+        <section className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50/60 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                {summary.source === "ai" ? "AI daily summary" : "Suggested triage"}
+              </p>
+              <h2 className="mt-1 text-base font-semibold text-slate-950">
+                {summary.headline}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSummary(null)}
+              className="text-xs text-slate-500 hover:text-slate-700"
+              aria-label="Dismiss summary"
+            >
+              ✕
+            </button>
+          </div>
+          {summary.actions.length > 0 && (
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-800">
+              {summary.actions.map((a, i) => (
+                <li key={i}>
+                  <div className="font-medium">{a.title}</div>
+                  {a.rationale && (
+                    <div className="text-xs text-slate-600">{a.rationale}</div>
+                  )}
+                  {a.itemIds.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1 text-[10px] font-mono text-slate-500">
+                      {a.itemIds.map((id) => (
+                        <span
+                          key={id}
+                          className="rounded bg-white/80 px-1.5 py-0.5"
+                          title={id}
+                        >
+                          {id.slice(0, 10)}…
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+          <p className="mt-3 text-[10px] text-slate-500">
+            Prioritization only — nothing has been resolved or dismissed.
+          </p>
+        </section>
+      )}
 
       {err && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

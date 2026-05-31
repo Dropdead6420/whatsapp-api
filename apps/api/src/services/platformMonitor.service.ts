@@ -767,3 +767,171 @@ export function stopPlatformMonitorWorker(): void {
   void platformMonitorWorker.close();
   platformMonitorWorker = null;
 }
+
+// ----------------------------------------------------------------------------
+// SuperAdmin LLM summary (Sprint 6 slice 3). Generate-then-approve top-3
+// cross-code action plan over the current OPEN PlatformActionItem queue.
+// Deterministic totals + worst-items list run unconditionally; the LLM
+// reasons over that to prioritize. Falls back to a deterministic
+// "rescue-the-URGENT items first" list when the model is unavailable.
+//
+// Billed to a caller-supplied tenant (typically the SuperAdmin's own
+// tenant — the user's JWT-resolved tenantId). The wallet's existing
+// assertCanAffordAi gates spend exactly like every other LLM caller.
+// ----------------------------------------------------------------------------
+
+export interface PlatformMonitorSummaryItem {
+  id: string;
+  code: PlatformActionCode;
+  severity: PlatformActionSeverity;
+  title: string;
+  body: string;
+  targetTenantId: string | null;
+  createdAt: Date;
+}
+
+export interface PlatformMonitorSummary {
+  generatedAt: Date;
+  totals: Record<PlatformActionSeverity, number>;
+  totalOpen: number;
+  byCode: Record<string, number>;
+  headline: string;
+  actions: Array<{
+    title: string;
+    rationale: string;
+    itemIds: string[];
+  }>;
+  worstItems: PlatformMonitorSummaryItem[];
+  source: "ai" | "fallback";
+}
+
+const SUMMARY_SEVERITY_RANK: Record<PlatformActionSeverity, number> = {
+  [PlatformActionSeverity.URGENT]: 0,
+  [PlatformActionSeverity.HIGH]: 1,
+  [PlatformActionSeverity.MEDIUM]: 2,
+  [PlatformActionSeverity.LOW]: 3,
+};
+
+export async function runPlatformMonitorSummary(args: {
+  billToTenantId: string;
+}): Promise<PlatformMonitorSummary> {
+  const open = await prisma.platformActionItem.findMany({
+    where: { status: PlatformActionStatus.OPEN },
+    orderBy: [{ severity: "asc" }, { createdAt: "desc" }],
+    take: 30,
+    select: {
+      id: true,
+      code: true,
+      severity: true,
+      title: true,
+      body: true,
+      targetTenantId: true,
+      createdAt: true,
+    },
+  });
+
+  const totals: Record<PlatformActionSeverity, number> = {
+    [PlatformActionSeverity.URGENT]: 0,
+    [PlatformActionSeverity.HIGH]: 0,
+    [PlatformActionSeverity.MEDIUM]: 0,
+    [PlatformActionSeverity.LOW]: 0,
+  };
+  const byCode: Record<string, number> = {};
+  for (const item of open) {
+    totals[item.severity] += 1;
+    byCode[item.code] = (byCode[item.code] ?? 0) + 1;
+  }
+
+  // Worst-by-severity first, then most recent.
+  const sorted = [...open].sort(
+    (a, b) =>
+      SUMMARY_SEVERITY_RANK[a.severity] - SUMMARY_SEVERITY_RANK[b.severity] ||
+      b.createdAt.getTime() - a.createdAt.getTime(),
+  );
+  const worstItems = sorted.slice(0, 10);
+
+  // Deterministic fallback — used when the LLM call errors / returns
+  // empty, or when there's literally nothing open to summarize.
+  const fallbackHeadline =
+    open.length === 0
+      ? "No open platform action items — queue is clean."
+      : `${totals[PlatformActionSeverity.URGENT]} urgent, ${totals[PlatformActionSeverity.HIGH]} high across ${open.length} open items.`;
+
+  const fallback: PlatformMonitorSummary = {
+    generatedAt: new Date(),
+    totals,
+    totalOpen: open.length,
+    byCode,
+    headline: fallbackHeadline,
+    actions: worstItems.slice(0, 3).map((item) => ({
+      title: `Triage: ${item.title}`,
+      rationale: `${item.severity} · ${item.code}`,
+      itemIds: [item.id],
+    })),
+    worstItems,
+    source: "fallback",
+  };
+
+  if (open.length === 0) return fallback;
+
+  try {
+    const { runTenantLlmJson } = await import("./ai.service");
+    const llm = await runTenantLlmJson<{
+      headline?: string;
+      actions?: Array<{ title?: string; rationale?: string; itemIds?: string[] }>;
+    }>({
+      tenantId: args.billToTenantId,
+      feature: "platform_monitor_summary",
+      system:
+        "You are an AI ops copilot for a SaaS platform operator looking at the " +
+        "current open triage queue. Return JSON of shape:\n" +
+        '{"headline":"one-line state under 22 words","actions":[{"title":"imperative","rationale":"why","itemIds":["..."]}]}\n' +
+        "Up to 3 actions. Group related items when sensible (e.g. multiple " +
+        "WEBHOOK_FAILURE_SPIKE for the same tenant). Each action's itemIds " +
+        "must be drawn from the input. Prefer URGENT > HIGH > MEDIUM.",
+      prompt: JSON.stringify({
+        totals,
+        totalOpen: open.length,
+        byCode,
+        worstItems: worstItems.map((i) => ({
+          id: i.id,
+          code: i.code,
+          severity: i.severity,
+          title: i.title,
+          body: i.body,
+          targetTenantId: i.targetTenantId,
+        })),
+      }),
+      maxTokens: 700,
+      temperature: 0.3,
+    });
+
+    const validIds = new Set(open.map((i) => i.id));
+    const actions = Array.isArray(llm.actions)
+      ? llm.actions.slice(0, 3).map((a) => ({
+          title: (a.title ?? "").trim().slice(0, 120),
+          rationale: (a.rationale ?? "").trim().slice(0, 400),
+          itemIds: Array.isArray(a.itemIds)
+            ? a.itemIds.filter((id) => validIds.has(id)).slice(0, 8)
+            : [],
+        }))
+      : [];
+
+    const headline = (llm.headline ?? "").trim().slice(0, 220);
+    if (!headline && actions.length === 0) return fallback;
+
+    return {
+      generatedAt: new Date(),
+      totals,
+      totalOpen: open.length,
+      byCode,
+      headline: headline || fallbackHeadline,
+      actions: actions.length > 0 ? actions : fallback.actions,
+      worstItems,
+      source: "ai",
+    };
+  } catch (err) {
+    console.error("[platform-monitor] summary LLM failed:", err);
+    return fallback;
+  }
+}

@@ -16,7 +16,9 @@ import {
   listItems,
   runDailyScan,
   updateItemStatus,
+  runPlatformMonitorSummary,
 } from "../services/platformMonitor.service";
+import { ApiError, ErrorCodes } from "@nexaflow/shared";
 
 const router = Router();
 // Platform Monitor is the SuperAdmin's triage queue — no tenant scope.
@@ -90,6 +92,34 @@ router.post(
         ...extractRequestMeta(req),
       });
       res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/admin/platform-monitor/summary
+//
+// LLM-prioritized top-3 action plan over the current open triage queue.
+// Generate-only — never mutates items, never auto-resolves. Falls back
+// to a deterministic "rescue-the-URGENT items first" list when the LLM
+// is unavailable. Billed to the SuperAdmin's own tenant via the
+// existing assertCanAffordAi gate.
+router.post(
+  "/summary",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      if (!req.tenantId) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "Caller must have a tenant context to bill the LLM summary.",
+        );
+      }
+      const summary = await runPlatformMonitorSummary({
+        billToTenantId: req.tenantId,
+      });
+      res.json({ success: true, data: summary });
     } catch (err) {
       next(err);
     }
