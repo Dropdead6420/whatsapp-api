@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import {
   prisma,
+  CustomerHealthTier,
   PlatformActionCode,
   PlatformActionSeverity,
   PlatformActionStatus,
@@ -211,6 +212,93 @@ async function gatherComplianceSignals(now: Date): Promise<number> {
         recentScopes: recent.map((r) => r.scope),
       },
       dedupeKey: `${PlatformActionCode.COMPLIANCE_BLOCK_SPIKE}:${row.tenantId}:${today}`,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+// ----------------------------------------------------------------------------
+// Customer churn risk signals (Sprint 6 slice 8). The CustomerHealthScore
+// engine (Sprint 3) writes a daily score + tier per tenant; the AI Partner
+// Assistant already pushes to the owning partner when a tenant flips into
+// AT_RISK or CHURNING. The SuperAdmin queue, however, was blind to this —
+// a platform-wide wave of churning customers wouldn't surface anywhere.
+//
+// This gatherer reads today's CustomerHealthScore rows once and writes a
+// PlatformActionItem for each tenant currently in AT_RISK or CHURNING.
+// Same severity-tier mapping as the partner push: CHURNING is URGENT,
+// AT_RISK is HIGH. Already-resolved items re-open on the next scan if
+// the tenant is still bad — exactly the existing PlatformActionItem
+// pattern.
+// ----------------------------------------------------------------------------
+
+export interface ChurnRiskClassification {
+  severity: PlatformActionSeverity | null;
+}
+
+/**
+ * Pure tier → severity mapping — exported for tests.
+ *
+ *   CHURNING    → URGENT (already at the bottom of the score band)
+ *   AT_RISK     → HIGH   (still recoverable, but slipping)
+ *   HEALTHY     → null   (no item)
+ *   THRIVING    → null   (no item)
+ */
+export function classifyChurnRisk(tier: CustomerHealthTier): ChurnRiskClassification {
+  if (tier === CustomerHealthTier.CHURNING) {
+    return { severity: PlatformActionSeverity.URGENT };
+  }
+  if (tier === CustomerHealthTier.AT_RISK) {
+    return { severity: PlatformActionSeverity.HIGH };
+  }
+  return { severity: null };
+}
+
+async function gatherChurnRiskSignals(now: Date): Promise<number> {
+  const today = dayKey(now);
+  const rows = await prisma.customerHealthScore.findMany({
+    where: {
+      dayKey: today,
+      tier: { in: [CustomerHealthTier.AT_RISK, CustomerHealthTier.CHURNING] },
+    },
+    select: {
+      tenantId: true,
+      score: true,
+      tier: true,
+      recommendation: true,
+      assessedAt: true,
+      tenant: { select: { name: true, parentTenantId: true } },
+    },
+    orderBy: { score: "asc" },
+    take: 200,
+  });
+  if (rows.length === 0) return 0;
+
+  let written = 0;
+  for (const row of rows) {
+    const classification = classifyChurnRisk(row.tier);
+    if (!classification.severity) continue;
+    const recommendation = row.recommendation?.trim();
+    await upsertItem({
+      code: PlatformActionCode.CHURN_RISK,
+      severity: classification.severity,
+      title: `${row.tenant.name}: ${row.tier} (score ${row.score})`,
+      body: recommendation
+        ? recommendation
+        : `${row.tenant.name} is in ${row.tier} (health score ${row.score}). ` +
+          (row.tier === CustomerHealthTier.CHURNING
+            ? "Open the partner's customer dashboard to plan a rescue play."
+            : "Pre-emptive outreach can usually pull AT_RISK tenants back."),
+      targetTenantId: row.tenantId,
+      context: {
+        tenantId: row.tenantId,
+        tenantName: row.tenant.name,
+        partnerTenantId: row.tenant.parentTenantId,
+        tier: row.tier,
+        score: row.score,
+      },
+      dedupeKey: `${PlatformActionCode.CHURN_RISK}:${row.tenantId}:${today}`,
     });
     written += 1;
   }
@@ -589,6 +677,7 @@ export interface ScanResult {
   providerItems: number;
   webhookItems: number;
   aiUsageItems: number;
+  churnRiskItems: number;
   total: number;
 }
 
@@ -602,6 +691,7 @@ export async function runDailyScan(): Promise<ScanResult> {
   let providerItems = 0;
   let webhookItems = 0;
   let aiUsageItems = 0;
+  let churnRiskItems = 0;
   try {
     walletItems = await gatherWalletRiskSignals(now);
   } catch (err) {
@@ -639,18 +729,28 @@ export async function runDailyScan(): Promise<ScanResult> {
       (err as Error).message,
     );
   }
+  try {
+    churnRiskItems = await gatherChurnRiskSignals(now);
+  } catch (err) {
+    console.warn(
+      "[platform-monitor] churn risk scan failed:",
+      (err as Error).message,
+    );
+  }
   return {
     walletItems,
     complianceItems,
     providerItems,
     webhookItems,
     aiUsageItems,
+    churnRiskItems,
     total:
       walletItems +
       complianceItems +
       providerItems +
       webhookItems +
-      aiUsageItems,
+      aiUsageItems +
+      churnRiskItems,
   };
 }
 
