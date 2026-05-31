@@ -4,6 +4,7 @@ import {
   PlatformActionCode,
   PlatformActionSeverity,
   PlatformActionStatus,
+  TenantType,
   WalletRiskTier,
   WhatsAppProviderKey,
   ComplianceVerdict,
@@ -33,6 +34,13 @@ import {
 
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000; // every 6 hours
 const SCAN_JOB_NAME = "scan";
+
+// Daily SuperAdmin summary push (Sprint 6 slice 4). Runs every 24h so the
+// platform owner gets one morning-briefing push per day. The dispatcher
+// itself decides whether to push (URGENT/HIGH items present) so the
+// 24h cadence doesn't translate to a guaranteed daily noise tap.
+const SUMMARY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const SUMMARY_JOB_NAME = "summary";
 
 function dayKey(d = new Date()): string {
   return d.toISOString().slice(0, 10);
@@ -738,6 +746,12 @@ export async function startPlatformMonitorWorker(): Promise<void> {
       { every: SCAN_INTERVAL_MS },
       { name: SCAN_JOB_NAME, data: { kind: "scan" } },
     );
+    await q.removeJobScheduler(SUMMARY_JOB_NAME).catch(() => undefined);
+    await q.upsertJobScheduler(
+      SUMMARY_JOB_NAME,
+      { every: SUMMARY_INTERVAL_MS },
+      { name: SUMMARY_JOB_NAME, data: { kind: "summary" } },
+    );
   } catch (err) {
     console.warn(
       "[platform-monitor] could not register scan scheduler:",
@@ -749,6 +763,7 @@ export async function startPlatformMonitorWorker(): Promise<void> {
     QueueNames.PLATFORM_MONITOR,
     async (job) => {
       if (job.name === SCAN_JOB_NAME) return runDailyScan();
+      if (job.name === SUMMARY_JOB_NAME) return runScheduledPlatformSummary();
       return { skipped: true };
     },
     { connection: getQueueConnection(), concurrency: 1 },
@@ -933,5 +948,109 @@ export async function runPlatformMonitorSummary(args: {
   } catch (err) {
     console.error("[platform-monitor] summary LLM failed:", err);
     return fallback;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Scheduled SuperAdmin summary push (Sprint 6 slice 4). Runs every 24h via
+// the BullMQ scheduler. Picks the oldest active DIRECT tenant as the
+// platform root (that's where SuperAdmins live + where the LLM bill
+// belongs), runs runPlatformMonitorSummary, and fans out a push to the
+// tenant's registered devices ONLY when the queue actually has an
+// URGENT or HIGH item open. The "only when worth pushing" gate means
+// a clean morning doesn't translate into a daily notification ping.
+//
+// All failures are caught + logged — a missing DIRECT tenant, an LLM
+// outage, or a misconfigured FCM service account each just skip the
+// push; the next 24h tick tries again.
+// ----------------------------------------------------------------------------
+
+export interface ScheduledSummaryResult {
+  pushed: boolean;
+  reason?: string;
+  platformTenantId?: string;
+  urgentCount?: number;
+  highCount?: number;
+}
+
+/**
+ * Look up the platform's own root tenant. Exported for tests + the
+ * runner to use a single deterministic source.
+ *
+ * Rule: oldest active DIRECT tenant. Stable across reboots, doesn't
+ * accidentally pick a SuperAdmin-impersonated partner, and works
+ * even on platforms with multiple DIRECT tenants (test envs).
+ */
+export async function findPlatformTenantId(): Promise<string | null> {
+  const tenant = await prisma.tenant.findFirst({
+    where: { type: TenantType.DIRECT, status: "ACTIVE" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  return tenant?.id ?? null;
+}
+
+export async function runScheduledPlatformSummary(): Promise<ScheduledSummaryResult> {
+  const platformTenantId = await findPlatformTenantId();
+  if (!platformTenantId) {
+    return { pushed: false, reason: "No active DIRECT tenant found." };
+  }
+
+  let summary: PlatformMonitorSummary;
+  try {
+    summary = await runPlatformMonitorSummary({ billToTenantId: platformTenantId });
+  } catch (err) {
+    console.error("[platform-monitor] scheduled summary build failed:", err);
+    return {
+      pushed: false,
+      reason: "Summary build threw",
+      platformTenantId,
+    };
+  }
+
+  const urgentCount = summary.totals[PlatformActionSeverity.URGENT] ?? 0;
+  const highCount = summary.totals[PlatformActionSeverity.HIGH] ?? 0;
+
+  // No URGENT/HIGH = nothing worth waking a phone for. Keeps the daily
+  // cadence from turning into noise on healthy days.
+  if (urgentCount === 0 && highCount === 0) {
+    return {
+      pushed: false,
+      reason: "No URGENT or HIGH items open; push skipped.",
+      platformTenantId,
+      urgentCount,
+      highCount,
+    };
+  }
+
+  try {
+    const { sendToTenant } = await import("./pushNotification.service");
+    const headlineSnippet = summary.headline.slice(0, 140);
+    await sendToTenant(platformTenantId, {
+      title: `Daily ops summary: ${urgentCount} urgent · ${highCount} high`,
+      body: headlineSnippet,
+      data: {
+        type: "PLATFORM_MONITOR_SUMMARY",
+        urgentCount: String(urgentCount),
+        highCount: String(highCount),
+        totalOpen: String(summary.totalOpen),
+        source: summary.source,
+      },
+    });
+    return {
+      pushed: true,
+      platformTenantId,
+      urgentCount,
+      highCount,
+    };
+  } catch (err) {
+    console.error("[platform-monitor] scheduled summary push failed:", err);
+    return {
+      pushed: false,
+      reason: "Push dispatch threw",
+      platformTenantId,
+      urgentCount,
+      highCount,
+    };
   }
 }

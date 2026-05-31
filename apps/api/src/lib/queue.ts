@@ -62,7 +62,9 @@ export type DripJobData = { kind: "scan" };
 export type LeadAutoScoreJobData = { kind: "scan" };
 export type MetaLeadSyncJobData = { kind: "scan" };
 export type WalletRiskJobData = { kind: "scan" } | { kind: "assess"; tenantId: string };
-export type PlatformMonitorJobData = { kind: "scan" };
+export type PlatformMonitorJobData =
+  | { kind: "scan" }
+  | { kind: "summary" };
 
 const queueSingletons = new Map<string, Queue>();
 
