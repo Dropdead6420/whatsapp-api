@@ -210,6 +210,162 @@ async function gatherComplianceSignals(now: Date): Promise<number> {
 }
 
 // ----------------------------------------------------------------------------
+// Webhook failure signals — a tenant whose outbound webhook is failing
+// at high rate in the last 24h shows up as WEBHOOK_FAILURE_SPIKE. The
+// auto-heal action (slice 1 reliability slice): a catastrophic 95%+
+// failure rate on ≥20 events flips Webhook.isActive=false so the
+// dispatcher stops hammering a clearly-dead endpoint. The Webhook row
+// stays — operator/tenant can re-enable manually after fixing the
+// upstream issue.
+// ----------------------------------------------------------------------------
+
+const WEBHOOK_MIN_VOLUME = 10;
+const WEBHOOK_HIGH_RATE = 0.5;
+const WEBHOOK_URGENT_RATE = 0.8;
+const WEBHOOK_AUTO_DISABLE_RATE = 0.95;
+const WEBHOOK_AUTO_DISABLE_MIN_VOLUME = 20;
+
+export interface WebhookClassification {
+  severity: PlatformActionSeverity | null;
+  shouldAutoDisable: boolean;
+  rate: number;
+}
+
+/**
+ * Pure classifier for a webhook's 24h reliability — exported for tests.
+ *
+ *   total < 10                                  → null (too small to judge)
+ *   95%+ failures AND total >= 20               → URGENT + auto-disable
+ *   80%+ failures                               → URGENT
+ *   50%+ failures                               → HIGH
+ *   else                                        → null
+ */
+export function classifyWebhookHealth(args: {
+  total: number;
+  failures: number;
+}): WebhookClassification {
+  if (args.total < WEBHOOK_MIN_VOLUME) {
+    return { severity: null, shouldAutoDisable: false, rate: 0 };
+  }
+  const rate = args.failures / args.total;
+  if (
+    rate >= WEBHOOK_AUTO_DISABLE_RATE &&
+    args.total >= WEBHOOK_AUTO_DISABLE_MIN_VOLUME
+  ) {
+    return {
+      severity: PlatformActionSeverity.URGENT,
+      shouldAutoDisable: true,
+      rate,
+    };
+  }
+  if (rate >= WEBHOOK_URGENT_RATE) {
+    return { severity: PlatformActionSeverity.URGENT, shouldAutoDisable: false, rate };
+  }
+  if (rate >= WEBHOOK_HIGH_RATE) {
+    return { severity: PlatformActionSeverity.HIGH, shouldAutoDisable: false, rate };
+  }
+  return { severity: null, shouldAutoDisable: false, rate };
+}
+
+async function gatherWebhookFailureSignals(now: Date): Promise<number> {
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  // WebhookLog has no tenantId column; group by webhookId, then resolve
+  // tenant + active state in one Webhook query keyed by the same ids.
+  const totals = await prisma.webhookLog.groupBy({
+    by: ["webhookId"],
+    where: { createdAt: { gte: since } },
+    _count: { _all: true },
+  });
+  if (totals.length === 0) return 0;
+
+  const failures = await prisma.webhookLog.groupBy({
+    by: ["webhookId"],
+    where: {
+      createdAt: { gte: since },
+      OR: [
+        { statusCode: { gte: 400 } },
+        { statusCode: null }, // dispatcher never got a response
+        { error: { not: null } },
+      ],
+    },
+    _count: { _all: true },
+  });
+  const failureMap = new Map<string, number>();
+  for (const f of failures) failureMap.set(f.webhookId, f._count._all);
+
+  const candidates: Array<{
+    webhookId: string;
+    total: number;
+    failures: number;
+    classification: WebhookClassification;
+  }> = [];
+  for (const row of totals) {
+    const total = row._count._all;
+    const fails = failureMap.get(row.webhookId) ?? 0;
+    const classification = classifyWebhookHealth({ total, failures: fails });
+    if (classification.severity) {
+      candidates.push({ webhookId: row.webhookId, total, failures: fails, classification });
+    }
+  }
+  if (candidates.length === 0) return 0;
+
+  // Resolve tenant + active state for every candidate in one round trip.
+  const webhooks = await prisma.webhook.findMany({
+    where: { id: { in: candidates.map((c) => c.webhookId) } },
+    select: { id: true, tenantId: true, url: true, isActive: true },
+  });
+  const webhookMap = new Map(webhooks.map((w) => [w.id, w]));
+
+  let written = 0;
+  const today = dayKey(now);
+  for (const c of candidates) {
+    const webhook = webhookMap.get(c.webhookId);
+    // Skip orphaned logs whose webhook row is gone.
+    if (!webhook) continue;
+
+    // Auto-heal: flip isActive=false on catastrophic failure rate.
+    // Only act once — if it's already disabled, skip the write so we
+    // don't churn updatedAt every scan.
+    let autoDisabled = false;
+    if (c.classification.shouldAutoDisable && webhook.isActive) {
+      try {
+        await prisma.webhook.update({
+          where: { id: webhook.id },
+          data: { isActive: false },
+        });
+        autoDisabled = true;
+      } catch (err) {
+        console.warn(
+          `[platform-monitor] auto-disable failed for webhook ${webhook.id}:`,
+          (err as Error).message,
+        );
+      }
+    }
+
+    await upsertItem({
+      code: PlatformActionCode.WEBHOOK_FAILURE_SPIKE,
+      severity: c.classification.severity!,
+      title: `Webhook failing: ${(c.classification.rate * 100).toFixed(0)}% errors`,
+      body: autoDisabled
+        ? `Auto-disabled ${webhook.url} after ${c.failures}/${c.total} failed deliveries in 24h. Re-enable manually after fixing the endpoint.`
+        : `${c.failures}/${c.total} deliveries failed in 24h for ${webhook.url}. Investigate the endpoint.`,
+      targetTenantId: webhook.tenantId,
+      context: {
+        webhookId: webhook.id,
+        webhookUrl: webhook.url,
+        failureRate: c.classification.rate,
+        failures: c.failures,
+        total: c.total,
+        autoDisabled,
+      },
+      dedupeKey: `${PlatformActionCode.WEBHOOK_FAILURE_SPIKE}:${webhook.id}:${today}`,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+// ----------------------------------------------------------------------------
 // Provider Router signals — a provider with <90% success and ≥20 samples
 // in the last 24h shows up as PROVIDER_HEALTH_DEGRADED. Cross-tenant; the
 // item targets the platform, not a specific tenant.
@@ -283,6 +439,7 @@ export interface ScanResult {
   walletItems: number;
   complianceItems: number;
   providerItems: number;
+  webhookItems: number;
   total: number;
 }
 
@@ -294,6 +451,7 @@ export async function runDailyScan(): Promise<ScanResult> {
   let walletItems = 0;
   let complianceItems = 0;
   let providerItems = 0;
+  let webhookItems = 0;
   try {
     walletItems = await gatherWalletRiskSignals(now);
   } catch (err) {
@@ -315,11 +473,20 @@ export async function runDailyScan(): Promise<ScanResult> {
       (err as Error).message,
     );
   }
+  try {
+    webhookItems = await gatherWebhookFailureSignals(now);
+  } catch (err) {
+    console.warn(
+      "[platform-monitor] webhook scan failed:",
+      (err as Error).message,
+    );
+  }
   return {
     walletItems,
     complianceItems,
     providerItems,
-    total: walletItems + complianceItems + providerItems,
+    webhookItems,
+    total: walletItems + complianceItems + providerItems + webhookItems,
   };
 }
 

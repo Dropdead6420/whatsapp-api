@@ -99,6 +99,7 @@ export default function PlatformMonitorPage() {
         walletItems: number;
         complianceItems: number;
         providerItems: number;
+        webhookItems: number;
         total: number;
       }>("/api/v1/admin/platform-monitor/refresh");
       await load();
