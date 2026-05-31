@@ -210,6 +210,146 @@ async function gatherComplianceSignals(now: Date): Promise<number> {
 }
 
 // ----------------------------------------------------------------------------
+// AI usage spike signals (Sprint 6 slice 2). A tenant whose 24h AI spend
+// is multiples of their own 7-day rolling daily average raises an
+// AI_USAGE_SPIKE PlatformActionItem. Alert-only: unlike webhook auto-
+// disable, we do NOT auto-throttle AI here — a "spike" might be an
+// intentional campaign push, auto-throttling would silently break Flows
+// / AI Agents / autopilot, and the wallet already has its own circuit
+// breaker (assertCanAffordAi). Operator decides.
+//
+// Signal is unit-independent so tenants without an aiCreditsPerMonth
+// budget configured still get monitored, and new tenants with no
+// baseline naturally skip (no 7-day average).
+// ----------------------------------------------------------------------------
+
+const AI_SPIKE_MIN_24H_CENTS = 500; // absolute floor — don't escalate $1 "spikes"
+const AI_SPIKE_HIGH_MULTIPLIER = 3;
+const AI_SPIKE_URGENT_MULTIPLIER = 5;
+
+export interface AiSpikeClassification {
+  severity: PlatformActionSeverity | null;
+  multiplier: number;
+}
+
+/**
+ * Pure classifier for a tenant's 24h AI spend vs its own 7-day daily
+ * average — exported for tests.
+ *
+ *   spend24hCents < $5 floor            → null (too small to act on)
+ *   sevenDayAvgCents <= 0 (new tenant)  → null (no baseline)
+ *   24h >= 5x baseline                  → URGENT
+ *   24h >= 3x baseline                  → HIGH
+ *   else                                → null
+ */
+export function classifyAiUsageSpike(args: {
+  spend24hCents: number;
+  sevenDayAvgCents: number;
+}): AiSpikeClassification {
+  if (args.spend24hCents < AI_SPIKE_MIN_24H_CENTS) {
+    return { severity: null, multiplier: 0 };
+  }
+  if (args.sevenDayAvgCents <= 0) {
+    return { severity: null, multiplier: 0 };
+  }
+  const multiplier = args.spend24hCents / args.sevenDayAvgCents;
+  if (multiplier >= AI_SPIKE_URGENT_MULTIPLIER) {
+    return { severity: PlatformActionSeverity.URGENT, multiplier };
+  }
+  if (multiplier >= AI_SPIKE_HIGH_MULTIPLIER) {
+    return { severity: PlatformActionSeverity.HIGH, multiplier };
+  }
+  return { severity: null, multiplier };
+}
+
+async function gatherAiUsageSpikeSignals(now: Date): Promise<number> {
+  const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  // 24h sums and 7d sums per tenant, in two grouped queries. The 7d
+  // window deliberately overlaps the 24h window — the average is over
+  // the longer span (cents/7), so a sustained high day is the spike
+  // even if it's pulling its own baseline up.
+  const [spend24h, spend7d] = await Promise.all([
+    prisma.aiUsage.groupBy({
+      by: ["tenantId"],
+      where: { createdAt: { gte: since24h } },
+      _sum: { costInCents: true },
+    }),
+    prisma.aiUsage.groupBy({
+      by: ["tenantId"],
+      where: { createdAt: { gte: since7d } },
+      _sum: { costInCents: true },
+    }),
+  ]);
+
+  const sevenDayMap = new Map<string, number>();
+  for (const row of spend7d) {
+    sevenDayMap.set(row.tenantId, row._sum.costInCents ?? 0);
+  }
+
+  const candidates: Array<{
+    tenantId: string;
+    spend24hCents: number;
+    sevenDayAvgCents: number;
+    classification: AiSpikeClassification;
+  }> = [];
+  for (const row of spend24h) {
+    const spend24hCents = row._sum.costInCents ?? 0;
+    const totalSevenDayCents = sevenDayMap.get(row.tenantId) ?? 0;
+    const sevenDayAvgCents = totalSevenDayCents / 7;
+    const classification = classifyAiUsageSpike({
+      spend24hCents,
+      sevenDayAvgCents,
+    });
+    if (classification.severity) {
+      candidates.push({
+        tenantId: row.tenantId,
+        spend24hCents,
+        sevenDayAvgCents,
+        classification,
+      });
+    }
+  }
+  if (candidates.length === 0) return 0;
+
+  // One name lookup for the candidates so the action title is readable
+  // without a join on every refresh.
+  const tenants = await prisma.tenant.findMany({
+    where: { id: { in: candidates.map((c) => c.tenantId) } },
+    select: { id: true, name: true },
+  });
+  const nameMap = new Map(tenants.map((t) => [t.id, t.name]));
+
+  let written = 0;
+  const today = dayKey(now);
+  for (const c of candidates) {
+    const tenantName = nameMap.get(c.tenantId) ?? c.tenantId;
+    const usd = (c.spend24hCents / 100).toFixed(2);
+    const baselineUsd = (c.sevenDayAvgCents / 100).toFixed(2);
+    await upsertItem({
+      code: PlatformActionCode.AI_USAGE_SPIKE,
+      severity: c.classification.severity!,
+      title: `${tenantName}: AI spend ${c.classification.multiplier.toFixed(1)}× baseline`,
+      body:
+        `${tenantName} spent $${usd} on AI in the last 24h vs $${baselineUsd}/day rolling average. ` +
+        "Verify the burn is intentional (campaign, bulk action) or contact the tenant.",
+      targetTenantId: c.tenantId,
+      context: {
+        tenantId: c.tenantId,
+        tenantName,
+        spend24hCents: c.spend24hCents,
+        sevenDayAvgCents: Math.round(c.sevenDayAvgCents),
+        multiplier: c.classification.multiplier,
+      },
+      dedupeKey: `${PlatformActionCode.AI_USAGE_SPIKE}:${c.tenantId}:${today}`,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+// ----------------------------------------------------------------------------
 // Webhook failure signals — a tenant whose outbound webhook is failing
 // at high rate in the last 24h shows up as WEBHOOK_FAILURE_SPIKE. The
 // auto-heal action (slice 1 reliability slice): a catastrophic 95%+
@@ -440,6 +580,7 @@ export interface ScanResult {
   complianceItems: number;
   providerItems: number;
   webhookItems: number;
+  aiUsageItems: number;
   total: number;
 }
 
@@ -452,6 +593,7 @@ export async function runDailyScan(): Promise<ScanResult> {
   let complianceItems = 0;
   let providerItems = 0;
   let webhookItems = 0;
+  let aiUsageItems = 0;
   try {
     walletItems = await gatherWalletRiskSignals(now);
   } catch (err) {
@@ -481,12 +623,26 @@ export async function runDailyScan(): Promise<ScanResult> {
       (err as Error).message,
     );
   }
+  try {
+    aiUsageItems = await gatherAiUsageSpikeSignals(now);
+  } catch (err) {
+    console.warn(
+      "[platform-monitor] ai usage scan failed:",
+      (err as Error).message,
+    );
+  }
   return {
     walletItems,
     complianceItems,
     providerItems,
     webhookItems,
-    total: walletItems + complianceItems + providerItems + webhookItems,
+    aiUsageItems,
+    total:
+      walletItems +
+      complianceItems +
+      providerItems +
+      webhookItems +
+      aiUsageItems,
   };
 }
 

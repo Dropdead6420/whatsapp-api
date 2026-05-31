@@ -100,6 +100,7 @@ export default function PlatformMonitorPage() {
         complianceItems: number;
         providerItems: number;
         webhookItems: number;
+        aiUsageItems: number;
         total: number;
       }>("/api/v1/admin/platform-monitor/refresh");
       await load();

@@ -627,3 +627,26 @@ Format:
   - 10 unit tests pin every transition: below-volume null, exactly-9 null, <50% null, 50%+ HIGH, 80%+ URGENT-not-disable, 95%+ at vol<20 URGENT-not-disable (volume gate enforced), 95%+ at vol≥20 URGENT+disable, 100% on 100 events URGENT+disable, 60%-on-100 HIGH not URGENT (rate gates everything), zero-failures null.
   - No schema change. The auto-disable mutation is the first true self-heal action in the platform; future slices (e.g. auto-cap a runaway AI burner) can follow the same pattern: do one thing, reversibly, and surface it loudly in the action item.
   - Follow-up: an LLM "explain this webhook failure" hint (ADR-035 pattern) over the `lastError` from the most recent failed `WebhookLog`; an `AI_USAGE_SPIKE` gatherer that uses the same three-tier shape against `AiUsage.costInCents` rolling sums.
+
+## ADR-037 — AI usage spike monitor: 24h-vs-7d-baseline classifier, alert-only (no auto-throttle)
+
+- **Date**: 2026-05-31
+- **Status**: Accepted; PRD-v2 §9 Sprint 6 slice 2 (SaaS reliability — second monitor, deliberately no self-heal)
+- **Context**: `AI_USAGE_SPIKE` joins `WEBHOOK_FAILURE_SPIKE` as a PlatformActionCode declared in Sprint 2 but never wired. AI spend is the platform's largest variable cost and the most likely runaway-bill vector (a misconfigured Flow, an infinite loop in an AI Agent, a bot scraping endpoints). The obvious twin to the webhook auto-disable in ADR-036 would be to auto-throttle AI for the tenant — but the cost/benefit doesn't line up the same way, and the design decision is *not* to auto-act here.
+- **Decision**:
+  - **Alert-only, deliberately no auto-throttle.** Unlike webhook outages, an AI spend "spike" is often intentional: a campaign push, a partner running a bulk classification job, a new AI Agent going live. Auto-throttling would silently break Flows, AI Agents, and Campaign Autopilot — a much wider blast radius than a single webhook. The wallet's existing `assertCanAffordAi` (with `creditLimit` for postpaid) is the real circuit breaker for runaway cost. This monitor's job is to surface the anomaly to the operator, who decides.
+  - **Unit-independent baseline: 24h spend ÷ 7-day rolling daily average.** The schema has two AI cost units (`Tenant.aiCreditsPerMonth` in "credits", `AiUsage.costInCents` in actual cents). Comparing across them is awkward and breaks for tenants without a budget configured. The own-history baseline sidesteps both problems: works for every tenant, naturally skips new tenants with no history, and adapts automatically as a tenant's normal usage grows.
+  - **Pure three-tier classifier with an absolute floor.** `classifyAiUsageSpike({ spend24hCents, sevenDayAvgCents })`:
+    - `spend24hCents < 500` (≈$5) → null. Don't escalate "I spent $0.50 on a 10x spike vs my $0.05/day baseline." Volume floor protects from noise on tiny tenants.
+    - `sevenDayAvgCents <= 0` → null. No baseline, can't decide.
+    - `multiplier >= 5` → URGENT.
+    - `multiplier >= 3` → HIGH.
+    - else → null.
+  - **Two `groupBy` queries + one resolve.** Same shape as the webhook gatherer: groupBy by tenantId for 24h sum, groupBy for 7d sum, merge in memory, classify, resolve tenant names for only the candidates that crossed a threshold. The 7d window overlaps the 24h window deliberately — the average is over the longer span, so a sustained high day is still the spike even if it's pulling its own baseline up.
+  - **Same dedupeKey pattern: per-tenant per-day.** `AI_USAGE_SPIKE:tenantId:dayKey`. One row per tenant per day; sustained burn upserts the same row across scans.
+  - **Per-gatherer try/catch.** Same pattern as the rest: a flaky AI usage scan can't break the others.
+- **Consequences**:
+  - New gatherer `gatherAiUsageSpikeSignals` + exported `classifyAiUsageSpike` in `platformMonitor.service.ts`. `ScanResult.aiUsageItems` added; SuperAdmin refresh response shape extended; platform-monitor page TypeScript type updated to match.
+  - 11 unit tests pin: below-floor null (even at 30x), no-baseline null, negative-baseline null (defensive), 2x null, exactly-3x HIGH, between HIGH, exactly-5x URGENT, above-5x URGENT, floor-trumps-multiplier null, flat-spend null, 10x URGENT.
+  - This establishes the **alert-only counterpart** to ADR-036's auto-disable. The platform now has two reliability monitors with clear different blast-radius rules: webhooks self-heal because the blast radius is one URL and the action is reversible; AI usage alerts because the blast radius is the tenant's whole AI surface and the action would be irreversible mid-burst.
+  - Follow-up: a "compare to a 30-day baseline + per-feature breakdown" deeper-dive panel on the SuperAdmin platform-monitor page when an `AI_USAGE_SPIKE` item is clicked — pure read enrichment, no behavior change.
