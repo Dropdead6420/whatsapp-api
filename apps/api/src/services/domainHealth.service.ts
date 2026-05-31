@@ -32,6 +32,7 @@ import {
   PlatformActionSeverity,
   PlatformActionStatus,
 } from "@nexaflow/db";
+import { ApiError, ErrorCodes } from "@nexaflow/shared";
 
 const SCAN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
@@ -456,4 +457,243 @@ export async function listPartnerDomainHealth(args: {
       recent,
     };
   });
+}
+
+// ----------------------------------------------------------------------------
+// LLM "Explain this error" (slice 3). Generate-only: maps the deterministic
+// monitor output into a partner-readable diagnosis + ordered fix steps.
+// Never writes back to the Domain row, never auto-heals, never sends a
+// message. Falls back to a deterministic per-outcome playbook so the UI
+// always has actionable content.
+// ----------------------------------------------------------------------------
+
+export interface DomainErrorExplanation {
+  domainId: string;
+  outcome: DomainHealthOutcome | "UNKNOWN";
+  summary: string;
+  steps: string[];
+  source: "ai" | "fallback";
+}
+
+function clampStr(value: unknown, max: number, fallback = ""): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : fallback;
+}
+
+/**
+ * Deterministic per-outcome playbook. The fallback for the LLM, and what
+ * gets returned verbatim when the model has no API key configured. Keeps
+ * the slice useful even before AI is wired up.
+ */
+function fallbackExplanation(args: {
+  domainId: string;
+  outcome: DomainHealthOutcome | "UNKNOWN";
+  domain: string;
+  cnameHost: string;
+  cnameValue: string;
+  txtHost: string;
+  txtValue: string;
+  lastSample: {
+    cnameOk: boolean;
+    txtOk: boolean;
+    sslOk: boolean;
+    error: string | null;
+  } | null;
+}): DomainErrorExplanation {
+  const base = { domainId: args.domainId, source: "fallback" as const };
+  switch (args.outcome) {
+    case DomainHealthOutcome.OK:
+      return {
+        ...base,
+        outcome: args.outcome,
+        summary: `${args.domain} is healthy. No action needed.`,
+        steps: [],
+      };
+    case DomainHealthOutcome.DNS_DRIFT: {
+      const steps: string[] = [];
+      if (args.lastSample && !args.lastSample.cnameOk) {
+        steps.push(
+          `Open your DNS provider and confirm there is a CNAME record at host \`${args.cnameHost}\` pointing to \`${args.cnameValue}\`.`,
+        );
+        steps.push(
+          "If the record is missing or different, re-create it exactly as shown. Make sure conflicting A/AAAA records on the same host are removed.",
+        );
+      }
+      if (args.lastSample && !args.lastSample.txtOk) {
+        steps.push(
+          `Confirm a TXT record at host \`${args.txtHost}\` with the exact value \`${args.txtValue}\`.`,
+        );
+        steps.push(
+          "Some DNS providers strip quotes — re-paste the value if needed, then wait 1-2 minutes for propagation.",
+        );
+      }
+      steps.push(
+        "Once the records are correct, click \"Refresh now\" on the Domain Health page. The next scan should clear the failure.",
+      );
+      return {
+        ...base,
+        outcome: args.outcome,
+        summary: `DNS records for ${args.domain} no longer resolve correctly. The white-label portal will keep working only until existing TLS sessions expire.`,
+        steps,
+      };
+    }
+    case DomainHealthOutcome.SSL_FAILED:
+      return {
+        ...base,
+        outcome: args.outcome,
+        summary: `The TLS certificate served on ${args.domain} is invalid or expired. Visitors will see a browser security warning right now.`,
+        steps: [
+          "Confirm DNS still resolves correctly (CNAME should be intact).",
+          "Check your edge/CDN/proxy for the current certificate expiry. Renew or re-issue it (Let's Encrypt typically re-issues automatically — confirm the renewal cron is healthy).",
+          "If you use a managed host, force a certificate re-provision in their dashboard.",
+          "Click \"Refresh now\" once the new cert is live.",
+        ],
+      };
+    case DomainHealthOutcome.UNREACHABLE:
+      return {
+        ...base,
+        outcome: args.outcome,
+        summary: `${args.domain} did not respond to the health probe. This usually means an upstream outage or a hard DNS failure.`,
+        steps: [
+          "Run `dig` or `nslookup` for the domain from your machine to confirm whether DNS resolves at all.",
+          "Check your hosting provider's status page for a current incident.",
+          "Verify the firewall in front of the domain allows HTTPS traffic from the public internet.",
+          "Click \"Refresh now\" once you've confirmed connectivity.",
+        ],
+      };
+    default:
+      return {
+        ...base,
+        outcome: args.outcome,
+        summary: `${args.domain} has not been probed yet. Trigger a manual scan to populate health data.`,
+        steps: ["Click \"Refresh now\" on the Domain Health page to run an immediate scan."],
+      };
+  }
+}
+
+/**
+ * Generate-then-approve diagnosis of a domain's current health.
+ *
+ * Tenant scoping: the domain must be owned by the calling partner
+ * (`partnerTenantId === args.partnerTenantId`). 404 otherwise so a partner
+ * can't enumerate other partners' domain ids. Falls back to a
+ * deterministic per-outcome playbook on any LLM failure / empty response.
+ */
+export async function explainDomainError(args: {
+  partnerTenantId: string;
+  domainId: string;
+}): Promise<DomainErrorExplanation> {
+  const domain = await prisma.domain.findFirst({
+    where: { id: args.domainId, partnerTenantId: args.partnerTenantId },
+    select: {
+      id: true,
+      domain: true,
+      status: true,
+      lastError: true,
+      cnameHost: true,
+      cnameValue: true,
+      txtHost: true,
+      txtValue: true,
+      healthSamples: {
+        orderBy: { observedAt: "desc" },
+        take: 5,
+        select: {
+          outcome: true,
+          cnameOk: true,
+          txtOk: true,
+          sslOk: true,
+          error: true,
+          observedAt: true,
+        },
+      },
+    },
+  });
+  if (!domain) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Domain not found.");
+  }
+
+  const latest = domain.healthSamples[0] ?? null;
+  const outcome: DomainHealthOutcome | "UNKNOWN" = latest?.outcome ?? "UNKNOWN";
+
+  const fallback = fallbackExplanation({
+    domainId: domain.id,
+    outcome,
+    domain: domain.domain,
+    cnameHost: domain.cnameHost,
+    cnameValue: domain.cnameValue,
+    txtHost: domain.txtHost,
+    txtValue: domain.txtValue,
+    lastSample: latest
+      ? {
+          cnameOk: latest.cnameOk,
+          txtOk: latest.txtOk,
+          sslOk: latest.sslOk,
+          error: latest.error,
+        }
+      : null,
+  });
+
+  // Don't spend AI credits explaining a healthy or never-probed domain.
+  if (!latest || outcome === DomainHealthOutcome.OK) {
+    return fallback;
+  }
+
+  try {
+    const { runTenantLlmJson } = await import("./ai.service");
+    const llm = await runTenantLlmJson<{ summary?: string; steps?: string[] }>({
+      tenantId: args.partnerTenantId,
+      feature: "domain_error_explainer",
+      system:
+        "You are a friendly DevOps copilot helping a non-technical partner fix a " +
+        "white-label DNS or SSL problem. Given the deterministic monitor's signal, " +
+        "write a 1-2 sentence summary of what's wrong and an ordered list of 3-6 " +
+        "concrete fix steps the partner can run themselves. Use plain language. " +
+        "Never invent record values — quote only the cnameHost / cnameValue / " +
+        "txtHost / txtValue exactly as provided. " +
+        'Return JSON: {"summary":"...","steps":["step 1","step 2",...]}.',
+      prompt: JSON.stringify({
+        domain: domain.domain,
+        status: domain.status,
+        outcome,
+        lastError: domain.lastError ?? latest?.error ?? null,
+        cnameHost: domain.cnameHost,
+        cnameValue: domain.cnameValue,
+        txtHost: domain.txtHost,
+        txtValue: domain.txtValue,
+        latestSample: latest
+          ? {
+              cnameOk: latest.cnameOk,
+              txtOk: latest.txtOk,
+              sslOk: latest.sslOk,
+              error: latest.error,
+            }
+          : null,
+        recentOutcomes: domain.healthSamples.map((s) => s.outcome),
+      }),
+      maxTokens: 700,
+      temperature: 0.3,
+    });
+
+    const summary = clampStr(llm.summary, 400);
+    const steps = Array.isArray(llm.steps)
+      ? llm.steps
+          .filter((s) => typeof s === "string" && s.trim())
+          .slice(0, 8)
+          .map((s) => s.trim().slice(0, 500))
+      : [];
+
+    if (!summary && steps.length === 0) return fallback;
+
+    return {
+      domainId: domain.id,
+      outcome,
+      summary: summary || fallback.summary,
+      steps: steps.length > 0 ? steps : fallback.steps,
+      source: "ai",
+    };
+  } catch (err) {
+    console.error("[domain-health] explainer LLM failed:", err);
+    return fallback;
+  }
 }

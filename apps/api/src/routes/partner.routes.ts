@@ -35,6 +35,7 @@ import {
 import {
   listPartnerDomainHealth,
   scanDomainHealth,
+  explainDomainError,
 } from "../services/domainHealth.service";
 
 const router = Router();
@@ -287,6 +288,30 @@ router.post(
     try {
       await assertPartnerTenant(req.tenantId!);
       const result = await scanDomainHealth();
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/partner/domains/:domainId/explain
+//
+// LLM-written diagnosis + ordered fix steps for one failing domain.
+// Generate-only — never writes back, never sends a message. Falls back
+// to a deterministic per-outcome playbook so the panel is never empty.
+// Billed to the partner tenant. Healthy / unknown domains short-circuit
+// the LLM call and just return the fallback.
+router.post(
+  "/domains/:domainId/explain",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const result = await explainDomainError({
+        partnerTenantId: partner.id,
+        domainId: req.params.domainId,
+      });
       res.json({ success: true, data: result });
     } catch (err) {
       next(err);

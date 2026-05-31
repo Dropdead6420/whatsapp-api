@@ -49,6 +49,14 @@ interface ScanResult {
   escalated: number;
 }
 
+interface Explanation {
+  domainId: string;
+  outcome: DomainHealthOutcome | "UNKNOWN";
+  summary: string;
+  steps: string[];
+  source: "ai" | "fallback";
+}
+
 const STATUS_TONE: Record<DomainStatus, string> = {
   LIVE: "border-emerald-200 bg-emerald-50 text-emerald-800",
   SSL_ACTIVE: "border-emerald-200 bg-emerald-50 text-emerald-800",
@@ -109,6 +117,9 @@ export default function PartnerDomainsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [explanations, setExplanations] = useState<
+    Record<string, Explanation | "loading">
+  >({});
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -132,6 +143,24 @@ export default function PartnerDomainsPage() {
   useEffect(() => {
     if (user) void load();
   }, [user, load]);
+
+  const explain = async (domainId: string) => {
+    setExplanations((prev) => ({ ...prev, [domainId]: "loading" }));
+    setErr(null);
+    try {
+      const result = await api.post<Explanation>(
+        `/api/v1/partner/domains/${domainId}/explain`,
+      );
+      setExplanations((prev) => ({ ...prev, [domainId]: result }));
+    } catch (e) {
+      setExplanations((prev) => {
+        const next = { ...prev };
+        delete next[domainId];
+        return next;
+      });
+      setErr(e instanceof ApiClientError ? e.message : "Failed to load explanation.");
+    }
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -306,6 +335,34 @@ export default function PartnerDomainsPage() {
                         {row.recent[0].error}
                       </div>
                     )}
+                    {row.failingStreak > 0 && row.lastOutcome && row.lastOutcome !== "OK" && (
+                      <div className="mt-2">
+                        {explanations[row.domainId] === "loading" ? (
+                          <span className="text-xs text-slate-500">
+                            Diagnosing…
+                          </span>
+                        ) : explanations[row.domainId] ? (
+                          <ExplanationPanel
+                            explanation={explanations[row.domainId] as Explanation}
+                            onClose={() =>
+                              setExplanations((prev) => {
+                                const next = { ...prev };
+                                delete next[row.domainId];
+                                return next;
+                              })
+                            }
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void explain(row.domainId)}
+                            className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                          >
+                            ✦ Explain this error
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -352,6 +409,45 @@ function StatCard({
       <div className={`mt-1 font-mono text-2xl font-semibold ${nums[tone]}`}>
         {value.toLocaleString()}
       </div>
+    </div>
+  );
+}
+
+function ExplanationPanel({
+  explanation,
+  onClose,
+}: {
+  explanation: Explanation;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mt-1 max-w-md rounded-md border border-indigo-200 bg-indigo-50/60 p-3 text-xs">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-semibold uppercase tracking-wide text-indigo-700">
+          {explanation.source === "ai" ? "AI diagnosis" : "Suggested fix"}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[11px] text-slate-500 hover:text-slate-700"
+          aria-label="Dismiss"
+        >
+          ✕
+        </button>
+      </div>
+      <p className="text-slate-800">{explanation.summary}</p>
+      {explanation.steps.length > 0 && (
+        <ol className="mt-2 list-decimal space-y-1 pl-4 text-slate-700">
+          {explanation.steps.map((step, i) => (
+            <li key={i} className="whitespace-pre-wrap">
+              {step}
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="mt-2 text-[10px] text-slate-500">
+        Suggestion only — nothing has been changed on the domain.
+      </p>
     </div>
   );
 }
