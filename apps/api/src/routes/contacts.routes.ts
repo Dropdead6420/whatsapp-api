@@ -9,6 +9,7 @@ import {
 } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
+import { assertContactQuota } from "../services/quota.service";
 import { dispatchFlowTriggers, tagsAdded } from "../services/flow/flowTrigger.service";
 import {
   enrollContactForAddedTags,
@@ -200,6 +201,10 @@ router.post(
         );
       }
 
+      // Gate on the tenant's contactLimit before insert. The dashboard
+      // PlanQuotaBar shows this number; the API has to honor it.
+      await assertContactQuota(req.tenantId!, 1);
+
       const contact = await prisma.contact.create({
         data: {
           tenantId: req.tenantId!,
@@ -375,6 +380,11 @@ router.post(
         });
         return;
       }
+
+      // Gate the full batch in one check — bulk imports of 10k rows
+      // would otherwise blow past the limit silently because
+      // createMany doesn't observe individual creates.
+      await assertContactQuota(req.tenantId!, toCreate.length);
 
       const result = await prisma.contact.createMany({
         data: toCreate.map((c) => ({

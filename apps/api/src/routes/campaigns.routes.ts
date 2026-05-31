@@ -15,6 +15,7 @@ import {
 } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
+import { assertCampaignQuota } from "../services/quota.service";
 import { enqueueCampaign } from "../services/campaign.service";
 import { requireFeature } from "../services/features.service";
 import {
@@ -58,6 +59,12 @@ router.post(
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
       const body = createSchema.parse(req.body);
+
+      // Gate on the tenant's campaignLimit before the template lookup
+      // + compliance pass. The dashboard PlanQuotaBar shows this
+      // number; the API has to honor it.
+      await assertCampaignQuota(req.tenantId!);
+
       const template = await prisma.whatsAppTemplate.findFirst({
         where: { id: body.templateId, tenantId: req.tenantId },
       });
