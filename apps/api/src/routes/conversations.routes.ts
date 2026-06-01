@@ -22,6 +22,7 @@ import {
   analyzeSentiment,
   extractStructuredData,
 } from "../services/ai.service";
+import { routeBestAgent } from "../services/agentRouter.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
@@ -854,6 +855,46 @@ router.post(
         fields: fields ?? DEFAULT_LEAD_FIELDS,
       });
       res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * POST /api/v1/conversations/:id/ai-route-agent
+ *
+ * Suggest the best agent to assign this conversation to (PRD §7). The
+ * actual assignment still happens via the existing
+ * PATCH /:id/assignee path; this route only produces a recommendation
+ * + rationale. AGENTs can't call it — they're already the candidate
+ * pool. BUSINESS_ADMIN / TEAM_LEAD only.
+ */
+router.post(
+  "/:id/ai-route-agent",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      if (req.userRole !== "BUSINESS_ADMIN" && req.userRole !== "TEAM_LEAD") {
+        throw new ApiError(
+          ErrorCodes.FORBIDDEN,
+          403,
+          "Only BUSINESS_ADMIN or TEAM_LEAD can request agent routing.",
+        );
+      }
+      const suggestion = await routeBestAgent({
+        tenantId: req.tenantId!,
+        conversationId: req.params.id,
+      });
+      if (!suggestion) {
+        // No active agents on the tenant — operator needs to invite
+        // someone before assignment makes sense.
+        throw new ApiError(
+          ErrorCodes.NOT_FOUND,
+          404,
+          "No active agents available to assign this conversation.",
+        );
+      }
+      res.json({ success: true, data: suggestion });
     } catch (err) {
       next(err);
     }
