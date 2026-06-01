@@ -16,6 +16,7 @@ import {
 import { requirePermission } from "../middleware/rbac";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
+import { summarizeConversation } from "../services/ai.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
@@ -638,6 +639,69 @@ router.post(
         success: true,
         data: { conversation: updated, message, metaMessageId },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/conversations/:id/ai-summary
+//
+// Agent inbox AI helper (PRD-v2 §7: "AI summarizes each conversation,
+// detects sentiment, recommends reply, extracts lead data..."). This
+// closes the summary piece — exposes the existing summarizeConversation
+// service over HTTP so the agent inbox UI can call it on demand.
+//
+// Tenant-scoped + agent-scoped: when the caller is an AGENT, we require
+// the conversation to be assigned to them. BUSINESS_ADMIN / TEAM_LEAD
+// can summarize any conversation in the tenant. Billed to the tenant
+// via the existing runTenantLlmJson plumbing (assertCanAffordAi +
+// debitAi); no separate quota.
+const aiSummarySchema = z.object({
+  focus: z.string().trim().min(1).max(200).optional(),
+});
+
+router.post(
+  "/:id/ai-summary",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const { focus } = aiSummarySchema.parse(req.body ?? {});
+      const conversation = await prismaRead.conversation.findFirst({
+        where: {
+          id: req.params.id,
+          tenantId: req.tenantId,
+          ...(req.userRole === "AGENT" ? { agentId: req.userId } : {}),
+        },
+        select: { id: true },
+      });
+      if (!conversation) {
+        throw new ApiError(
+          ErrorCodes.NOT_FOUND,
+          404,
+          "Conversation not found.",
+        );
+      }
+
+      // Pull the last 40 messages oldest-first so the summary preserves
+      // chronological context. summarizeConversation re-slices to last
+      // 40 internally but we cap here too so the prismaRead read stays
+      // bounded regardless of conversation length.
+      const recent = await prismaRead.message.findMany({
+        where: { conversationId: conversation.id },
+        orderBy: { createdAt: "desc" },
+        take: 40,
+        select: { content: true, direction: true, createdAt: true },
+      });
+      const messages = recent.reverse().map((m) => ({
+        content: m.content,
+        direction: m.direction,
+      }));
+
+      const result = await summarizeConversation(req.tenantId!, {
+        messages,
+        focus,
+      });
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
