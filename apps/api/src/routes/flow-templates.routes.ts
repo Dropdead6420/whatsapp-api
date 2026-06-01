@@ -11,6 +11,7 @@ import { requirePermission } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { nodeRegistry } from "../services/flow/nodes";
 import { requireFeature } from "../services/features.service";
+import { loadCustomizedDefinition } from "../services/flowTemplateInstaller.service";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope, requireFeature("flows"));
@@ -139,6 +140,76 @@ router.post(
           flowId: flow.id,
           name: flow.name,
           editUrl: `/flows/${flow.id}/edit`,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/flow-templates/:slug/install-with-ai
+//
+// Automation Marketplace AI Installer (PRD §8). Same as /install but
+// asks Claude to rewrite the template's text-bearing node fields for
+// the tenant's industry + business name. The LLM never touches graph
+// structure — the existing validateInstalledDefinition pass still runs
+// to enforce that. On LLM failure, falls back to the original
+// definition (`source: "fallback"`).
+router.post(
+  "/:slug/install-with-ai",
+  requirePermission(Permissions.FLOW_PUBLISH),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = installSchema.parse(req.body ?? {});
+      const { templateName, templateDescription, result } =
+        await loadCustomizedDefinition({
+          tenantId: req.tenantId!,
+          templateSlug: req.params.slug,
+        });
+
+      // Structural validation runs on the (possibly-rewritten)
+      // definition. The customizer guarantees structure is preserved
+      // but this is a belt-and-suspenders check identical to the
+      // /install path — same validator, same error surface.
+      validateInstalledDefinition(result.definition);
+
+      const flow = await prisma.chatbotFlow.create({
+        data: {
+          tenantId: req.tenantId!,
+          name: body.name ?? templateName,
+          description: templateDescription,
+          trigger: body.trigger ?? "manual",
+          triggerKeywords: body.triggerKeywords ?? [],
+          nodes: JSON.stringify(result.definition.nodes),
+          edges: result.definition.edges
+            ? JSON.stringify(result.definition.edges)
+            : null,
+          isActive: false,
+        },
+      });
+
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "ChatbotFlow",
+        resourceId: flow.id,
+        newValues: {
+          fromTemplate: req.params.slug,
+          name: flow.name,
+          aiCustomized: result.source === "ai",
+        },
+        ...extractRequestMeta(req),
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          flowId: flow.id,
+          name: flow.name,
+          editUrl: `/flows/${flow.id}/edit`,
+          source: result.source,
         },
       });
     } catch (err) {

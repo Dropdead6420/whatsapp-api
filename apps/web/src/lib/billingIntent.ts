@@ -13,6 +13,20 @@ export function readBillingIntent(search: string): BillingIntent {
   };
 }
 
+export function readBillingIntentFromSearchParams(
+  searchParams: Record<string, string | string[] | undefined>,
+): BillingIntent {
+  const value = (key: string) => {
+    const raw = searchParams[key];
+    return Array.isArray(raw) ? raw[0] : raw;
+  };
+
+  return {
+    billing: value("billing") === "1",
+    plan: value("plan") ?? null,
+  };
+}
+
 export function readBillingIntentFromWindow(): BillingIntent {
   if (typeof window === "undefined") {
     return { billing: false, plan: null };
