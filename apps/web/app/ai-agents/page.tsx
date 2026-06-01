@@ -16,6 +16,7 @@ import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
 
 type AgentStatus = "DRAFT" | "ACTIVE" | "DISABLED" | "ARCHIVED";
+type Provider = "openai" | "anthropic";
 type Fallback = "ESCALATE_TO_HUMAN" | "SEND_TEMPLATE" | "SILENT";
 
 interface KnowledgeScope {
@@ -70,6 +71,35 @@ interface TestRunResult {
 }
 
 const PROVIDERS = ["openai", "anthropic"] as const;
+const MODEL_PRESETS: Record<
+  (typeof PROVIDERS)[number],
+  Array<{ label: string; model: string; hint: string }>
+> = {
+  openai: [
+    {
+      label: "Fast support",
+      model: "gpt-4o-mini",
+      hint: "Low-latency inbox answers and test runs.",
+    },
+    {
+      label: "High reasoning",
+      model: "gpt-4o",
+      hint: "Complex sales or support conversations.",
+    },
+  ],
+  anthropic: [
+    {
+      label: "Fast support",
+      model: "claude-3-5-haiku-latest",
+      hint: "Quick, concise WhatsApp responses.",
+    },
+    {
+      label: "High reasoning",
+      model: "claude-3-5-sonnet-latest",
+      hint: "Richer reasoning with KB grounding.",
+    },
+  ],
+};
 const ALLOWED_TOOLS = [
   "CREATE_LEAD",
   "ADD_TAG",
@@ -79,7 +109,21 @@ const ALLOWED_TOOLS = [
   "LOOKUP_CONTACT",
   "LOOKUP_ORDER",
 ] as const;
+const TOOL_HELP: Record<(typeof ALLOWED_TOOLS)[number], string> = {
+  CREATE_LEAD: "Creates a CRM lead from the conversation.",
+  ADD_TAG: "Adds a contact tag such as pricing or vip.",
+  BOOK_APPOINTMENT: "Books against the tenant service calendar.",
+  TRANSFER_TO_HUMAN: "Escalates to the routing queue.",
+  SEND_TEMPLATE: "Resolves a template for a downstream send node.",
+  LOOKUP_CONTACT: "Reads the current contact profile.",
+  LOOKUP_ORDER: "Reserved for commerce integrations.",
+};
 const FALLBACKS: Fallback[] = ["ESCALATE_TO_HUMAN", "SEND_TEMPLATE", "SILENT"];
+const FALLBACK_HELP: Record<Fallback, string> = {
+  ESCALATE_TO_HUMAN: "Transfer unresolved conversations to an agent.",
+  SEND_TEMPLATE: "Return a named template id for a downstream template send.",
+  SILENT: "Do nothing if the model cannot answer safely.",
+};
 const STATUS_FILTERS = ["ALL", "DRAFT", "ACTIVE", "DISABLED", "ARCHIVED"] as const;
 const KB_CATEGORIES = [
   "FAQ",
@@ -96,7 +140,7 @@ function emptyDraft() {
     name: "",
     description: "",
     persona: "You are a helpful assistant for our business. Be concise and friendly.",
-    provider: "openai" as (typeof PROVIDERS)[number],
+    provider: "openai" as Provider,
     model: "gpt-4o-mini",
     temperature: 0.7,
     maxTokens: 800,
@@ -107,6 +151,18 @@ function emptyDraft() {
     fallbackBehavior: "ESCALATE_TO_HUMAN" as Fallback,
     fallbackTemplateId: "",
   };
+}
+
+function providerForModel(model: string): Provider {
+  return model.toLowerCase().startsWith("claude") ? "anthropic" : "openai";
+}
+
+function preferredModel(provider: Provider): string {
+  return MODEL_PRESETS[provider][0].model;
+}
+
+function parseDraftNumber(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
 }
 
 export default function AiAgentsPage() {
@@ -132,6 +188,14 @@ export default function AiAgentsPage() {
   const selected = useMemo(
     () => agents.find((a) => a.id === selectedId) ?? null,
     [agents, selectedId],
+  );
+  const activeAgents = useMemo(
+    () => agents.filter((a) => a.status === "ACTIVE"),
+    [agents],
+  );
+  const selectedPreset = useMemo(
+    () => MODEL_PRESETS[draft.provider].find((p) => p.model === draft.model),
+    [draft.model, draft.provider],
   );
 
   // Filtered list — search is client-side since the dataset is small
@@ -195,13 +259,13 @@ export default function AiAgentsPage() {
       persona: selected.persona,
       provider: (selected.provider === "anthropic"
         ? "anthropic"
-        : "openai") as (typeof PROVIDERS)[number],
+        : "openai") as Provider,
       model: selected.model,
       temperature: selected.temperature,
       maxTokens: selected.maxTokens,
-      knowledgeCategories: selected.knowledgeScope.categories,
-      knowledgeTags: selected.knowledgeScope.tags.join(", "),
-      knowledgeTopK: selected.knowledgeScope.topK,
+      knowledgeCategories: selected.knowledgeScope?.categories ?? [],
+      knowledgeTags: (selected.knowledgeScope?.tags ?? []).join(", "),
+      knowledgeTopK: selected.knowledgeScope?.topK ?? 5,
       tools: selected.tools,
       fallbackBehavior: selected.fallbackBehavior,
       fallbackTemplateId: selected.fallbackTemplateId ?? "",
@@ -218,6 +282,11 @@ export default function AiAgentsPage() {
   }
 
   function payloadFromDraft() {
+    const temperature = parseDraftNumber(Number(draft.temperature), 0.7);
+    const maxTokens = Math.floor(parseDraftNumber(Number(draft.maxTokens), 800));
+    const knowledgeTopK = Math.floor(
+      parseDraftNumber(Number(draft.knowledgeTopK), 5),
+    );
     const tags = draft.knowledgeTags
       .split(",")
       .map((t) => t.trim())
@@ -228,12 +297,12 @@ export default function AiAgentsPage() {
       persona: draft.persona,
       provider: draft.provider,
       model: draft.model.trim(),
-      temperature: Number(draft.temperature),
-      maxTokens: Math.floor(Number(draft.maxTokens)),
+      temperature,
+      maxTokens,
       knowledgeScope: {
         categories: draft.knowledgeCategories,
         tags,
-        topK: Math.floor(Number(draft.knowledgeTopK)),
+        topK: knowledgeTopK,
       },
       tools: draft.tools,
       fallbackBehavior: draft.fallbackBehavior,
@@ -244,12 +313,50 @@ export default function AiAgentsPage() {
     };
   }
 
+  function validateDraft(): string | null {
+    const body = payloadFromDraft();
+    if (!body.name) return "Agent name is required.";
+    if (body.name.length > 120) return "Agent name must be 120 characters or less.";
+    if (!body.persona.trim()) return "Persona is required.";
+    if (body.persona.length > 8_000) return "Persona must be 8,000 characters or less.";
+    if (!body.model) return "Choose a model preset or enter a model id.";
+    if (body.temperature < 0 || body.temperature > 2) {
+      return "Temperature must be between 0 and 2.";
+    }
+    if (body.maxTokens < 1 || body.maxTokens > 4096) {
+      return "Max tokens must be between 1 and 4,096.";
+    }
+    if (body.knowledgeScope.topK < 1 || body.knowledgeScope.topK > 20) {
+      return "Knowledge Top K must be between 1 and 20.";
+    }
+    if (body.fallbackBehavior === "SEND_TEMPLATE" && !body.fallbackTemplateId) {
+      return "Fallback template id is required when fallback is SEND_TEMPLATE.";
+    }
+    return null;
+  }
+
+  function chooseProvider(provider: Provider) {
+    setDraft((d) => ({
+      ...d,
+      provider,
+      model:
+        providerForModel(d.model) === provider || !d.model.trim()
+          ? d.model || preferredModel(provider)
+          : preferredModel(provider),
+    }));
+  }
+
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
     setNotice(null);
     try {
+      const validation = validateDraft();
+      if (validation) {
+        setErr(validation);
+        return;
+      }
       const body = payloadFromDraft();
       if (selected) {
         const updated = await api.patch<Agent>(
@@ -371,6 +478,7 @@ export default function AiAgentsPage() {
   }
 
   const defaultAgent = agents.find((a) => a.isDefault && a.status === "ACTIVE");
+  const inactiveDefault = agents.find((a) => a.isDefault && a.status !== "ACTIVE");
 
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
@@ -381,6 +489,17 @@ export default function AiAgentsPage() {
             Configure agents that answer inbound conversations. Grounded against
             your Knowledge Base; tool calls execute against your CRM.
           </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">
+              {agents.length} total
+            </span>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
+              {activeAgents.length} active
+            </span>
+            <span className="rounded-full bg-violet-50 px-2.5 py-1 font-medium text-violet-700">
+              {defaultAgent ? `${defaultAgent.name} default` : "No default agent"}
+            </span>
+          </div>
         </div>
         <button
           type="button"
@@ -428,6 +547,12 @@ export default function AiAgentsPage() {
             Auto-reply is on but no default agent is set. Inbound DMs are
             silently ignored until you mark one of your ACTIVE agents as
             default below.
+          </p>
+        )}
+        {inactiveDefault && (
+          <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            {inactiveDefault.name} is marked default but is {inactiveDefault.status.toLowerCase()}.
+            Publish it again or choose another active agent before enabling autopilot replies.
           </p>
         )}
       </section>
@@ -499,6 +624,9 @@ export default function AiAgentsPage() {
                   <div className="flex items-center gap-2 text-[10px] text-slate-500">
                     <StatusPill status={a.status} />
                     <span className="font-mono">{a.model}</span>
+                    {a.tools.length > 0 && (
+                      <span>{a.tools.length} tool{a.tools.length === 1 ? "" : "s"}</span>
+                    )}
                   </div>
                 </button>
               </li>
@@ -559,10 +687,7 @@ export default function AiAgentsPage() {
                 <select
                   value={draft.provider}
                   onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      provider: e.target.value as (typeof PROVIDERS)[number],
-                    }))
+                    chooseProvider(e.target.value as Provider)
                   }
                   className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
                 >
@@ -576,14 +701,24 @@ export default function AiAgentsPage() {
               <label className="block text-xs font-medium text-slate-700">
                 Model
                 <input
+                  list="ai-agent-model-presets"
                   value={draft.model}
                   onChange={(e) =>
                     setDraft((d) => ({ ...d, model: e.target.value }))
                   }
                   className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 font-mono text-xs focus:border-emerald-500 focus:outline-none"
                 />
+                <datalist id="ai-agent-model-presets">
+                  {MODEL_PRESETS[draft.provider].map((preset) => (
+                    <option key={preset.model} value={preset.model}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </datalist>
                 <span className="mt-1 block text-[10px] text-slate-400">
-                  e.g. gpt-4o-mini, claude-3-5-haiku-latest
+                  {selectedPreset
+                    ? selectedPreset.hint
+                    : "Custom model id; verify the backend provider allows it."}
                 </span>
               </label>
               <label className="block text-xs font-medium text-slate-700">
@@ -620,6 +755,27 @@ export default function AiAgentsPage() {
                   className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
                 />
               </label>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {MODEL_PRESETS[draft.provider].map((preset) => (
+                <button
+                  key={preset.model}
+                  type="button"
+                  onClick={() =>
+                    setDraft((d) => ({ ...d, model: preset.model }))
+                  }
+                  className={`rounded-md border px-3 py-2 text-left text-xs transition ${
+                    draft.model === preset.model
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="block font-semibold">{preset.label}</span>
+                  <span className="mt-0.5 block font-mono text-[10px]">
+                    {preset.model}
+                  </span>
+                </button>
+              ))}
             </div>
 
             {/* Knowledge scope */}
@@ -720,6 +876,19 @@ export default function AiAgentsPage() {
                   </button>
                 ))}
               </div>
+              {draft.tools.length > 0 && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {draft.tools.map((tool) => (
+                    <div
+                      key={tool}
+                      className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] text-slate-600"
+                    >
+                      <span className="font-semibold text-slate-800">{tool}</span>
+                      <span className="mt-0.5 block">{TOOL_HELP[tool as (typeof ALLOWED_TOOLS)[number]]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <span className="mt-2 block text-[10px] text-slate-400">
                 Tools the agent can propose. Allowlist; runtime refuses anything
                 outside this set.
@@ -747,7 +916,7 @@ export default function AiAgentsPage() {
                   ))}
                 </select>
                 <span className="mt-1 block text-[10px] text-slate-400">
-                  What happens when the agent can&apos;t / refuses to answer.
+                  {FALLBACK_HELP[draft.fallbackBehavior]}
                 </span>
               </label>
               {draft.fallbackBehavior === "SEND_TEMPLATE" && (

@@ -31,14 +31,15 @@ _(none)_
   - RBAC + feature flag: `COMPLIANCE_REVIEW` and `complianceFirewall`.
 - **Follow-ups**: route-level integration tests and a richer template approval workflow can land after the next API test harness pass.
 
-### T-052 — AI Agent Builder ✅ runtime complete; UI follow-ups pending
+### T-052 — AI Agent Builder ✅ shipped (runtime + UI)
 - Slice 1 (schema + service + CRUD API + RBAC) shipped 2026-05-23 (ADR-025).
 - Slice 2 (`aiAgentRunner.service.ts` + `POST /:id/test` endpoint) shipped 2026-05-23 (ADR-026).
 - Slice 3 (`AI_AGENT` flow node + `aiAgentTool.service.ts` dispatch for all 7 tools) shipped 2026-05-23 (ADR-027).
 - Slice 4 (`AiAgent.isDefault` + `Tenant.aiAgentAutoReply` + inbound-routing fallback + `/settings` + `/set-default` / `/clear-default` endpoints) shipped 2026-05-23 (ADR-028).
-- Follow-ups (frontend, scoped separately):
-  - React Flow editor palette entry for `AI_AGENT` with active-agents picker.
-  - `/ai-agents` Next.js dashboard page (list + create/edit + set-default toggle + auto-reply switch).
+- Frontend shipped 2026-06-01:
+  - `/ai-agents` and `/dashboard/ai-agents` builder with CRUD, lifecycle, set-default, auto-reply, tool allowlist, KB scope, provider/model presets, and test-drive panel.
+  - Flow Builder `AI_AGENT` node config panel with active-agent picker and reply/reason/tool variable controls.
+- Follow-up: add richer visual flow templates that chain `AI_AGENT` → `MESSAGE` automatically.
 
 ### T-051 — AI Knowledge Base ✅ shipped (slice 1 + embedding/retrieval)
 - Slice 1 (CRUD + lifecycle) shipped 2026-05-22; embedding + retrieval landed in the same release (`knowledgeBaseEmbedding.service.ts`).

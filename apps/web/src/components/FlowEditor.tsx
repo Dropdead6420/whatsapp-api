@@ -19,6 +19,7 @@ import {
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { api } from "../lib/api";
 
 /**
  * Visual editor for NexaFlow Flows.
@@ -58,6 +59,18 @@ interface FlowEditorProps {
   initialEdges: NexaEdge[];
   nodeTypes: NodeTypeMeta[];
   onSave: (nodes: NexaNode[], edges: NexaEdge[]) => Promise<void>;
+}
+
+interface AiAgentOption {
+  id: string;
+  name: string;
+  status: "ACTIVE" | "DRAFT" | "DISABLED" | "ARCHIVED";
+  model: string;
+  isDefault: boolean;
+}
+
+interface AiAgentListResponse {
+  agents: AiAgentOption[];
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +194,15 @@ function makeSubtitle(node: NexaNode): string | undefined {
   if (node.type === "CREATE_LEAD" && typeof c.title === "string") {
     return c.title;
   }
+  if (node.type === "AI_AGENT") {
+    if (typeof c.agentName === "string" && c.agentName) {
+      return `agent: ${c.agentName}`;
+    }
+    if (typeof c.agentId === "string" && c.agentId) {
+      return `agent id: ${c.agentId.slice(0, 18)}${c.agentId.length > 18 ? "…" : ""}`;
+    }
+    return "choose an active agent";
+  }
   if (node.type === "CONDITION") {
     const rules = c.rules as unknown[] | undefined;
     return `${rules?.length ?? 0} rule(s)`;
@@ -281,12 +303,38 @@ export function FlowEditor({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [agentOptions, setAgentOptions] = useState<AiAgentOption[]>([]);
+  const [agentLoadError, setAgentLoadError] = useState<string | null>(null);
   const nodeCounter = useRef(initialNodes.length);
 
   const selectedNode = useMemo(
     () => nexaNodes.find((n) => n.id === selectedId) ?? null,
     [nexaNodes, selectedId],
   );
+  const selectedAgentConfig = (selectedNode?.config ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<AiAgentListResponse>("/api/v1/ai-agents?status=ACTIVE&limit=100")
+      .then((data) => {
+        if (cancelled) return;
+        setAgentOptions(data.agents);
+        setAgentLoadError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAgentLoadError(
+          err instanceof Error ? err.message : "Could not load active AI agents.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Keep configDraft in sync when selecting a different node.
   useEffect(() => {
@@ -482,6 +530,39 @@ export function FlowEditor({
     setDirty(true);
   }
 
+  function patchSelectedConfig(patch: Record<string, unknown>) {
+    if (!selectedNode) return;
+    const existingConfig = selectedNode.config as Record<string, unknown>;
+    const editor = existingConfig._editor;
+    const cleanConfig = { ...existingConfig };
+    delete cleanConfig._editor;
+    const nextCleanConfig = { ...cleanConfig, ...patch };
+    const nextNode = {
+      ...selectedNode,
+      config: { ...nextCleanConfig, _editor: editor },
+    };
+
+    setNexaNodes((prev) =>
+      prev.map((n) => (n.id === selectedNode.id ? nextNode : n)),
+    );
+    setRfNodes((prev) =>
+      prev.map((rn) =>
+        rn.id === selectedNode.id
+          ? {
+              ...rn,
+              data: {
+                ...(rn.data as object),
+                subtitle: makeSubtitle(nextNode),
+              },
+            }
+          : rn,
+      ),
+    );
+    setConfigDraft(JSON.stringify(nextCleanConfig, null, 2));
+    setConfigValid(true);
+    setDirty(true);
+  }
+
   function deleteSelectedNode() {
     if (!selectedNode) return;
     if (!confirm(`Delete node "${selectedNode.id}"?`)) return;
@@ -639,6 +720,124 @@ export function FlowEditor({
               </label>
             </div>
 
+            {selectedNode.type === "AI_AGENT" && (
+              <div className="rounded-md border border-violet-200 bg-violet-50/70 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-violet-700">
+                  AI Agent
+                </div>
+                <label className="mt-2 block text-xs font-medium text-slate-700">
+                  Active agent
+                  <select
+                    value={
+                      typeof selectedAgentConfig.agentId === "string"
+                        ? selectedAgentConfig.agentId
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const agent = agentOptions.find(
+                        (a) => a.id === e.target.value,
+                      );
+                      patchSelectedConfig({
+                        agentId: e.target.value,
+                        agentName: agent?.name ?? "",
+                      });
+                    }}
+                    className="mt-1 w-full rounded-md border border-violet-200 bg-white px-2 py-1.5 text-xs focus:border-violet-500 focus:outline-none"
+                  >
+                    <option value="">Choose an agent...</option>
+                    {agentOptions.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.isDefault ? "Default: " : ""}
+                        {agent.name} · {agent.model}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {agentLoadError && (
+                  <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800">
+                    {agentLoadError}
+                  </p>
+                )}
+                {!agentLoadError && agentOptions.length === 0 && (
+                  <p className="mt-2 text-[10px] text-slate-500">
+                    No active agents yet. Create and publish one in{" "}
+                    <a className="font-semibold text-violet-700 underline" href="/dashboard/ai-agents">
+                      AI Agents
+                    </a>
+                    .
+                  </p>
+                )}
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="block text-xs font-medium text-slate-700">
+                    Reply var
+                    <input
+                      value={
+                        typeof selectedAgentConfig.replyVar === "string"
+                          ? selectedAgentConfig.replyVar
+                          : "aiAgentReply"
+                      }
+                      onChange={(e) =>
+                        patchSelectedConfig({ replyVar: e.target.value })
+                      }
+                      className="mt-1 w-full rounded-md border border-violet-200 bg-white px-2 py-1.5 font-mono text-[11px] focus:border-violet-500 focus:outline-none"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    Lookback
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={
+                        typeof selectedAgentConfig.historyLookback === "number"
+                          ? selectedAgentConfig.historyLookback
+                          : 12
+                      }
+                      onChange={(e) =>
+                        patchSelectedConfig({
+                          historyLookback: Number(e.target.value),
+                        })
+                      }
+                      className="mt-1 w-full rounded-md border border-violet-200 bg-white px-2 py-1.5 text-xs focus:border-violet-500 focus:outline-none"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    Reason var
+                    <input
+                      value={
+                        typeof selectedAgentConfig.reasonVar === "string"
+                          ? selectedAgentConfig.reasonVar
+                          : "aiAgentReason"
+                      }
+                      onChange={(e) =>
+                        patchSelectedConfig({ reasonVar: e.target.value })
+                      }
+                      className="mt-1 w-full rounded-md border border-violet-200 bg-white px-2 py-1.5 font-mono text-[11px] focus:border-violet-500 focus:outline-none"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium text-slate-700">
+                    Tool var
+                    <input
+                      value={
+                        typeof selectedAgentConfig.toolResultsVar === "string"
+                          ? selectedAgentConfig.toolResultsVar
+                          : "aiAgentToolResults"
+                      }
+                      onChange={(e) =>
+                        patchSelectedConfig({ toolResultsVar: e.target.value })
+                      }
+                      className="mt-1 w-full rounded-md border border-violet-200 bg-white px-2 py-1.5 font-mono text-[11px] focus:border-violet-500 focus:outline-none"
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-[10px] leading-4 text-slate-500">
+                  Wire this node into a MESSAGE node that sends{" "}
+                  <code>{"{{aiAgentReply}}"}</code>. Tool calls mutate CRM state
+                  through the existing backend allowlist.
+                </p>
+              </div>
+            )}
+
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                 Config (JSON)
@@ -707,6 +906,8 @@ function ConfigHint({ type }: { type: string }) {
         return '{ "url": "https://…", "method": "POST", "headers": {}, "body": {} }';
       case "AI_RESPONSE":
         return '{ "autoSend": false }';
+      case "AI_AGENT":
+        return '{ "agentId": "cuid...", "replyVar": "aiAgentReply", "historyLookback": 12 }';
       default:
         return null;
     }

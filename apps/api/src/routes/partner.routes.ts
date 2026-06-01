@@ -32,6 +32,7 @@ import {
   listPartnerCustomerHealth,
   runPartnerAssistantSummary,
 } from "../services/customerHealth.service";
+import { runRevenueAutopilot } from "../services/revenueAutopilot.service";
 import {
   listPartnerDomainHealth,
   scanDomainHealth,
@@ -254,6 +255,26 @@ router.get(
     try {
       const partner = await assertPartnerTenant(req.tenantId!);
       const summary = await runPartnerAssistantSummary(partner.id);
+      res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/partner/revenue-autopilot
+//
+// Revenue Autopilot (PRD-v2 §8). Returns prioritized upsell / expansion
+// recommendations across the partner's customer book — generate-only,
+// no auto-action. Same generate-then-approve discipline as the
+// proposal / win-back / domain-explainer surfaces.
+router.get(
+  "/revenue-autopilot",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const summary = await runRevenueAutopilot(partner.id);
       res.json({ success: true, data: summary });
     } catch (err) {
       next(err);
