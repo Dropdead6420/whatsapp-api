@@ -16,7 +16,12 @@ import {
 import { requirePermission } from "../middleware/rbac";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
-import { summarizeConversation } from "../services/ai.service";
+import {
+  summarizeConversation,
+  suggestReplies,
+  analyzeSentiment,
+  extractStructuredData,
+} from "../services/ai.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
@@ -700,6 +705,153 @@ router.post(
       const result = await summarizeConversation(req.tenantId!, {
         messages,
         focus,
+      });
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Agent inbox AI helpers (PRD-v2 §7 part 2): the same scope guard as
+// ai-summary applies to all three. Each route checks:
+//   - tenantId matches the JWT
+//   - if caller is AGENT, conversation must be assigned to them
+// before hitting the LLM. Billed to tenant via runTenantLlmJson.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the conversation under the agent-scope guard, then pull the
+ * tenant name + contact name + last 40 messages — the joint dependency
+ * surface for the three helpers below. Returns null when the lookup
+ * fails the scope check (which the caller maps to 404).
+ */
+async function loadConversationForAi(args: {
+  conversationId: string;
+  tenantId: string;
+  userRole: string | undefined;
+  userId: string | undefined;
+}) {
+  const convo = await prismaRead.conversation.findFirst({
+    where: {
+      id: args.conversationId,
+      tenantId: args.tenantId,
+      ...(args.userRole === "AGENT" ? { agentId: args.userId } : {}),
+    },
+    select: {
+      id: true,
+      contact: { select: { name: true } },
+      tenant: { select: { name: true } },
+    },
+  });
+  if (!convo) return null;
+  const recent = await prismaRead.message.findMany({
+    where: { conversationId: convo.id },
+    orderBy: { createdAt: "desc" },
+    take: 40,
+    select: { content: true, direction: true },
+  });
+  return {
+    convoId: convo.id,
+    contactName: convo.contact?.name ?? "Customer",
+    businessName: convo.tenant?.name ?? "our team",
+    messages: recent.reverse(),
+  };
+}
+
+const replySuggestSchema = z.object({
+  languageHint: z.string().trim().min(1).max(40).optional(),
+});
+
+router.post(
+  "/:id/ai-reply-suggest",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const { languageHint } = replySuggestSchema.parse(req.body ?? {});
+      const loaded = await loadConversationForAi({
+        conversationId: req.params.id,
+        tenantId: req.tenantId!,
+        userRole: req.userRole,
+        userId: req.userId,
+      });
+      if (!loaded) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Conversation not found.");
+      }
+      const suggestions = await suggestReplies(req.tenantId!, {
+        conversationContext: loaded.messages,
+        contactName: loaded.contactName,
+        businessName: loaded.businessName,
+        languageHint,
+      });
+      res.json({ success: true, data: { suggestions } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/:id/ai-sentiment",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const loaded = await loadConversationForAi({
+        conversationId: req.params.id,
+        tenantId: req.tenantId!,
+        userRole: req.userRole,
+        userId: req.userId,
+      });
+      if (!loaded) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Conversation not found.");
+      }
+      const result = await analyzeSentiment(req.tenantId!, loaded.messages);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Default lead-extract field set — the agent can override per-call by
+// passing `fields`. Kept short on purpose so the LLM has clear targets.
+const DEFAULT_LEAD_FIELDS: Record<string, string> = {
+  name: "full name of the person",
+  email: "email address",
+  phone: "phone number in any format",
+  intent: "what the customer wants (1 short phrase)",
+  urgency: '"high" | "normal" | "low" — how time-sensitive',
+};
+
+const extractLeadSchema = z.object({
+  fields: z.record(z.string().min(1).max(64), z.string().min(1).max(200)).optional(),
+});
+
+router.post(
+  "/:id/ai-extract-lead",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const { fields } = extractLeadSchema.parse(req.body ?? {});
+      const loaded = await loadConversationForAi({
+        conversationId: req.params.id,
+        tenantId: req.tenantId!,
+        userRole: req.userRole,
+        userId: req.userId,
+      });
+      if (!loaded) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Conversation not found.");
+      }
+      // Concatenate all inbound messages so the extractor sees the
+      // customer's actual content, not the agent's replies. If no
+      // inbound exists, fall back to the whole transcript.
+      const inboundText = loaded.messages
+        .filter((m) => m.direction === "INBOUND")
+        .map((m) => m.content)
+        .join("\n");
+      const text = inboundText || loaded.messages.map((m) => m.content).join("\n");
+
+      const result = await extractStructuredData(req.tenantId!, {
+        text,
+        fields: fields ?? DEFAULT_LEAD_FIELDS,
       });
       res.json({ success: true, data: result });
     } catch (err) {

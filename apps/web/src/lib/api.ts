@@ -105,8 +105,25 @@ export async function signup(payload: {
   password: string;
   name: string;
   companyName: string;
-}): Promise<{ user: AuthUserPublic; message: string }> {
-  return api.post<{ user: AuthUserPublic; message: string }>(
+  selectedPlanName?: string;
+}): Promise<{
+  user: AuthUserPublic;
+  selectedPlan?: {
+    id: string;
+    name: string;
+    displayName: string;
+  } | null;
+  message: string;
+}> {
+  return api.post<{
+    user: AuthUserPublic;
+    selectedPlan?: {
+      id: string;
+      name: string;
+      displayName: string;
+    } | null;
+    message: string;
+  }>(
     "/api/v1/auth/signup",
     payload,
     { auth: false },

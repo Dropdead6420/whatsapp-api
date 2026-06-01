@@ -10,6 +10,8 @@ import {
   TenantStatus,
   AuthTokens,
   AuthUserPublic,
+  PlanName,
+  SubscriptionStatus,
 } from "@nexaflow/shared";
 import { authService } from "../services/auth.service";
 import {
@@ -50,6 +52,7 @@ const signupSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().min(1, "Name is required").max(120),
   companyName: z.string().min(1, "Company name is required").max(120),
+  selectedPlanName: z.string().trim().min(1).max(80).optional(),
 });
 
 const refreshSchema = z.object({
@@ -145,6 +148,24 @@ async function sendFreshVerificationEmail(user: {
   await sendEmail(buildVerifyEmailEmail(user.email, verifyUrl));
 }
 
+function planPeriodEnd(start: Date, billingCycle: string): Date {
+  const end = new Date(start);
+  if (billingCycle.toLowerCase().includes("annual")) {
+    end.setFullYear(end.getFullYear() + 1);
+    return end;
+  }
+  end.setMonth(end.getMonth() + 1);
+  return end;
+}
+
+function normalizeRequestedPlanName(value: string | undefined): PlanName | null {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  return Object.values(PlanName).includes(normalized as PlanName)
+    ? (normalized as PlanName)
+    : null;
+}
+
 // ----------------------------------------------------------------------------
 // POST /api/v1/auth/signup
 // Creates a new tenant + business admin user, sends verification email.
@@ -152,7 +173,10 @@ async function sendFreshVerificationEmail(user: {
 
 router.post("/signup", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password, name, companyName } = parseBody(signupSchema, req.body);
+    const { email, password, name, companyName, selectedPlanName } = parseBody(
+      signupSchema,
+      req.body,
+    );
 
     const existing = await prisma.user.findFirst({
       where: { email: email.toLowerCase() },
@@ -182,12 +206,39 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
 
     const passwordHash = await authService.hashPassword(password);
 
-    const { tenant, user } = await prisma.$transaction(async (tx) => {
+    const { tenant, user, selectedPlan, subscription } = await prisma.$transaction(async (tx) => {
+      const requestedPlanEnum = normalizeRequestedPlanName(selectedPlanName);
+      const selectedPlan = selectedPlanName
+        ? await tx.plan.findFirst({
+            where: {
+              OR: [
+                { id: selectedPlanName },
+                ...(requestedPlanEnum ? [{ name: requestedPlanEnum }] : []),
+                {
+                  displayName: {
+                    equals: selectedPlanName,
+                    mode: "insensitive",
+                  },
+                },
+              ],
+            },
+          })
+        : null;
+
       const tenant = await tx.tenant.create({
         data: {
           name: companyName,
           type: TenantType.DIRECT,
           status: TenantStatus.ACTIVE,
+          ...(selectedPlan
+            ? {
+                messageQuotaPerMonth: selectedPlan.messageQuota,
+                contactLimit: selectedPlan.contactLimit,
+                agentLimit: selectedPlan.agentLimit,
+                aiCreditsPerMonth: selectedPlan.aiCreditsPerMonth,
+                campaignLimit: selectedPlan.campaignLimit,
+              }
+            : {}),
         },
       });
       const user = await tx.user.create({
@@ -200,7 +251,22 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
           tenantId: tenant.id,
         },
       });
-      return { tenant, user };
+      const subscriptionStart = new Date();
+      const subscription = selectedPlan
+        ? await tx.subscription.create({
+            data: {
+              tenantId: tenant.id,
+              planId: selectedPlan.id,
+              status: SubscriptionStatus.ACTIVE,
+              currentPeriodStart: subscriptionStart,
+              currentPeriodEnd: planPeriodEnd(
+                subscriptionStart,
+                selectedPlan.billingCycle,
+              ),
+            },
+          })
+        : null;
+      return { tenant, user, selectedPlan, subscription };
     });
 
     await sendFreshVerificationEmail(user);
@@ -212,7 +278,19 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
       action: "SIGNUP",
       resource: "User",
       resourceId: user.id,
-      newValues: { email: user.email, role: user.role },
+      newValues: {
+        email: user.email,
+        role: user.role,
+        requestedPlan: selectedPlanName ?? null,
+        selectedPlan: selectedPlan
+          ? {
+              id: selectedPlan.id,
+              name: selectedPlan.name,
+              displayName: selectedPlan.displayName,
+            }
+          : null,
+        subscriptionId: subscription?.id ?? null,
+      },
       ...meta,
     });
 
@@ -220,8 +298,17 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
       success: true,
       data: {
         user: toPublicUser(user),
+        selectedPlan: selectedPlan
+          ? {
+              id: selectedPlan.id,
+              name: selectedPlan.name,
+              displayName: selectedPlan.displayName,
+            }
+          : null,
         message:
-          "Account created. Check your email to verify your address before logging in.",
+          selectedPlan
+            ? `Account created on the ${selectedPlan.displayName} plan. Check your email to verify your address before logging in.`
+            : "Account created. Check your email to verify your address before logging in.",
       },
     });
   } catch (err) {

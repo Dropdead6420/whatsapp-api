@@ -28,6 +28,10 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
         companyName: companyName.trim(),
         email: email.trim(),
         password,
+        selectedPlanName:
+          billingIntent.billing && billingIntent.plan
+            ? billingIntent.plan
+            : undefined,
       });
       setDone(message);
     } catch (err) {

@@ -636,6 +636,7 @@ export interface SignupPayload {
   password: string;
   name: string;
   companyName: string;
+  selectedPlanName?: string;
 }
 
 export interface RequestPasswordResetPayload {
