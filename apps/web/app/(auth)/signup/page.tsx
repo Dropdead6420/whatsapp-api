@@ -1,10 +1,19 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { signup, ApiClientError } from "../../../src/lib/api";
+import {
+  billingIntentHref,
+  readBillingIntentFromWindow,
+  type BillingIntent,
+} from "../../../src/lib/billingIntent";
 
 export default function SignupPage() {
+  const [billingIntent, setBillingIntent] = useState<BillingIntent>({
+    billing: false,
+    plan: null,
+  });
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
@@ -12,6 +21,10 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setBillingIntent(readBillingIntentFromWindow());
+  }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -41,7 +54,10 @@ export default function SignupPage() {
         <h1 className="text-xl font-semibold">Check your email</h1>
         <p className="mt-2 text-sm text-slate-600">{done}</p>
         <p className="mt-6 text-sm">
-          <Link href="/login" className="font-medium text-emerald-700 hover:underline">
+          <Link
+            href={billingIntentHref("/login", billingIntent)}
+            className="font-medium text-emerald-700 hover:underline"
+          >
             Back to log in
           </Link>
         </p>
@@ -55,6 +71,17 @@ export default function SignupPage() {
       <p className="mt-1 text-sm text-slate-500">
         Get started with WhatsApp + AI automation in minutes.
       </p>
+      {billingIntent.billing && (
+        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          Selected plan
+          {billingIntent.plan ? (
+            <>
+              : <span className="font-semibold">{billingIntent.plan}</span>
+            </>
+          ) : null}
+          . Create your account to continue.
+        </div>
+      )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div>
@@ -117,7 +144,10 @@ export default function SignupPage() {
 
       <p className="mt-6 text-center text-sm text-slate-600">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-emerald-700 hover:underline">
+        <Link
+          href={billingIntentHref("/login", billingIntent)}
+          className="font-medium text-emerald-700 hover:underline"
+        >
           Log in
         </Link>
       </p>

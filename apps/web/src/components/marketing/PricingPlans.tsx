@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { api, ApiClientError } from "../../lib/api";
+import { pricingSignupHref } from "../../lib/billingIntent";
 import { CheckList } from "./MarketingShell";
 import { fallbackPlans } from "./data";
 
@@ -152,7 +153,7 @@ export function PricingPlans({
                 ) : null}
               </div>
               <Link
-                href="/signup"
+                href={pricingSignupHref(plan.name)}
                 className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 text-sm font-semibold ${
                   featured
                     ? "bg-slate-950 text-white hover:bg-slate-800"

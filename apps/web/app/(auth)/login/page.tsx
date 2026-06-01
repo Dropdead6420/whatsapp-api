@@ -1,10 +1,16 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { login, resendVerification, ApiClientError } from "../../../src/lib/api";
 import { roleHome } from "../../../src/hooks/useAuth";
+import {
+  billingDestinationForRole,
+  billingIntentHref,
+  readBillingIntentFromWindow,
+  type BillingIntent,
+} from "../../../src/lib/billingIntent";
 
 interface LoginError {
   message: string;
@@ -49,12 +55,20 @@ function explainLoginError(err: unknown): LoginError {
 
 export default function LoginPage() {
   const router = useRouter();
+  const [billingIntent, setBillingIntent] = useState<BillingIntent>({
+    billing: false,
+    plan: null,
+  });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<LoginError | null>(null);
   const [resendDone, setResendDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
+
+  useEffect(() => {
+    setBillingIntent(readBillingIntentFromWindow());
+  }, []);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -63,7 +77,9 @@ export default function LoginPage() {
     setBusy(true);
     try {
       const { user } = await login(email.trim(), password);
-      router.push(roleHome(user.role));
+      router.push(
+        billingDestinationForRole(user.role, billingIntent, roleHome(user.role)),
+      );
     } catch (err) {
       setError(explainLoginError(err));
     } finally {
@@ -91,6 +107,18 @@ export default function LoginPage() {
       <p className="mt-1 text-sm text-slate-500">
         Welcome back. Enter your credentials below.
       </p>
+      {billingIntent.billing && (
+        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          Continue after login
+          {billingIntent.plan ? (
+            <>
+              {" "}
+              with the <span className="font-semibold">{billingIntent.plan}</span> plan
+            </>
+          ) : null}
+          .
+        </div>
+      )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div>
@@ -162,7 +190,10 @@ export default function LoginPage() {
         <Link href="/reset-password" className="text-slate-600 hover:text-slate-900">
           Forgot password?
         </Link>
-        <Link href="/signup" className="text-slate-600 hover:text-slate-900">
+        <Link
+          href={billingIntentHref("/signup", billingIntent)}
+          className="text-slate-600 hover:text-slate-900"
+        >
           Create account
         </Link>
       </div>

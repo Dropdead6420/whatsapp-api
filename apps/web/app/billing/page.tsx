@@ -102,6 +102,24 @@ function parsePositiveInt(value: string, fallback: number) {
   return Math.max(0, Math.floor(parsed));
 }
 
+function readRequestedPlanFromWindow() {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("plan");
+}
+
+function findPlanByRequest(plans: Plan[], requestedPlan: string | null) {
+  if (!requestedPlan) return null;
+  const normalized = requestedPlan.toLowerCase();
+  return (
+    plans.find(
+      (plan) =>
+        plan.id.toLowerCase() === normalized ||
+        plan.name.toLowerCase() === normalized ||
+        plan.displayName.toLowerCase() === normalized,
+    ) ?? null
+  );
+}
+
 export default function BillingPage() {
   const { user, loading, signOut } = useAuth({
     required: true,
@@ -114,6 +132,7 @@ export default function BillingPage() {
   const [status, setStatus] = useState("ACTIVE");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
+  const [requestedPlan, setRequestedPlan] = useState<string | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -125,11 +144,15 @@ export default function BillingPage() {
         api.get<BillingResponse>("/api/v1/admin/billing"),
         api.get<Tenant[]>("/api/v1/tenants?limit=100"),
       ]);
+      const selectedPlan = findPlanByRequest(billingData.plans, requestedPlan);
       setBilling(billingData);
       setTenants(tenantData.filter((tenant) => tenant.status !== "DELETED"));
-      setPlanId((current) => current || billingData.plans[0]?.id || "");
+      setPlanId((current) => selectedPlan?.id || current || billingData.plans[0]?.id || "");
       setTenantId((current) => current || tenantData[0]?.id || "");
-      if (!editingPlanId && billingData.plans[0]) {
+      if (selectedPlan) {
+        setEditingPlanId(selectedPlan.id);
+        setPlanDraft(planToDraft(selectedPlan));
+      } else if (!editingPlanId && billingData.plans[0]) {
         setEditingPlanId(billingData.plans[0].id);
         setPlanDraft(planToDraft(billingData.plans[0]));
       }
@@ -199,9 +222,13 @@ export default function BillingPage() {
   }
 
   useEffect(() => {
+    setRequestedPlan(readRequestedPlanFromWindow());
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     void loadBilling();
-  }, [user]);
+  }, [user, requestedPlan]);
 
   const planMap = useMemo(() => {
     return new Map((billing?.plans ?? []).map((plan) => [plan.id, plan]));
@@ -228,6 +255,12 @@ export default function BillingPage() {
       {notice && (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           {notice}
+        </div>
+      )}
+      {requestedPlan && (
+        <div className="mb-4 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
+          Requested public plan: <span className="font-semibold">{requestedPlan}</span>.
+          Use the plan editor or assign it to a tenant from this page.
         </div>
       )}
 

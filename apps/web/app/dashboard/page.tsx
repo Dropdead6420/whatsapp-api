@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api } from "../../src/lib/api";
+import {
+  readBillingIntentFromWindow,
+  type BillingIntent,
+} from "../../src/lib/billingIntent";
 
 interface DashboardSummary {
   scope: "platform" | "tenant";
@@ -55,6 +59,14 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [walletAlert, setWalletAlert] = useState<WalletAlert | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingSummary | null>(null);
+  const [billingIntent, setBillingIntent] = useState<BillingIntent>({
+    billing: false,
+    plan: null,
+  });
+
+  useEffect(() => {
+    setBillingIntent(readBillingIntentFromWindow());
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -92,6 +104,20 @@ export default function DashboardPage() {
             : "Today's snapshot of your campaigns and conversations."}
         </p>
       </header>
+
+      {billingIntent.billing && user.role !== "SUPER_ADMIN" && (
+        <div className="mb-6 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="font-medium">
+            {billingIntent.plan
+              ? `${billingIntent.plan} plan selected`
+              : "Plan selection saved"}
+          </div>
+          <div className="mt-1 text-emerald-800/80">
+            Finish WhatsApp setup and contact the platform admin to activate the
+            matching subscription for this tenant.
+          </div>
+        </div>
+      )}
 
       {walletAlert?.isLow && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
