@@ -9,8 +9,8 @@ import {
   CompactProductPreview,
   HeroProductMockup,
 } from "../src/components/marketing/ProductMockup";
+import { PricingPlans } from "../src/components/marketing/PricingPlans";
 import {
-  plans,
   productPillars,
   proofPoints,
   useCases,
@@ -191,42 +191,8 @@ export default function LandingPage() {
             title="Plans for businesses, teams, and partners"
             description="Start with the core WhatsApp workspace, then unlock AI, compliance, automation, and partner controls as operations scale."
           />
-          <div className="mt-12 grid gap-4 lg:grid-cols-3">
-            {plans.map((plan) => (
-              <div
-                key={plan.name}
-                className={`rounded-lg border p-6 ${
-                  plan.featured
-                    ? "border-emerald-300 bg-white shadow-xl shadow-emerald-100"
-                    : "border-slate-200 bg-white"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-950">
-                      {plan.name}
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">
-                      {plan.description}
-                    </p>
-                  </div>
-                  {plan.featured ? (
-                    <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-                      Popular
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-6 text-3xl font-semibold text-slate-950">
-                  {plan.price}
-                  {plan.price !== "Custom" ? (
-                    <span className="text-sm font-medium text-slate-500"> /mo</span>
-                  ) : null}
-                </div>
-                <div className="mt-6">
-                  <CheckList items={plan.features} />
-                </div>
-              </div>
-            ))}
+          <div className="mt-12">
+            <PricingPlans compact showSourceNote />
           </div>
           <div className="mt-8 text-center">
             <Link

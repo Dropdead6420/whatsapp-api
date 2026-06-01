@@ -160,7 +160,7 @@ export const featurePages = {
   },
 } as const;
 
-export const plans = [
+export const fallbackPlans = [
   {
     name: "Starter",
     price: "₹2,999",

@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Minus } from "lucide-react";
 import {
-  CheckList,
   MarketingPageShell,
   SectionHeader,
 } from "../../src/components/marketing/MarketingShell";
-import { plans } from "../../src/components/marketing/data";
+import { PricingPlans } from "../../src/components/marketing/PricingPlans";
 
 const comparison = [
   {
@@ -82,49 +81,8 @@ export default function PricingPage() {
       </section>
 
       <section className="bg-slate-50 px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-7xl gap-4 lg:grid-cols-3">
-          {plans.map((plan) => (
-            <div
-              key={plan.name}
-              className={`rounded-lg border p-6 ${
-                plan.featured
-                  ? "border-emerald-300 bg-white shadow-xl shadow-emerald-100"
-                  : "border-slate-200 bg-white shadow-sm"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <h2 className="text-xl font-semibold text-slate-950">{plan.name}</h2>
-                {plan.featured ? (
-                  <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-                    Popular
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-3 min-h-[72px] text-sm leading-6 text-slate-600">
-                {plan.description}
-              </p>
-              <div className="mt-6 text-4xl font-semibold tracking-tight text-slate-950">
-                {plan.price}
-                {plan.price !== "Custom" ? (
-                  <span className="text-sm font-medium text-slate-500"> /month</span>
-                ) : null}
-              </div>
-              <Link
-                href={plan.price === "Custom" ? "/signup" : "/signup"}
-                className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md px-4 py-3 text-sm font-semibold ${
-                  plan.featured
-                    ? "bg-slate-950 text-white hover:bg-slate-800"
-                    : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-                }`}
-              >
-                {plan.price === "Custom" ? "Talk to us" : "Start now"}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <div className="mt-6">
-                <CheckList items={plan.features} />
-              </div>
-            </div>
-          ))}
+        <div className="mx-auto max-w-7xl">
+          <PricingPlans showSourceNote />
         </div>
       </section>
 
