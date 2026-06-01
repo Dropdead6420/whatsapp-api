@@ -34,6 +34,12 @@ import {
 } from "../services/customerHealth.service";
 import { runRevenueAutopilot } from "../services/revenueAutopilot.service";
 import {
+  resolveIndustryPack,
+  seedStarterTemplatesAndCampaign,
+  sendInviteEmail,
+  type CustomerIndustry,
+} from "../services/customerProvisioning.service";
+import {
   listPartnerDomainHealth,
   scanDomainHealth,
   explainDomainError,
@@ -369,6 +375,13 @@ const createCustomerSchema = z.object({
   messageQuotaPerMonth: z.number().int().positive().optional(),
   contactLimit: z.number().int().positive().optional(),
   agentLimit: z.number().int().positive().optional(),
+  // PDF §5 industry pack — drives the seeded templates + campaign +
+  // chatbot. Free-form so the partner can type anything; resolveIndustryPack
+  // normalizes aliases (e.g. "spa" → "salon") and falls back to "generic".
+  industry: z.string().min(1).max(80).optional(),
+  // When false, partner explicitly opts out of the seeded content
+  // (useful for partners migrating customers from another system).
+  seedStarterPack: z.boolean().default(true),
 });
 
 // POST /api/v1/partner/customers
@@ -388,6 +401,7 @@ router.post(
       }
 
       const passwordHash = await authService.hashPassword(body.adminPassword);
+      const industry: CustomerIndustry = resolveIndustryPack(body.industry);
       const created = await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.create({
           data: {
@@ -412,7 +426,31 @@ router.post(
             emailVerified: new Date(),
           },
         });
-        return { tenant, admin };
+
+        // PDF §5: industry workflow templates + first WhatsApp campaign
+        // + demo chatbot flow. Inside the same transaction so the
+        // customer is never half-created.
+        let starter:
+          | { templateIds: string[]; campaignId: string; chatbotFlowId: string }
+          | null = null;
+        if (body.seedStarterPack) {
+          starter = await seedStarterTemplatesAndCampaign(tx, tenant.id, industry);
+        }
+
+        return { tenant, admin, starter };
+      });
+
+      // Invite email is fire-and-forget — runs outside the tx so a
+      // transient SMTP failure can't roll back the customer create.
+      // The partner can always re-send via the user-invite path.
+      void sendInviteEmail({
+        toEmail: body.adminEmail.toLowerCase(),
+        toName: body.adminName,
+        customerWorkspaceName: created.tenant.name,
+        loginUrl: process.env.WEB_BASE_URL
+          ? `${process.env.WEB_BASE_URL}/login`
+          : "/login",
+        tenantId: created.tenant.id,
       });
 
       await logAudit({
@@ -421,11 +459,18 @@ router.post(
         action: "CREATE",
         resource: "PartnerCustomer",
         resourceId: created.tenant.id,
-        newValues: { name: created.tenant.name, parentTenantId: partner.id },
+        newValues: {
+          name: created.tenant.name,
+          parentTenantId: partner.id,
+          industry,
+          seededTemplates: created.starter?.templateIds.length ?? 0,
+          seededCampaignId: created.starter?.campaignId ?? null,
+          seededChatbotFlowId: created.starter?.chatbotFlowId ?? null,
+        },
         ...extractRequestMeta(req),
       });
 
-      res.status(201).json({ success: true, data: created });
+      res.status(201).json({ success: true, data: { ...created, industry } });
     } catch (err) {
       next(err);
     }
