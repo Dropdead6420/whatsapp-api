@@ -56,6 +56,7 @@ import devicesRoutes from "./routes/devices.routes";
 import complianceRoutes from "./routes/compliance.routes";
 import walletRiskRoutes from "./routes/wallet-risk.routes";
 import platformMonitorRoutes from "./routes/platform-monitor.routes";
+import agentPerformanceRoutes from "./routes/agent-performance.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -299,6 +300,7 @@ app.use("/api/v1/devices", devicesRoutes);
 app.use("/api/v1/compliance", complianceRoutes);
 app.use("/api/v1/wallet-risk", walletRiskRoutes);
 app.use("/api/v1/admin/platform-monitor", platformMonitorRoutes);
+app.use("/api/v1/agent-performance", agentPerformanceRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
