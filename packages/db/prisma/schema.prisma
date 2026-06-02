@@ -172,6 +172,7 @@ model Tenant {
   cannedReplies           CannedReply[]
   conversationNotes       ConversationNote[]
   followUpTasks           FollowUpTask[]
+  paymentOrders           PaymentOrder[]
   services                Service[]
   appointments            Appointment[]
   flowRuns                FlowRun[]
@@ -1004,12 +1005,122 @@ model Wallet {
   transactions             WalletTransaction[]    @relation("WalletTransactions")
   counterpartyTransactions WalletTransaction[]    @relation("CounterpartyWallet")
   riskAssessments          WalletRiskAssessment[]
+  paymentOrders            PaymentOrder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([billingMode])
+}
+
+// ============================================================================
+// Customer self-recharge wallet (Claude FINAL §4)
+//
+// PaymentOrder tracks one customer-initiated checkout attempt. The
+// customer hits POST /customer/wallets/recharge → service creates a
+// PaymentOrder + a gateway-side order (Razorpay/Stripe order id) and
+// returns the client-side init payload. When the gateway webhook
+// arrives, the handler verifies the signature, looks up the
+// PaymentOrder by gatewayOrderId, applies a WalletTransaction credit
+// inside a transaction, and flips the order to SUCCEEDED.
+//
+// Idempotency lives on two surfaces:
+//   - PaymentOrder.idempotencyKey (client-supplied, unique) — prevents
+//     a double-click from creating two orders for the same intent.
+//   - PaymentWebhookLog (gateway, eventId) unique — prevents a
+//     Razorpay/Stripe webhook retry from crediting twice.
+// ============================================================================
+
+enum PaymentGateway {
+  RAZORPAY
+  STRIPE
+  // PAYPAL, MANUAL_BANK_TRANSFER added later in their own slices.
+}
+
+enum PaymentOrderStatus {
+  CREATED // Order created on our side; gateway init returned.
+  PENDING // Customer is in the gateway checkout flow.
+  SUCCEEDED // Webhook verified + ledger credited.
+  FAILED // Gateway reported failure / signature mismatch.
+  CANCELLED // Customer abandoned / explicit cancel.
+  EXPIRED // Stale order swept by the reconciliation worker.
+}
+
+enum PaymentWebhookSignatureStatus {
+  VALID
+  INVALID
+  MISSING
+}
+
+model PaymentOrder {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  gateway  PaymentGateway
+  /// Smallest currency unit (paise / cents). Always store integers.
+  amount   Int
+  currency String             @default("INR")
+  status   PaymentOrderStatus @default(CREATED)
+
+  /// Gateway's order/intent id — never null after a successful create.
+  gatewayOrderId String?
+  /// Client-supplied idempotency key. UNIQUE per tenant — two POSTs
+  /// with the same key resolve to the same PaymentOrder row.
+  idempotencyKey String
+
+  /// When set, the WalletTransaction that booked the credit.
+  ledgerTransactionId String?
+
+  /// Gateway error message when status=FAILED.
+  failureReason String?
+
+  /// Initiator audit.
+  createdByUserId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  paidAt    DateTime?
+
+  webhookLogs PaymentWebhookLog[]
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([gateway, gatewayOrderId])
+  @@index([tenantId])
+  @@index([walletId])
+  @@index([status, createdAt])
+}
+
+model PaymentWebhookLog {
+  id        String         @id @default(cuid())
+  gateway   PaymentGateway
+  /// Gateway's event id (Razorpay event id, Stripe event id).
+  eventId   String
+  eventType String
+
+  signatureStatus PaymentWebhookSignatureStatus
+
+  /// Linked PaymentOrder when the webhook payload referenced one.
+  paymentOrderId String?
+  paymentOrder   PaymentOrder? @relation(fields: [paymentOrderId], references: [id], onDelete: SetNull)
+
+  /// Raw payload — useful for support / replay debugging.
+  rawPayload String
+
+  /// True when this event id was already processed before this row was
+  /// written. The webhook handler always responds 200 so the gateway
+  /// stops retrying, but the duplicate is recorded for auditability.
+  duplicate       Boolean  @default(false)
+  /// Any error encountered while processing.
+  processingError String?
+  processedAt     DateTime @default(now())
+
+  @@unique([gateway, eventId])
+  @@index([gateway, processedAt])
+  @@index([paymentOrderId])
 }
 
 // ============================================================================
