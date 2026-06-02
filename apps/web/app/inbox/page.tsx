@@ -54,6 +54,22 @@ interface Note {
   createdAt: string;
 }
 
+interface Summary {
+  summary: string;
+  bullets: string[];
+}
+
+type LeadFields = Record<string, string | number | boolean | null>;
+
+interface AgentRouteSuggestion {
+  agentId: string;
+  agentName: string;
+  agentEmail: string;
+  openConversationCount: number;
+  reasoning: string;
+  source: "ai" | "fallback";
+}
+
 export default function InboxPage() {
   const pathname = usePathname() ?? "";
   const agentPortal = pathname.startsWith("/agent");
@@ -77,6 +93,14 @@ export default function InboxPage() {
   const [analyzing, setAnalyzing] = useState<Record<string, boolean>>({});
   const [suggestions, setSuggestions] = useState<Record<string, ReplySuggestion[]>>({});
   const [suggesting, setSuggesting] = useState<Record<string, boolean>>({});
+  const [summaries, setSummaries] = useState<Record<string, Summary>>({});
+  const [summarizing, setSummarizing] = useState<Record<string, boolean>>({});
+  const [leads, setLeads] = useState<Record<string, LeadFields>>({});
+  const [extracting, setExtracting] = useState<Record<string, boolean>>({});
+  const [routeSuggestions, setRouteSuggestions] = useState<
+    Record<string, AgentRouteSuggestion>
+  >({});
+  const [routing, setRouting] = useState<Record<string, boolean>>({});
   const [cannedReplies, setCannedReplies] = useState<CannedReply[]>([]);
   const [openNotes, setOpenNotes] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, Note[]>>({});
@@ -208,13 +232,18 @@ export default function InboxPage() {
     }
   }
 
+  // The AI helpers below all use the per-conversation routes that ship
+  // with the agent-scope guard (loadConversationForAi in slice #95). The
+  // older /api/v1/ai/sentiment + /api/v1/ai/reply-suggestions endpoints
+  // only check tenant scope, so an AGENT could analyze any conversation
+  // in the tenant by guessing an id — these routes fix that gap.
   async function analyzeSentiment(conversationId: string) {
     setAnalyzing((c) => ({ ...c, [conversationId]: true }));
     setErr(null);
     try {
-      const s = await api.post<Sentiment>("/api/v1/ai/sentiment", {
-        conversationId,
-      });
+      const s = await api.post<Sentiment>(
+        `/api/v1/conversations/${conversationId}/ai-sentiment`,
+      );
       setSentiments((c) => ({ ...c, [conversationId]: s }));
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Sentiment failed");
@@ -227,15 +256,63 @@ export default function InboxPage() {
     setSuggesting((c) => ({ ...c, [conversationId]: true }));
     setErr(null);
     try {
-      const data = await api.post<{ suggestions: ReplySuggestion[] }>(
-        "/api/v1/ai/reply-suggestions",
-        { conversationId },
+      // The new route returns ReplySuggestion[] directly (not wrapped in
+      // a `suggestions` field). See suggestReplies() in ai.service.ts.
+      const list = await api.post<ReplySuggestion[]>(
+        `/api/v1/conversations/${conversationId}/ai-reply-suggest`,
       );
-      setSuggestions((c) => ({ ...c, [conversationId]: data.suggestions }));
+      setSuggestions((c) => ({ ...c, [conversationId]: list }));
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Suggestion failed");
     } finally {
       setSuggesting((c) => ({ ...c, [conversationId]: false }));
+    }
+  }
+
+  async function summarizeThread(conversationId: string) {
+    setSummarizing((c) => ({ ...c, [conversationId]: true }));
+    setErr(null);
+    try {
+      const s = await api.post<Summary>(
+        `/api/v1/conversations/${conversationId}/ai-summary`,
+      );
+      setSummaries((c) => ({ ...c, [conversationId]: s }));
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Summary failed");
+    } finally {
+      setSummarizing((c) => ({ ...c, [conversationId]: false }));
+    }
+  }
+
+  async function extractLead(conversationId: string) {
+    setExtracting((c) => ({ ...c, [conversationId]: true }));
+    setErr(null);
+    try {
+      // No `fields` body → server falls back to its DEFAULT_LEAD_FIELDS
+      // (name / email / phone / intent / urgency).
+      const fields = await api.post<LeadFields>(
+        `/api/v1/conversations/${conversationId}/ai-extract-lead`,
+      );
+      setLeads((c) => ({ ...c, [conversationId]: fields }));
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Lead extract failed");
+    } finally {
+      setExtracting((c) => ({ ...c, [conversationId]: false }));
+    }
+  }
+
+  async function suggestRoute(conversationId: string) {
+    setRouting((c) => ({ ...c, [conversationId]: true }));
+    setErr(null);
+    try {
+      const data = await api.post<AgentRouteSuggestion>(
+        `/api/v1/conversations/${conversationId}/ai-route-agent`,
+      );
+      setRouteSuggestions((c) => ({ ...c, [conversationId]: data }));
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Route failed");
+    } finally {
+      setRouting((c) => ({ ...c, [conversationId]: false }));
     }
   }
 
@@ -444,6 +521,30 @@ export default function InboxPage() {
                   {suggesting[c.id] ? "…" : "✦ Suggest reply"}
                 </button>
                 <button
+                  onClick={() => summarizeThread(c.id)}
+                  disabled={summarizing[c.id]}
+                  className="rounded-full border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {summarizing[c.id] ? "…" : "✦ Summarize"}
+                </button>
+                <button
+                  onClick={() => extractLead(c.id)}
+                  disabled={extracting[c.id]}
+                  className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                >
+                  {extracting[c.id] ? "…" : "✦ Extract lead"}
+                </button>
+                {user.role !== "AGENT" && (
+                  <button
+                    onClick={() => suggestRoute(c.id)}
+                    disabled={routing[c.id]}
+                    className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                    title="Suggest the best agent for this conversation (load + tenure)"
+                  >
+                    {routing[c.id] ? "…" : "✦ Route to best agent"}
+                  </button>
+                )}
+                <button
                   onClick={() => {
                     const next = openNotes === c.id ? null : c.id;
                     setOpenNotes(next);
@@ -529,6 +630,67 @@ export default function InboxPage() {
                       {s.text}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {summaries[c.id] && (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50/60 p-2 text-xs">
+                  <div className="mb-1 font-semibold text-slate-700">
+                    Summary
+                  </div>
+                  <p className="text-slate-700">{summaries[c.id].summary}</p>
+                  {summaries[c.id].bullets.length > 0 && (
+                    <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-slate-600">
+                      {summaries[c.id].bullets.map((b, i) => (
+                        <li key={i}>{b}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {leads[c.id] && (
+                <div className="mt-3 rounded-md border border-indigo-100 bg-indigo-50/40 p-2 text-xs">
+                  <div className="mb-1 font-semibold text-indigo-800">
+                    Extracted lead
+                  </div>
+                  <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+                    {Object.entries(leads[c.id]).map(([k, v]) => (
+                      <div key={k} className="contents">
+                        <dt className="text-indigo-700">{k}</dt>
+                        <dd className="text-slate-700">
+                          {v === null || v === ""
+                            ? "—"
+                            : typeof v === "boolean"
+                              ? v ? "yes" : "no"
+                              : String(v)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
+
+              {routeSuggestions[c.id] && (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-xs">
+                  <div className="mb-1 flex items-center justify-between font-semibold text-amber-900">
+                    <span>Suggested routing</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-wide ${routeSuggestions[c.id].source === "ai" ? "bg-amber-200/60 text-amber-900" : "bg-slate-200 text-slate-700"}`}
+                    >
+                      {routeSuggestions[c.id].source}
+                    </span>
+                  </div>
+                  <p className="text-slate-700">
+                    <b>{routeSuggestions[c.id].agentName}</b> ·{" "}
+                    {routeSuggestions[c.id].openConversationCount} open
+                  </p>
+                  <p className="mt-1 italic text-slate-600">
+                    {routeSuggestions[c.id].reasoning}
+                  </p>
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    Suggestion only — use the assignee picker to apply.
+                  </p>
                 </div>
               )}
 
