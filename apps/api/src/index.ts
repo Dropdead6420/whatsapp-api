@@ -64,6 +64,7 @@ import platformMonitorRoutes from "./routes/platform-monitor.routes";
 import agentPerformanceRoutes from "./routes/agent-performance.routes";
 import followUpTasksRoutes from "./routes/follow-up-tasks.routes";
 import customerWalletsRoutes from "./routes/customer-wallets.routes";
+import razorpayWebhookRoutes from "./routes/razorpay-webhook.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -313,6 +314,10 @@ app.use("/api/v1/admin/platform-monitor", platformMonitorRoutes);
 app.use("/api/v1/agent-performance", agentPerformanceRoutes);
 app.use("/api/v1/follow-up-tasks", followUpTasksRoutes);
 app.use("/api/v1/customer/wallets", customerWalletsRoutes);
+// Razorpay webhook — no auth (HMAC is the auth surface). Mounted
+// after authMiddleware but before tenant-scoped routers; the handler
+// reads req.rawBody captured by express.json's verify hook.
+app.use("/api/v1/webhooks/razorpay", razorpayWebhookRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
