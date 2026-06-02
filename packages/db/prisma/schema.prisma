@@ -174,6 +174,7 @@ model Tenant {
   followUpTasks           FollowUpTask[]
   paymentOrders           PaymentOrder[]
   rechargeRequests        RechargeRequest[]
+  creditLines             CreditLine[]
   services                Service[]
   appointments            Appointment[]
   flowRuns                FlowRun[]
@@ -1122,6 +1123,65 @@ model PaymentWebhookLog {
   @@unique([gateway, eventId])
   @@index([gateway, processedAt])
   @@index([paymentOrderId])
+}
+
+// ============================================================================
+// Postpaid credit line (Claude FINAL §4 — CreditLine)
+//
+// One tenant can have one ACTIVE credit line at a time. Creating an
+// active line flips Wallet.billingMode to POSTPAID and sets
+// Wallet.creditLimit to the line's limit. Closing the line resets
+// both. The wallet's negative-balance check enforces the limit at
+// debit time; this model is the audit-grade source of truth (who
+// approved it, when, why, due date for renewal).
+//
+// Why a separate model rather than just leaving the fields on
+// Wallet: the PRD requires "limit, used, dueDate, status" plus an
+// approver trail — none of that fits on the operational Wallet row
+// without polluting it. This model is the contract; Wallet caches
+// the operational state for hot-path debit checks.
+// ============================================================================
+
+enum CreditLineStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+model CreditLine {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Limit in wallet credits (same unit as Wallet.balanceCredits).
+  limitCredits Int
+  status       CreditLineStatus @default(ACTIVE)
+
+  /// Optional renewal date. Reaching dueDate doesn't auto-suspend;
+  /// a future worker may flag overdue lines for SuperAdmin review.
+  dueDate DateTime?
+
+  /// SuperAdmin who approved the line. The approver trail is what
+  /// distinguishes a CreditLine row from a plain Wallet.creditLimit
+  /// number — finance / compliance needs to know who said yes.
+  approvedByUserId String?
+
+  /// Free-text justification (e.g. "Enterprise contract #1234,
+  /// 30-day NET terms").
+  notes String?
+
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+  /// When the line was suspended (PII-style trail). Set on every
+  /// SUSPENDED transition; cleared if the line is reactivated to
+  /// ACTIVE before being CLOSED.
+  suspendedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([status, dueDate])
 }
 
 // ============================================================================
