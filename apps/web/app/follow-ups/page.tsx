@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { AgentShell } from "../../src/components/AgentShell";
+import { FollowUpComposer } from "../../src/components/FollowUpComposer";
 import { useAuth } from "../../src/hooks/useAuth";
 import { api, ApiClientError } from "../../src/lib/api";
 
@@ -54,20 +55,6 @@ const STATUS_META: Record<FollowUpStatus, { label: string; tone: string }> = {
   CANCELLED: { label: "Cancelled", tone: "bg-slate-50 text-slate-600 border-slate-200" },
 };
 
-/** Pad to a `<input type="datetime-local">` value (local timezone). */
-function toLocalInputValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function defaultDueAtLocal(): string {
-  // Default new tasks to "tomorrow 9am" — common case for callbacks.
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(9, 0, 0, 0);
-  return toLocalInputValue(tomorrow);
-}
-
 function describeDue(dueAt: string): { label: string; tone: string } {
   const due = new Date(dueAt);
   const diffMs = due.getTime() - Date.now();
@@ -104,13 +91,6 @@ export default function FollowUpsPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({
-    title: "",
-    dueAtLocal: defaultDueAtLocal(),
-    assigneeId: "",
-    notes: "",
-  });
 
   const loadTasks = async () => {
     setBusy(true);
@@ -143,43 +123,6 @@ export default function FollowUpsPage() {
       .then((s) => setAgents(s.rows ?? []))
       .catch(() => setAgents([]));
   }, [user, canSeeOtherAgents]);
-
-  const create = async () => {
-    if (!draft.title.trim()) {
-      setErr("Title is required.");
-      return;
-    }
-    const dueAt = new Date(draft.dueAtLocal);
-    if (Number.isNaN(dueAt.getTime())) {
-      setErr("Pick a valid due date / time.");
-      return;
-    }
-    setCreating(true);
-    setErr(null);
-    try {
-      const body: Record<string, unknown> = {
-        title: draft.title.trim(),
-        dueAt: dueAt.toISOString(),
-      };
-      if (draft.notes.trim()) body.notes = draft.notes.trim();
-      if (canSeeOtherAgents && draft.assigneeId) {
-        body.assigneeId = draft.assigneeId;
-      }
-      await api.post("/api/v1/follow-up-tasks", body);
-      setShowCreate(false);
-      setDraft({
-        title: "",
-        dueAtLocal: defaultDueAtLocal(),
-        assigneeId: "",
-        notes: "",
-      });
-      await loadTasks();
-    } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to create task");
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const transition = async (
     taskId: string,
@@ -320,108 +263,13 @@ export default function FollowUpsPage() {
       </section>
 
       {showCreate && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-          onClick={() => !creating && setShowCreate(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-lg bg-white shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="border-b border-slate-200 px-5 py-3">
-              <h2 className="text-base font-semibold text-slate-950">
-                New follow-up
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {canSeeOtherAgents
-                  ? "Assign to yourself or any active agent."
-                  : "This task will be added to your queue."}
-              </p>
-            </header>
-            <div className="space-y-3 px-5 py-4">
-              <div>
-                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Title
-                </label>
-                <input
-                  value={draft.title}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, title: e.target.value }))
-                  }
-                  placeholder="Call back to confirm pricing"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  maxLength={280}
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Due
-                </label>
-                <input
-                  type="datetime-local"
-                  value={draft.dueAtLocal}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, dueAtLocal: e.target.value }))
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-              {canSeeOtherAgents && agents.length > 0 && (
-                <div>
-                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Assignee
-                  </label>
-                  <select
-                    value={draft.assigneeId}
-                    onChange={(e) =>
-                      setDraft((d) => ({ ...d, assigneeId: e.target.value }))
-                    }
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    <option value="">— Me ({user.name}) —</option>
-                    {agents.map((a) => (
-                      <option key={a.agentId} value={a.agentId}>
-                        {a.agentName} · {a.agentEmail}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Notes (optional)
-                </label>
-                <textarea
-                  value={draft.notes}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, notes: e.target.value }))
-                  }
-                  placeholder="Context the next person on this needs."
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  rows={3}
-                  maxLength={4000}
-                />
-              </div>
-            </div>
-            <footer className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
-              <button
-                onClick={() => setShowCreate(false)}
-                disabled={creating}
-                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void create()}
-                disabled={creating}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-              >
-                {creating ? "Saving…" : "Create"}
-              </button>
-            </footer>
-          </div>
-        </div>
+        <FollowUpComposer
+          userRole={user.role}
+          userName={user.name}
+          agents={agents}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => void loadTasks()}
+        />
       )}
     </Shell>
   );

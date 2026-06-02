@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { AgentShell } from "../../src/components/AgentShell";
+import { FollowUpComposer } from "../../src/components/FollowUpComposer";
 import { api, ApiClientError } from "../../src/lib/api";
 import { useAutoSave } from "../../src/hooks/useAutoSave";
 import { useInbox } from "../../src/hooks/useInbox";
@@ -101,6 +102,12 @@ export default function InboxPage() {
     Record<string, AgentRouteSuggestion>
   >({});
   const [routing, setRouting] = useState<Record<string, boolean>>({});
+  /** Conversation id of the open follow-up composer, or null. */
+  const [followUpFor, setFollowUpFor] = useState<{
+    conversationId: string;
+    contactId: string;
+    contactName: string;
+  } | null>(null);
   const [cannedReplies, setCannedReplies] = useState<CannedReply[]>([]);
   const [openNotes, setOpenNotes] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, Note[]>>({});
@@ -545,6 +552,19 @@ export default function InboxPage() {
                   </button>
                 )}
                 <button
+                  onClick={() =>
+                    setFollowUpFor({
+                      conversationId: c.id,
+                      contactId: c.contact.id,
+                      contactName: c.contact.name,
+                    })
+                  }
+                  className="rounded-full border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
+                  title="Drop a reminder linked to this conversation"
+                >
+                  ⏰ Follow-up
+                </button>
+                <button
                   onClick={() => {
                     const next = openNotes === c.id ? null : c.id;
                     setOpenNotes(next);
@@ -741,6 +761,17 @@ export default function InboxPage() {
           </div>
         )}
       </div>
+
+      {followUpFor && (
+        <FollowUpComposer
+          userRole={user.role}
+          userName={user.name}
+          contactId={followUpFor.contactId}
+          conversationId={followUpFor.conversationId}
+          contextLabel={followUpFor.contactName}
+          onClose={() => setFollowUpFor(null)}
+        />
+      )}
     </Shell>
   );
 }
