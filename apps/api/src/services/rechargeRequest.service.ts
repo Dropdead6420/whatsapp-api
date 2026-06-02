@@ -30,6 +30,7 @@ import {
   WalletTransactionType,
 } from "@nexaflow/shared";
 import { adjustWallet } from "./wallet.service";
+import { createInvoiceForRechargeRequest } from "./invoice.service";
 
 const ALLOWED_TRANSITIONS: Record<
   RechargeRequestStatus,
@@ -241,7 +242,7 @@ export async function approveRechargeRequest(args: {
     },
   });
 
-  return prisma.rechargeRequest.update({
+  const updated = await prisma.rechargeRequest.update({
     where: { id: existing.id },
     data: {
       status: "APPROVED",
@@ -251,6 +252,19 @@ export async function approveRechargeRequest(args: {
       adminNotes: sanitizeNote(args.adminNotes ?? null, "adminNotes"),
     },
   });
+
+  // Auto-issue the customer invoice. Same try/catch shape as the
+  // Razorpay path — invoice failures must not block the credit.
+  try {
+    await createInvoiceForRechargeRequest(updated);
+  } catch (err) {
+    console.warn(
+      "[recharge-request] invoice creation failed (credit still booked):",
+      (err as Error).message,
+    );
+  }
+
+  return updated;
 }
 
 export async function rejectRechargeRequest(args: {

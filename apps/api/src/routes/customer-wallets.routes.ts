@@ -26,6 +26,7 @@ import {
   createRechargeRequest,
   listRechargeRequests,
 } from "../services/rechargeRequest.service";
+import { listInvoicesForTenant } from "../services/invoice.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 
 const router = Router();
@@ -161,6 +162,21 @@ router.get(
       // Customer only sees their own tenant's requests — pass tenantId
       // explicitly so an admin imitating this surface stays scoped too.
       const items = await listRechargeRequests({ tenantId: req.tenantId });
+      res.json({ success: true, data: items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/invoices",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const items = await listInvoicesForTenant({
+        tenantId: req.tenantId!,
+      });
       res.json({ success: true, data: items });
     } catch (err) {
       next(err);

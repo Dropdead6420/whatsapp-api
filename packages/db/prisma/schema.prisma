@@ -1370,12 +1370,28 @@ model Invoice {
   tenant         Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   subscriptionId String?
 
-  invoiceNumber String @unique
-  amountInPaisa Int
-  status        String // "draft", "sent", "paid", "failed"
+  invoiceNumber   String @unique
+  /// Total in smallest currency unit (paise / cents).
+  amountInPaisa   Int
+  /// Pre-tax line-item total. Equal to amountInPaisa when no tax
+  /// applies (the recharge flows haven't wired tax calc yet).
+  subtotalInPaisa Int    @default(0)
+  /// Tax amount in smallest currency unit (currently 0 for recharge
+  /// flows; future GST/VAT calculator writes here).
+  taxInPaisa      Int    @default(0)
+  currency        String @default("INR")
+  status          String // "draft", "sent", "paid", "failed"
+
+  /// One of these links resolves to the originating event for an
+  /// auto-generated invoice. Subscription invoices leave both null.
+  paymentOrderId    String?
+  rechargeRequestId String?
 
   razorpayInvoiceId String?
   stripeInvoiceId   String?
+  /// CDN / R2 URL where the generated PDF lives. Null until the PDF
+  /// generation worker fills this in (separate slice).
+  pdfUrl            String?
 
   dueAt  DateTime
   paidAt DateTime?
@@ -1385,6 +1401,8 @@ model Invoice {
 
   @@index([tenantId])
   @@index([status])
+  @@index([paymentOrderId])
+  @@index([rechargeRequestId])
 }
 
 // ============================================================================

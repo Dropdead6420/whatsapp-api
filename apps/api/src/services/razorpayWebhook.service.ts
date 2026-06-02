@@ -37,6 +37,7 @@ import {
 } from "@nexaflow/shared";
 import { adjustWalletIdempotent } from "./wallet.service";
 import { assertCanTransitionStatus } from "./paymentOrder.service";
+import { createInvoiceForPaymentOrder } from "./invoice.service";
 
 export interface RazorpayWebhookContext {
   /** Raw HTTP body, byte-for-byte — needed for signature verification. */
@@ -266,14 +267,29 @@ async function creditFromCapturedPayment(args: {
     },
   });
 
-  await prisma.paymentOrder.update({
+  const paidAt = new Date();
+  const updatedOrder = await prisma.paymentOrder.update({
     where: { id: order.id },
     data: {
       status: "SUCCEEDED",
       ledgerTransactionId: credit.transaction.id,
-      paidAt: new Date(),
+      paidAt,
     },
   });
+
+  // Auto-generate the customer's invoice. Idempotent — a retried
+  // webhook lands on the existing row instead of creating a duplicate.
+  // Wrapped in try/catch so an invoice-side hiccup never blocks the
+  // wallet credit (the credit is what matters; invoice can be
+  // backfilled by a future reconciliation job).
+  try {
+    await createInvoiceForPaymentOrder(updatedOrder);
+  } catch (err) {
+    console.warn(
+      "[razorpay-webhook] invoice creation failed (credit still booked):",
+      (err as Error).message,
+    );
+  }
 
   return {
     outcome: "credited",
