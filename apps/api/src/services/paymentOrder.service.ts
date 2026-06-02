@@ -26,8 +26,12 @@
 //     key".
 // ============================================================================
 
-import type { PaymentOrderStatus } from "@nexaflow/db";
+import { prisma, type PaymentOrder, type PaymentOrderStatus } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import {
+  createRazorpayOrder,
+  isRazorpayConfigured,
+} from "../lib/razorpay";
 
 /** Bounds for amount sanitization. Currency-agnostic — caller is
  *  responsible for unit conversion (paise vs cents) before invoking. */
@@ -167,4 +171,141 @@ export function sanitizeIdempotencyKey(raw: unknown): string {
     );
   }
   return trimmed;
+}
+
+// ----------------------------------------------------------------------------
+// DB layer
+// ----------------------------------------------------------------------------
+
+export interface RazorpayInitPayload {
+  /** Razorpay's order id — what Checkout.js needs. */
+  gatewayOrderId: string;
+  /** Public key id Checkout.js needs. Null when running in stub mode. */
+  keyId: string | null;
+  /** Smallest currency unit. */
+  amount: number;
+  currency: string;
+  /** True when no Razorpay credentials are configured (dev/test). */
+  stubMode: boolean;
+}
+
+export interface InitiateRazorpayRechargeResult {
+  paymentOrder: PaymentOrder;
+  init: RazorpayInitPayload;
+  /** True when an existing CREATED order was returned (idempotent replay). */
+  replayed: boolean;
+}
+
+/**
+ * Customer self-recharge entry point. Idempotent on
+ * (tenantId, idempotencyKey): a second POST with the same key returns
+ * the existing CREATED row unchanged. A second POST with the same key
+ * after the order has moved past CREATED is an error — the operator
+ * should mint a fresh key for a new attempt.
+ */
+export async function initiateRazorpayRecharge(args: {
+  tenantId: string;
+  amount: number;
+  currency?: string;
+  idempotencyKey: string;
+  createdByUserId?: string;
+}): Promise<InitiateRazorpayRechargeResult> {
+  const amount = sanitizeRechargeAmount(args.amount);
+  const idempotencyKey = sanitizeIdempotencyKey(args.idempotencyKey);
+  const currency = (args.currency ?? "INR").toUpperCase();
+
+  // The customer's wallet is the credit destination. Auto-created on
+  // tenant signup, so we expect it to exist; surface a clear 404 when
+  // it doesn't.
+  const wallet = await prisma.wallet.findUnique({
+    where: { tenantId: args.tenantId },
+    select: { id: true, status: true },
+  });
+  if (!wallet) {
+    throw new ApiError(
+      ErrorCodes.NOT_FOUND,
+      404,
+      "Wallet not initialized for this tenant.",
+    );
+  }
+  if (wallet.status !== "ACTIVE") {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      `Cannot recharge a ${wallet.status} wallet.`,
+    );
+  }
+
+  // Idempotent path: same key returns the same row.
+  const existing = await prisma.paymentOrder.findUnique({
+    where: {
+      tenantId_idempotencyKey: {
+        tenantId: args.tenantId,
+        idempotencyKey,
+      },
+    },
+  });
+  if (existing) {
+    if (existing.status !== "CREATED" && existing.status !== "PENDING") {
+      throw new ApiError(
+        ErrorCodes.CONFLICT,
+        409,
+        `An order with this idempotency key already finished (${existing.status}). Use a fresh key for a new recharge.`,
+      );
+    }
+    if (existing.amount !== amount) {
+      throw new ApiError(
+        ErrorCodes.CONFLICT,
+        409,
+        "Idempotency key reused with a different amount. Use a fresh key.",
+      );
+    }
+    return {
+      paymentOrder: existing,
+      init: {
+        gatewayOrderId: existing.gatewayOrderId ?? "",
+        keyId: process.env.RAZORPAY_KEY_ID ?? null,
+        amount: existing.amount,
+        currency: existing.currency,
+        stubMode: !isRazorpayConfigured(),
+      },
+      replayed: true,
+    };
+  }
+
+  // Hit Razorpay first to fail fast if the gateway rejects; we don't
+  // want to leave half-built PaymentOrder rows when the gateway is
+  // down.
+  const gatewayOrder = await createRazorpayOrder({
+    amount,
+    currency,
+    receipt: idempotencyKey.slice(0, 40),
+    notes: { tenantId: args.tenantId },
+  });
+
+  const paymentOrder = await prisma.paymentOrder.create({
+    data: {
+      tenantId: args.tenantId,
+      walletId: wallet.id,
+      gateway: "RAZORPAY",
+      amount,
+      currency,
+      status: "CREATED",
+      gatewayOrderId: gatewayOrder.id,
+      idempotencyKey,
+      createdByUserId: args.createdByUserId ?? null,
+    },
+  });
+
+  return {
+    paymentOrder,
+    init: {
+      gatewayOrderId: gatewayOrder.id,
+      keyId: process.env.RAZORPAY_KEY_ID ?? null,
+      amount,
+      currency,
+      stubMode: !isRazorpayConfigured(),
+    },
+    replayed: false,
+  };
 }
