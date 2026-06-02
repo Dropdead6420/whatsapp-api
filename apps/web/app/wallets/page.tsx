@@ -141,6 +141,7 @@ export default function WalletsPage() {
   const [recharging, setRecharging] = useState(false);
 
   const canManage = user?.role === "SUPER_ADMIN" || user?.role === "WHITE_LABEL_ADMIN";
+  const canSelfRecharge = user?.role === "BUSINESS_ADMIN";
   const selected = useMemo(
     () => rows.find((row) => row.tenant.id === selectedTenantId) ?? rows[0],
     [rows, selectedTenantId],
@@ -472,61 +473,63 @@ export default function WalletsPage() {
                 <StatCard label="Low balance" value={formatCredits(selected.wallet.lowBalanceThreshold)} />
               </section>
 
-              <section className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-5">
-                <div className="mb-3 flex items-baseline justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-emerald-900">Add balance</h2>
-                    <p className="mt-0.5 text-xs text-emerald-800">
-                      Recharge via Razorpay. Funds credit to your wallet once
-                      the payment is captured.
+              {canSelfRecharge && (
+                <section className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-5">
+                  <div className="mb-3 flex items-baseline justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-semibold text-emerald-900">Add balance</h2>
+                      <p className="mt-0.5 text-xs text-emerald-800">
+                        Recharge via Razorpay. Funds credit to your wallet once
+                        the payment is captured.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {PRESET_RECHARGE_RUPEES.map((rupees) => (
+                      <button
+                        key={rupees}
+                        type="button"
+                        onClick={() => setRechargeAmount(String(rupees))}
+                        className={`rounded-full px-3 py-1 text-sm font-medium ${
+                          Number(rechargeAmount) === rupees
+                            ? "bg-emerald-700 text-white"
+                            : "border border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"
+                        }`}
+                        disabled={recharging}
+                      >
+                        ₹{rupees.toLocaleString("en-IN")}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-end gap-3">
+                    <label className="block">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-900">
+                        Custom amount (₹)
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={rechargeAmount}
+                        onChange={(e) => setRechargeAmount(e.target.value)}
+                        className="mt-1 w-40 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
+                        disabled={recharging}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void recharge(Number(rechargeAmount))}
+                      disabled={recharging || !rechargeAmount}
+                      className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50"
+                    >
+                      {recharging ? "Starting…" : "Recharge"}
+                    </button>
+                    <p className="text-xs text-emerald-800">
+                      Each ₹1 → 100 wallet credits.
                     </p>
                   </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {PRESET_RECHARGE_RUPEES.map((rupees) => (
-                    <button
-                      key={rupees}
-                      type="button"
-                      onClick={() => setRechargeAmount(String(rupees))}
-                      className={`rounded-full px-3 py-1 text-sm font-medium ${
-                        Number(rechargeAmount) === rupees
-                          ? "bg-emerald-700 text-white"
-                          : "border border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"
-                      }`}
-                      disabled={recharging}
-                    >
-                      ₹{rupees.toLocaleString("en-IN")}
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-3 flex flex-wrap items-end gap-3">
-                  <label className="block">
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-900">
-                      Custom amount (₹)
-                    </span>
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={rechargeAmount}
-                      onChange={(e) => setRechargeAmount(e.target.value)}
-                      className="mt-1 w-40 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
-                      disabled={recharging}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void recharge(Number(rechargeAmount))}
-                    disabled={recharging || !rechargeAmount}
-                    className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50"
-                  >
-                    {recharging ? "Starting…" : "Recharge"}
-                  </button>
-                  <p className="text-xs text-emerald-800">
-                    Each ₹1 → 100 wallet credits.
-                  </p>
-                </div>
-              </section>
+                </section>
+              )}
 
               {canManage && (
                 <section className="grid gap-6 lg:grid-cols-3">

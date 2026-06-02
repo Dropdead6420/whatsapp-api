@@ -199,9 +199,9 @@ export interface InitiateRazorpayRechargeResult {
 /**
  * Customer self-recharge entry point. Idempotent on
  * (tenantId, idempotencyKey): a second POST with the same key returns
- * the existing CREATED row unchanged. A second POST with the same key
- * after the order has moved past CREATED is an error — the operator
- * should mint a fresh key for a new attempt.
+ * the existing PENDING row unchanged. A second POST with the same key
+ * after the order is terminal is an error — the operator should mint
+ * a fresh key for a new attempt.
  */
 export async function initiateRazorpayRecharge(args: {
   tenantId: string;
@@ -290,7 +290,9 @@ export async function initiateRazorpayRecharge(args: {
       gateway: "RAZORPAY",
       amount,
       currency,
-      status: "CREATED",
+      // Razorpay accepted the order; from here we are waiting for the
+      // customer checkout + payment webhook.
+      status: "PENDING",
       gatewayOrderId: gatewayOrder.id,
       idempotencyKey,
       createdByUserId: args.createdByUserId ?? null,
