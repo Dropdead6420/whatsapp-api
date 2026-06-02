@@ -172,6 +172,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         roles: ["SUPER_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD"],
       },
       {
+        href: "/team-performance",
+        label: "Team Performance",
+        icon: UserCircle,
+        roles: ["BUSINESS_ADMIN", "TEAM_LEAD"],
+      },
+      {
         href: "/dashboard/integrations",
         label: "Integrations",
         icon: Plug,
