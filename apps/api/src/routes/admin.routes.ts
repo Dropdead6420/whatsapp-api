@@ -75,6 +75,33 @@ const subscriptionUpdateSchema = z.object({
   currentPeriodEnd: z.coerce.date().optional(),
 });
 
+function tenantLimitDataFromPlan(plan: {
+  messageQuota: number;
+  contactLimit: number;
+  agentLimit: number;
+  aiCreditsPerMonth: number;
+  campaignLimit: number;
+}) {
+  return {
+    messageQuotaPerMonth: plan.messageQuota,
+    contactLimit: plan.contactLimit,
+    agentLimit: plan.agentLimit,
+    aiCreditsPerMonth: plan.aiCreditsPerMonth,
+    campaignLimit: plan.campaignLimit,
+  };
+}
+
+function defaultSubscriptionEnd(start: Date, billingCycle: string): Date {
+  const normalized = billingCycle.trim().toLowerCase();
+  const end = new Date(start);
+  if (normalized === "annual" || normalized === "yearly") {
+    end.setFullYear(end.getFullYear() + 1);
+  } else {
+    end.setMonth(end.getMonth() + 1);
+  }
+  return end;
+}
+
 const auditQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -824,21 +851,64 @@ router.post(
       const start = body.currentPeriodStart ?? new Date();
       const end =
         body.currentPeriodEnd ??
-        new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+        defaultSubscriptionEnd(start, plan.billingCycle);
 
-      const subscription = await prisma.subscription.create({
-        data: {
-          tenantId: body.tenantId,
-          planId: body.planId,
-          status: body.status,
-          currentPeriodStart: start,
-          currentPeriodEnd: end,
-        },
-        include: {
-          plan: true,
-          tenant: { select: { id: true, name: true, type: true, status: true } },
-        },
+      const subscription = await prisma.$transaction(async (tx) => {
+        if (body.status === SubscriptionStatus.ACTIVE) {
+          await tx.subscription.updateMany({
+            where: {
+              tenantId: body.tenantId,
+              status: SubscriptionStatus.ACTIVE,
+            },
+            data: {
+              status: SubscriptionStatus.CANCELLED,
+              cancelledAt: start,
+            },
+          });
+        }
+
+        const created = await tx.subscription.create({
+          data: {
+            tenantId: body.tenantId,
+            planId: body.planId,
+            status: body.status,
+            currentPeriodStart: start,
+            currentPeriodEnd: end,
+          },
+          include: {
+            plan: true,
+            tenant: { select: { id: true, name: true, type: true, status: true } },
+          },
+        });
+
+        if (body.status === SubscriptionStatus.ACTIVE) {
+          await tx.tenant.update({
+            where: { id: body.tenantId },
+            data: tenantLimitDataFromPlan(plan),
+          });
+        }
+
+        return created;
       });
+
+      if (body.status === SubscriptionStatus.ACTIVE) {
+        await logAudit({
+          tenantId: body.tenantId,
+          userId: req.userId!,
+          action: "UPDATE",
+          resource: "Tenant",
+          resourceId: body.tenantId,
+          oldValues: {
+            messageQuotaPerMonth: tenant.messageQuotaPerMonth,
+            contactLimit: tenant.contactLimit,
+            agentLimit: tenant.agentLimit,
+            aiCreditsPerMonth: tenant.aiCreditsPerMonth,
+            campaignLimit: tenant.campaignLimit,
+          },
+          newValues: tenantLimitDataFromPlan(plan),
+          ...extractRequestMeta(req),
+        });
+      }
 
       await logAudit({
         tenantId: body.tenantId,
@@ -850,6 +920,7 @@ router.post(
           planName: plan.name,
           status: subscription.status,
           currentPeriodEnd: subscription.currentPeriodEnd,
+          limitsApplied: body.status === SubscriptionStatus.ACTIVE,
         },
         ...extractRequestMeta(req),
       });
@@ -869,20 +940,77 @@ router.patch(
       const body = subscriptionUpdateSchema.parse(req.body);
       const existing = await prisma.subscription.findUnique({
         where: { id: req.params.id },
-        include: { plan: true },
+        include: {
+          plan: true,
+          tenant: {
+            select: {
+              messageQuotaPerMonth: true,
+              contactLimit: true,
+              agentLimit: true,
+              aiCreditsPerMonth: true,
+              campaignLimit: true,
+            },
+          },
+        },
       });
       if (!existing) {
         throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Subscription not found.");
       }
 
-      const updated = await prisma.subscription.update({
-        where: { id: req.params.id },
-        data: body,
-        include: {
-          plan: true,
-          tenant: { select: { id: true, name: true, type: true, status: true } },
-        },
+      const targetPlan = body.planId
+        ? await prisma.plan.findUnique({ where: { id: body.planId } })
+        : existing.plan;
+      if (!targetPlan) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Plan not found.");
+      }
+
+      const targetStatus = body.status ?? existing.status;
+      const updated = await prisma.$transaction(async (tx) => {
+        if (targetStatus === SubscriptionStatus.ACTIVE) {
+          await tx.subscription.updateMany({
+            where: {
+              tenantId: existing.tenantId,
+              status: SubscriptionStatus.ACTIVE,
+              NOT: { id: existing.id },
+            },
+            data: {
+              status: SubscriptionStatus.CANCELLED,
+              cancelledAt: new Date(),
+            },
+          });
+        }
+
+        const row = await tx.subscription.update({
+          where: { id: req.params.id },
+          data: body,
+          include: {
+            plan: true,
+            tenant: { select: { id: true, name: true, type: true, status: true } },
+          },
+        });
+
+        if (targetStatus === SubscriptionStatus.ACTIVE) {
+          await tx.tenant.update({
+            where: { id: existing.tenantId },
+            data: tenantLimitDataFromPlan(targetPlan),
+          });
+        }
+
+        return row;
       });
+
+      if (targetStatus === SubscriptionStatus.ACTIVE) {
+        await logAudit({
+          tenantId: updated.tenantId,
+          userId: req.userId!,
+          action: "UPDATE",
+          resource: "Tenant",
+          resourceId: updated.tenantId,
+          oldValues: existing.tenant,
+          newValues: tenantLimitDataFromPlan(targetPlan),
+          ...extractRequestMeta(req),
+        });
+      }
 
       await logAudit({
         tenantId: updated.tenantId,

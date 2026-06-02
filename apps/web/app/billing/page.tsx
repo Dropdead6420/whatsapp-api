@@ -55,6 +55,7 @@ interface PlanRequest {
   user: { id: string; name: string; email: string };
   currentPlan: { displayName?: string; planName?: string } | null;
   requestedPlan: {
+    requestedPlanId?: string;
     requestedDisplayName?: string;
     requestedPlanName?: string;
     priceInPaisa?: number;
@@ -149,6 +150,7 @@ export default function BillingPage() {
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
   const [requestedPlan, setRequestedPlan] = useState<string | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
+  const [activatingRequestId, setActivatingRequestId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -229,10 +231,45 @@ export default function BillingPage() {
         planId,
         status,
       });
-      setNotice("Subscription created.");
+      setNotice(
+        status === "ACTIVE"
+          ? "Subscription created and tenant limits updated."
+          : "Subscription created.",
+      );
       await loadBilling();
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Failed to create subscription");
+    }
+  }
+
+  async function activatePlanRequest(request: PlanRequest) {
+    const requestedPlanId = request.requestedPlan?.requestedPlanId;
+    if (!requestedPlanId) {
+      setErr("This request is missing a requested plan id.");
+      return;
+    }
+    setErr(null);
+    setNotice(null);
+    setActivatingRequestId(request.id);
+    try {
+      await api.post("/api/v1/admin/subscriptions", {
+        tenantId: request.tenant.id,
+        planId: requestedPlanId,
+        status: "ACTIVE",
+      });
+      setTenantId(request.tenant.id);
+      setPlanId(requestedPlanId);
+      setStatus("ACTIVE");
+      setNotice(
+        `${request.tenant.name} is now on ${
+          request.requestedPlan?.requestedDisplayName ?? "the requested plan"
+        }; tenant limits were updated from the plan catalog.`,
+      );
+      await loadBilling();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Failed to activate plan request");
+    } finally {
+      setActivatingRequestId(null);
     }
   }
 
@@ -316,6 +353,7 @@ export default function BillingPage() {
               <th className="px-4 py-3">Current Plan</th>
               <th className="px-4 py-3">Requested By</th>
               <th className="px-4 py-3">Date</th>
+              <th className="px-4 py-3 text-right">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -343,11 +381,24 @@ export default function BillingPage() {
                 <td className="px-4 py-3 text-slate-500">
                   {new Date(request.createdAt).toLocaleString()}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => activatePlanRequest(request)}
+                    disabled={
+                      activatingRequestId === request.id ||
+                      !request.requestedPlan?.requestedPlanId
+                    }
+                    className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {activatingRequestId === request.id ? "Activating..." : "Activate"}
+                  </button>
+                </td>
               </tr>
             ))}
             {billing?.planRequests.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
                   No plan requests yet.
                 </td>
               </tr>
@@ -558,7 +609,7 @@ export default function BillingPage() {
           >
             <h2 className="text-sm font-semibold">Assign Plan</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Create a subscription for a tenant.
+              Create an active subscription and apply the plan limits to the tenant.
             </p>
             <label className="mt-4 block text-sm">
               <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
