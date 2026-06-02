@@ -9,6 +9,11 @@ export const API_BASE =
 
 const ACCESS_KEY = "nx_access";
 const REFRESH_KEY = "nx_refresh";
+// During an impersonation session, the SuperAdmin's original tokens
+// are parked in these slots so the "Return to admin" button can swap
+// them back without re-login.
+const STASHED_ACCESS_KEY = "nx_admin_access";
+const STASHED_REFRESH_KEY = "nx_admin_refresh";
 
 export const tokenStore = {
   getAccess(): string | null {
@@ -28,6 +33,46 @@ export const tokenStore = {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(ACCESS_KEY);
     window.localStorage.removeItem(REFRESH_KEY);
+  },
+  /**
+   * Park the current access/refresh pair under "admin" slots and load
+   * the impersonation access token into the primary slot. Refresh is
+   * NOT replaced — the impersonation access is short-lived (15 min,
+   * same as a normal access) and not refreshable.
+   */
+  stashAdminAndSetImpersonation(impersonationAccessToken: string): void {
+    if (typeof window === "undefined") return;
+    const currentAccess = window.localStorage.getItem(ACCESS_KEY);
+    const currentRefresh = window.localStorage.getItem(REFRESH_KEY);
+    if (currentAccess) {
+      window.localStorage.setItem(STASHED_ACCESS_KEY, currentAccess);
+    }
+    if (currentRefresh) {
+      window.localStorage.setItem(STASHED_REFRESH_KEY, currentRefresh);
+    }
+    window.localStorage.setItem(ACCESS_KEY, impersonationAccessToken);
+    // Refresh slot intentionally left as the admin's — if the
+    // impersonation token expires mid-session, the next refresh
+    // restores the admin context (which is the right safe default).
+  },
+  /**
+   * Restore the parked admin tokens to the primary slots. No-op when
+   * no stash is present.
+   */
+  restoreAdminFromStash(): boolean {
+    if (typeof window === "undefined") return false;
+    const stashedAccess = window.localStorage.getItem(STASHED_ACCESS_KEY);
+    const stashedRefresh = window.localStorage.getItem(STASHED_REFRESH_KEY);
+    if (!stashedAccess && !stashedRefresh) return false;
+    if (stashedAccess) {
+      window.localStorage.setItem(ACCESS_KEY, stashedAccess);
+      window.localStorage.removeItem(STASHED_ACCESS_KEY);
+    }
+    if (stashedRefresh) {
+      window.localStorage.setItem(REFRESH_KEY, stashedRefresh);
+      window.localStorage.removeItem(STASHED_REFRESH_KEY);
+    }
+    return true;
   },
 };
 
@@ -195,4 +240,55 @@ export async function resetPassword(token: string, newPassword: string): Promise
 
 export async function verifyEmail(token: string): Promise<void> {
   await api.post("/api/v1/auth/verify-email", { token }, { auth: false });
+}
+
+// ----------------------------------------------------------------------------
+// Impersonation helpers
+// ----------------------------------------------------------------------------
+
+export interface ImpersonationStartResult {
+  accessToken: string;
+  expiresInSeconds: number;
+  target: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  tenant: { id: string; name: string };
+}
+
+/**
+ * SUPER_ADMIN flow: mint an impersonation access token, stash the
+ * admin's original tokens so the banner's "Return to admin" can swap
+ * back, then load the impersonation token into the primary slot.
+ */
+export async function startImpersonation(args: {
+  targetTenantId: string;
+  targetUserId?: string;
+  reason?: string;
+}): Promise<ImpersonationStartResult> {
+  const result = await api.post<ImpersonationStartResult>(
+    "/api/v1/admin/impersonate/start",
+    args,
+  );
+  tokenStore.stashAdminAndSetImpersonation(result.accessToken);
+  return result;
+}
+
+/**
+ * Best-effort exit. POSTs /exit so the audit trail records the close,
+ * then restores the parked admin tokens. The server-side audit row is
+ * non-critical to user flow — if the POST fails (network, expired
+ * token), we still swap the tokens locally so the operator regains
+ * their admin context.
+ */
+export async function exitImpersonation(): Promise<void> {
+  try {
+    await api.post("/api/v1/admin/impersonate/exit");
+  } catch {
+    // Swallow — audit row is best-effort; the swap below is what
+    // matters for the operator.
+  }
+  tokenStore.restoreAdminFromStash();
 }

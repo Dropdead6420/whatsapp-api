@@ -35,6 +35,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { activeHrefFromPath, isActiveRoute } from "../lib/navActive";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 
 type RoleName =
   | "SUPER_ADMIN"
@@ -767,6 +768,7 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-slate-50" data-active-href={activeHref ?? ""}>
+      <ImpersonationBanner />
       <Sidebar
         sections={sections}
         activeHref={activeHref}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "../../../src/hooks/useAuth";
 import { DashboardShell } from "../../../src/components/DashboardShell";
+import { startImpersonation } from "../../../src/lib/api";
 import { api, ApiClientError } from "../../../src/lib/api";
 
 interface TenantDetail {
@@ -231,6 +232,35 @@ export default function TenantDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {tenant?.status === "ACTIVE" && (
+            <button
+              onClick={async () => {
+                if (!tenant?.id) return;
+                const reason = window.prompt(
+                  "Reason for impersonating this tenant (audit log):",
+                  "",
+                );
+                if (reason === null) return; // cancelled
+                try {
+                  await startImpersonation({
+                    targetTenantId: tenant.id,
+                    reason: reason.trim() || undefined,
+                  });
+                  // Hard reload — every component needs to re-read the
+                  // new (impersonation) token from localStorage.
+                  window.location.href = "/dashboard";
+                } catch (e) {
+                  const msg =
+                    e instanceof Error ? e.message : "Failed to impersonate";
+                  setErr(msg);
+                }
+              }}
+              className="rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-800 hover:bg-purple-100"
+              title="Step into this tenant as their BUSINESS_ADMIN to debug. All actions audited; destructive ops blocked."
+            >
+              👁 Impersonate
+            </button>
+          )}
           {tenant?.status === "ACTIVE" ? (
             <button
               onClick={suspend}
