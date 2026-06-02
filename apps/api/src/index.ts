@@ -65,6 +65,7 @@ import agentPerformanceRoutes from "./routes/agent-performance.routes";
 import followUpTasksRoutes from "./routes/follow-up-tasks.routes";
 import customerWalletsRoutes from "./routes/customer-wallets.routes";
 import razorpayWebhookRoutes from "./routes/razorpay-webhook.routes";
+import stripeWebhookRoutes from "./routes/stripe-webhook.routes";
 import adminRechargeRequestsRoutes from "./routes/admin-recharge-requests.routes";
 import creditLinesRoutes from "./routes/credit-lines.routes";
 import {
@@ -295,6 +296,7 @@ app.use("/api/v1/flows", flowsRoutes);
 // has auth middleware at router level and would otherwise intercept
 // Razorpay callbacks before this handler can verify the signature.
 app.use("/api/v1/webhooks/razorpay", razorpayWebhookRoutes);
+app.use("/api/v1/webhooks/stripe", stripeWebhookRoutes);
 app.use("/api/v1/admin/recharge-requests", adminRechargeRequestsRoutes);
 app.use("/api/v1/admin/credit-lines", creditLinesRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);

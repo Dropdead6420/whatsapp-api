@@ -21,7 +21,10 @@ import {
   RequestWithAuth,
 } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
-import { initiateRazorpayRecharge } from "../services/paymentOrder.service";
+import {
+  initiateRazorpayRecharge,
+  initiateStripeRecharge,
+} from "../services/paymentOrder.service";
 import {
   createRechargeRequest,
   listRechargeRequests,
@@ -46,7 +49,7 @@ const rechargeSchema = z.object({
     .regex(/^[A-Z]{3}$/i, "Currency must be a 3-letter ISO code")
     .optional(),
   idempotencyKey: z.string().min(8).max(80),
-  gateway: z.enum(["RAZORPAY"]).default("RAZORPAY"),
+  gateway: z.enum(["RAZORPAY", "STRIPE"]).default("RAZORPAY"),
 });
 
 router.post(
@@ -55,23 +58,26 @@ router.post(
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
       const body = rechargeSchema.parse(req.body);
-      // Belt-and-suspenders: the gateway switch will broaden when
-      // Stripe lands in slice 5. For now there's only one path.
-      if (body.gateway !== "RAZORPAY") {
-        throw new ApiError(
-          ErrorCodes.BAD_REQUEST,
-          400,
-          `Gateway ${body.gateway} not yet supported.`,
-        );
-      }
 
-      const result = await initiateRazorpayRecharge({
-        tenantId: req.tenantId!,
-        amount: body.amount,
-        currency: body.currency,
-        idempotencyKey: body.idempotencyKey,
-        createdByUserId: req.userId,
-      });
+      const result =
+        body.gateway === "STRIPE"
+          ? await initiateStripeRecharge({
+              tenantId: req.tenantId!,
+              amount: body.amount,
+              // Stripe defaults to USD when the body doesn't carry one
+              // — keeps the non-INR market working without forcing
+              // every UI to send a currency.
+              currency: body.currency,
+              idempotencyKey: body.idempotencyKey,
+              createdByUserId: req.userId,
+            })
+          : await initiateRazorpayRecharge({
+              tenantId: req.tenantId!,
+              amount: body.amount,
+              currency: body.currency,
+              idempotencyKey: body.idempotencyKey,
+              createdByUserId: req.userId,
+            });
 
       // Only audit fresh orders — replays would spam the audit log.
       if (!result.replayed) {

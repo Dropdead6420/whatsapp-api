@@ -32,6 +32,10 @@ import {
   createRazorpayOrder,
   isRazorpayConfigured,
 } from "../lib/razorpay";
+import {
+  createStripePaymentIntent,
+  isStripeConfigured,
+} from "../lib/stripe";
 
 /** Bounds for amount sanitization. Currency-agnostic — caller is
  *  responsible for unit conversion (paise vs cents) before invoking. */
@@ -307,6 +311,146 @@ export async function initiateRazorpayRecharge(args: {
       amount,
       currency,
       stubMode: !isRazorpayConfigured(),
+    },
+    replayed: false,
+  };
+}
+
+// ---- Stripe sibling --------------------------------------------------------
+
+export interface StripeInitPayload {
+  /** Stripe PaymentIntent id. */
+  gatewayOrderId: string;
+  /** Public publishable key (pk_*) — client uses with Stripe.js. */
+  publishableKey: string | null;
+  /** client_secret for confirmCardPayment. Null when stub-mode. */
+  clientSecret: string | null;
+  amount: number;
+  currency: string;
+  stubMode: boolean;
+}
+
+export interface InitiateStripeRechargeResult {
+  paymentOrder: PaymentOrder;
+  init: StripeInitPayload;
+  replayed: boolean;
+}
+
+/**
+ * Same shape as initiateRazorpayRecharge, but talks to Stripe.
+ * Idempotency: (tenantId, idempotencyKey) UNIQUE protects against
+ * double-creates on our side; Stripe's Idempotency-Key header
+ * protects against the same on theirs.
+ */
+export async function initiateStripeRecharge(args: {
+  tenantId: string;
+  amount: number;
+  currency?: string;
+  idempotencyKey: string;
+  createdByUserId?: string;
+}): Promise<InitiateStripeRechargeResult> {
+  const amount = sanitizeRechargeAmount(args.amount);
+  const idempotencyKey = sanitizeIdempotencyKey(args.idempotencyKey);
+  const currency = (args.currency ?? "USD").toUpperCase();
+
+  const wallet = await prisma.wallet.findUnique({
+    where: { tenantId: args.tenantId },
+    select: { id: true, status: true },
+  });
+  if (!wallet) {
+    throw new ApiError(
+      ErrorCodes.NOT_FOUND,
+      404,
+      "Wallet not initialized for this tenant.",
+    );
+  }
+  if (wallet.status !== "ACTIVE") {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      `Cannot recharge a ${wallet.status} wallet.`,
+    );
+  }
+
+  const existing = await prisma.paymentOrder.findUnique({
+    where: {
+      tenantId_idempotencyKey: {
+        tenantId: args.tenantId,
+        idempotencyKey,
+      },
+    },
+  });
+  if (existing) {
+    if (existing.status !== "CREATED" && existing.status !== "PENDING") {
+      throw new ApiError(
+        ErrorCodes.CONFLICT,
+        409,
+        `An order with this idempotency key already finished (${existing.status}). Use a fresh key for a new recharge.`,
+      );
+    }
+    if (existing.amount !== amount) {
+      throw new ApiError(
+        ErrorCodes.CONFLICT,
+        409,
+        "Idempotency key reused with a different amount. Use a fresh key.",
+      );
+    }
+    if (existing.gateway !== "STRIPE") {
+      throw new ApiError(
+        ErrorCodes.CONFLICT,
+        409,
+        "Idempotency key already used for a different gateway.",
+      );
+    }
+    return {
+      paymentOrder: existing,
+      init: {
+        gatewayOrderId: existing.gatewayOrderId ?? "",
+        publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+        // We don't persist client_secret — the customer has to retry
+        // create to get a fresh one (which they shouldn't need to,
+        // since Stripe's PaymentIntents remain usable for 24h).
+        clientSecret: null,
+        amount: existing.amount,
+        currency: existing.currency,
+        stubMode: !isStripeConfigured(),
+      },
+      replayed: true,
+    };
+  }
+
+  const intent = await createStripePaymentIntent({
+    amount,
+    currency,
+    idempotencyKey,
+    metadata: { tenantId: args.tenantId, idempotencyKey },
+  });
+
+  const paymentOrder = await prisma.paymentOrder.create({
+    data: {
+      tenantId: args.tenantId,
+      walletId: wallet.id,
+      gateway: "STRIPE",
+      amount,
+      currency,
+      // Stripe accepts → we wait for the customer to confirm + the
+      // webhook to land.
+      status: "PENDING",
+      gatewayOrderId: intent.id,
+      idempotencyKey,
+      createdByUserId: args.createdByUserId ?? null,
+    },
+  });
+
+  return {
+    paymentOrder,
+    init: {
+      gatewayOrderId: intent.id,
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+      clientSecret: intent.client_secret ?? null,
+      amount,
+      currency,
+      stubMode: !isStripeConfigured(),
     },
     replayed: false,
   };
