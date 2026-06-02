@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { BarChart3, Download, RefreshCcw, Send, TrendingUp } from "lucide-react";
+import {
+  BarChart3,
+  Download,
+  FileText,
+  RefreshCcw,
+  Send,
+  TrendingUp,
+} from "lucide-react";
 import { useAuth } from "../../../src/hooks/useAuth";
 import { DashboardShell } from "../../../src/components/DashboardShell";
 import { API_BASE, api, ApiClientError, tokenStore } from "../../../src/lib/api";
@@ -50,9 +57,12 @@ function titleize(value: string) {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-function fileNameFromDisposition(disposition: string | null) {
+function fileNameFromDisposition(disposition: string | null, fallbackExt: string) {
   const match = disposition?.match(/filename="?([^"]+)"?/);
-  return match?.[1] ?? `nexaflow-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+  return (
+    match?.[1] ??
+    `nexaflow-analytics-${new Date().toISOString().slice(0, 10)}.${fallbackExt}`
+  );
 }
 
 export default function AnalyticsPage() {
@@ -62,7 +72,7 @@ export default function AnalyticsPage() {
   });
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
+  const [downloading, setDownloading] = useState<"csv" | "pdf" | null>(null);
 
   async function loadSummary() {
     setErr(null);
@@ -74,12 +84,12 @@ export default function AnalyticsPage() {
     }
   }
 
-  async function downloadCsv() {
+  async function downloadExport(kind: "csv" | "pdf") {
     setErr(null);
-    setDownloading(true);
+    setDownloading(kind);
     try {
       const token = tokenStore.getAccess();
-      const res = await fetch(`${API_BASE}/api/v1/analytics/export.csv`, {
+      const res = await fetch(`${API_BASE}/api/v1/analytics/export.${kind}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (!res.ok) {
@@ -89,15 +99,18 @@ export default function AnalyticsPage() {
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = href;
-      anchor.download = fileNameFromDisposition(res.headers.get("Content-Disposition"));
+      anchor.download = fileNameFromDisposition(
+        res.headers.get("Content-Disposition"),
+        kind,
+      );
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(href);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "CSV export failed");
+      setErr(e instanceof Error ? e.message : `${kind.toUpperCase()} export failed`);
     } finally {
-      setDownloading(false);
+      setDownloading(null);
     }
   }
 
@@ -153,12 +166,21 @@ export default function AnalyticsPage() {
           </button>
           <button
             type="button"
-            onClick={() => void downloadCsv()}
-            disabled={downloading || !summary}
+            onClick={() => void downloadExport("csv")}
+            disabled={Boolean(downloading) || !summary}
             className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
-            {downloading ? "Exporting..." : "Download CSV"}
+            {downloading === "csv" ? "Exporting..." : "Download CSV"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void downloadExport("pdf")}
+            disabled={Boolean(downloading) || !summary}
+            className="inline-flex items-center gap-2 rounded-md border border-slate-900 bg-white px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <FileText className="h-4 w-4" />
+            {downloading === "pdf" ? "Exporting..." : "Download PDF"}
           </button>
         </div>
       </header>
