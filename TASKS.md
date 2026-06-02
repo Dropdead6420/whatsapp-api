@@ -150,7 +150,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 - T-120 OpenTelemetry traces (Next → API → DB → Redis → workers → Meta) — deferred until span data becomes load-bearing; Sentry traces + Prometheus give us enough for now
 
 **Non-scale enterprise**
-- T-062 Scheduled report exports (PDF / CSV)
+- T-062 Scheduled report exports — on-demand CSV shipped 2026-06-02 (`/dashboard/analytics` + `/api/v1/analytics/export.csv`); scheduled delivery + PDF still pending
 
 ### Tests
 - T-070 E2E test for auth flow (signup → verify → login → refresh → logout)

@@ -13,6 +13,10 @@ import {
 } from "@nexaflow/shared";
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 import { getTenantSendStats } from "../services/sendThrottle.service";
+import {
+  analyticsSummaryToCsvRows,
+  csvRowsToString,
+} from "../services/analyticsExport.service";
 
 const router = Router();
 router.use(requireAuth);
@@ -250,6 +254,43 @@ router.get(
 
       const summary = await getTenantSummary(req.tenantId);
       res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/export.csv",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const summary =
+        req.userRole === UserRole.SUPER_ADMIN
+          ? await getPlatformSummary()
+          : req.tenantId
+            ? await getTenantSummary(req.tenantId)
+            : null;
+
+      if (!summary) {
+        throw new ApiError(
+          ErrorCodes.MULTI_TENANT_VIOLATION,
+          400,
+          "Tenant context required for analytics export.",
+        );
+      }
+
+      const csv = csvRowsToString(
+        analyticsSummaryToCsvRows(summary as unknown as Record<string, unknown>),
+      );
+      const stamp = new Date().toISOString().slice(0, 10);
+      res
+        .status(200)
+        .setHeader("Content-Type", "text/csv; charset=utf-8")
+        .setHeader(
+          "Content-Disposition",
+          `attachment; filename="nexaflow-analytics-${summary.scope}-${stamp}.csv"`,
+        )
+        .send(csv);
     } catch (err) {
       next(err);
     }
