@@ -22,6 +22,10 @@ import {
 } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
 import { initiateRazorpayRecharge } from "../services/paymentOrder.service";
+import {
+  createRechargeRequest,
+  listRechargeRequests,
+} from "../services/rechargeRequest.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 
 const router = Router();
@@ -91,6 +95,73 @@ router.post(
           init: result.init,
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---- Manual bank transfer recharge requests (Claude FINAL §4) -------------
+
+const rechargeRequestCreateSchema = z.object({
+  amount: z.number().int().positive(),
+  currency: z
+    .string()
+    .trim()
+    .min(3)
+    .max(3)
+    .regex(/^[A-Z]{3}$/i)
+    .optional(),
+  proofUrl: z.string().trim().max(1024).optional().nullable(),
+  reference: z.string().trim().max(80).optional().nullable(),
+  customerNote: z.string().trim().max(1024).optional().nullable(),
+});
+
+router.post(
+  "/recharge-requests",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = rechargeRequestCreateSchema.parse(req.body);
+      const created = await createRechargeRequest({
+        tenantId: req.tenantId!,
+        amount: body.amount,
+        currency: body.currency,
+        proofUrl: body.proofUrl ?? null,
+        reference: body.reference ?? null,
+        customerNote: body.customerNote ?? null,
+        createdByUserId: req.userId,
+      });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "CREATE",
+        resource: "recharge_request",
+        resourceId: created.id,
+        newValues: {
+          amount: created.amount,
+          currency: created.currency,
+          reference: created.reference,
+          proofUrl: created.proofUrl,
+        },
+        ...extractRequestMeta(req),
+      });
+      res.status(201).json({ success: true, data: created });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/recharge-requests",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      // Customer only sees their own tenant's requests — pass tenantId
+      // explicitly so an admin imitating this surface stays scoped too.
+      const items = await listRechargeRequests({ tenantId: req.tenantId });
+      res.json({ success: true, data: items });
     } catch (err) {
       next(err);
     }

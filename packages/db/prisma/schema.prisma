@@ -173,6 +173,7 @@ model Tenant {
   conversationNotes       ConversationNote[]
   followUpTasks           FollowUpTask[]
   paymentOrders           PaymentOrder[]
+  rechargeRequests        RechargeRequest[]
   services                Service[]
   appointments            Appointment[]
   flowRuns                FlowRun[]
@@ -1121,6 +1122,60 @@ model PaymentWebhookLog {
   @@unique([gateway, eventId])
   @@index([gateway, processedAt])
   @@index([paymentOrderId])
+}
+
+// ============================================================================
+// Manual bank transfer recharge (Claude FINAL §4 — RechargeRequest)
+//
+// Customers without card support (or paying via NEFT/IMPS/UPI to the
+// platform's bank account) submit a RechargeRequest with proof. A
+// SuperAdmin reviews the proof and approves — approval credits the
+// wallet via the same WalletTransaction ledger as Razorpay so the
+// audit trail is consistent.
+// ============================================================================
+
+enum RechargeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model RechargeRequest {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Smallest currency unit (paise / cents).
+  amount   Int
+  currency String                @default("INR")
+  status   RechargeRequestStatus @default(PENDING)
+
+  /// URL to the bank-transfer proof (screenshot / PDF receipt).
+  /// We don't host the file ourselves; the customer uploads to their
+  /// own object store or the partner's portal.
+  proofUrl     String?
+  /// Customer-supplied reference (UTR / transaction id) so SuperAdmin
+  /// can reconcile with the bank statement.
+  reference    String?
+  /// Customer-supplied note (which bank account, payer name etc.).
+  customerNote String?
+
+  /// SuperAdmin's note on approve / reject.
+  adminNotes String?
+
+  createdByUserId  String?
+  approvedByUserId String?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+
+  /// When approved, the WalletTransaction that booked the credit.
+  ledgerTransactionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([status, createdAt])
 }
 
 // ============================================================================

@@ -65,6 +65,7 @@ import agentPerformanceRoutes from "./routes/agent-performance.routes";
 import followUpTasksRoutes from "./routes/follow-up-tasks.routes";
 import customerWalletsRoutes from "./routes/customer-wallets.routes";
 import razorpayWebhookRoutes from "./routes/razorpay-webhook.routes";
+import adminRechargeRequestsRoutes from "./routes/admin-recharge-requests.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -288,6 +289,12 @@ app.use("/api/v1/canned-replies", cannedRepliesRoutes);
 app.use("/api/v1/services", servicesRoutes);
 app.use("/api/v1/appointments", appointmentsRoutes);
 app.use("/api/v1/flows", flowsRoutes);
+// Razorpay webhook — public, HMAC-authenticated, and must be mounted
+// before the tenant-scoped /api/v1/webhooks router below. That router
+// has auth middleware at router level and would otherwise intercept
+// Razorpay callbacks before this handler can verify the signature.
+app.use("/api/v1/webhooks/razorpay", razorpayWebhookRoutes);
+app.use("/api/v1/admin/recharge-requests", adminRechargeRequestsRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);
 app.use("/api/v1/domains", domainsRoutes);
 app.use("/api/v1/wallets", walletsRoutes);
@@ -314,10 +321,6 @@ app.use("/api/v1/admin/platform-monitor", platformMonitorRoutes);
 app.use("/api/v1/agent-performance", agentPerformanceRoutes);
 app.use("/api/v1/follow-up-tasks", followUpTasksRoutes);
 app.use("/api/v1/customer/wallets", customerWalletsRoutes);
-// Razorpay webhook — no auth (HMAC is the auth surface). Mounted
-// after authMiddleware but before tenant-scoped routers; the handler
-// reads req.rawBody captured by express.json's verify hook.
-app.use("/api/v1/webhooks/razorpay", razorpayWebhookRoutes);
 app.use("/api/public/v1", publicApiRoutes);
 
 app.use((req: Request, res: Response) => {
