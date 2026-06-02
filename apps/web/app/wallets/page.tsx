@@ -84,9 +84,10 @@ function formatCredits(value: number) {
 }
 
 const RAZORPAY_CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
+const STRIPE_JS_SRC = "https://js.stripe.com/v3/";
 
-// Single-flight loader: subsequent calls return the same promise so
-// concurrent recharge clicks don't append duplicate <script> tags.
+// Single-flight loaders so concurrent recharge clicks don't append
+// duplicate <script> tags.
 let razorpayCheckoutPromise: Promise<void> | null = null;
 function loadRazorpayCheckout(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
@@ -107,6 +108,29 @@ function loadRazorpayCheckout(): Promise<void> {
   });
   return razorpayCheckoutPromise;
 }
+
+let stripeJsPromise: Promise<void> | null = null;
+function loadStripeJs(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if ((window as unknown as { Stripe?: unknown }).Stripe) {
+    return Promise.resolve();
+  }
+  if (stripeJsPromise) return stripeJsPromise;
+  stripeJsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = STRIPE_JS_SRC;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      stripeJsPromise = null;
+      reject(new Error("Failed to load Stripe.js"));
+    };
+    document.head.appendChild(script);
+  });
+  return stripeJsPromise;
+}
+
+type Gateway = "RAZORPAY" | "STRIPE";
 
 const PRESET_RECHARGE_RUPEES = [500, 1000, 2000, 5000];
 
@@ -154,6 +178,7 @@ export default function WalletsPage() {
   // (display units) and converted to paise before POSTing.
   const [rechargeAmount, setRechargeAmount] = useState("500");
   const [recharging, setRecharging] = useState(false);
+  const [gateway, setGateway] = useState<Gateway>("RAZORPAY");
 
   // Manual bank transfer request (Claude FINAL §4 slice 6).
   const [manualAmount, setManualAmount] = useState("");
@@ -365,38 +390,59 @@ export default function WalletsPage() {
     setErr(null);
     setNotice(null);
     if (!Number.isFinite(rupees) || rupees < 1) {
-      setErr("Pick a valid amount (minimum ₹1).");
+      setErr("Pick a valid amount.");
       return;
     }
     setRecharging(true);
     try {
-      const amountPaise = Math.round(rupees * 100);
+      // Smallest currency unit. INR/USD both use 1/100 — paise + cents.
+      const amountSmallest = Math.round(rupees * 100);
       const idempotencyKey = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      // Stripe operates in USD on the customer-portal side by default;
+      // Razorpay is INR-first. Either backend service ignores currency
+      // if it's the wrong shape — server-side validation handles that.
+      const currency = gateway === "STRIPE" ? "USD" : "INR";
       const result = await api.post<{
         orderId: string;
         status: string;
         replayed: boolean;
         init: {
           gatewayOrderId: string;
-          keyId: string | null;
           amount: number;
           currency: string;
           stubMode: boolean;
+          // Razorpay shape
+          keyId?: string | null;
+          // Stripe shape
+          publishableKey?: string | null;
+          clientSecret?: string | null;
         };
       }>("/api/v1/customer/wallets/recharge", {
-        amount: amountPaise,
-        currency: "INR",
+        amount: amountSmallest,
+        currency,
         idempotencyKey,
-        gateway: "RAZORPAY",
+        gateway,
       });
 
-      if (result.init.stubMode || !result.init.keyId) {
-        // Dev / test env — no real Razorpay keys configured. The
-        // PaymentOrder is created but no checkout happens; an
-        // operator would simulate a payment.captured webhook by hand.
+      if (result.init.stubMode) {
         setNotice(
-          `Stub-mode recharge created (order ${result.init.gatewayOrderId}). Configure RAZORPAY_KEY_ID + RAZORPAY_WEBHOOK_SECRET to enable real payments.`,
+          `Stub-mode recharge created (order ${result.init.gatewayOrderId}). Configure ${
+            gateway === "STRIPE"
+              ? "STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY + STRIPE_WEBHOOK_SECRET"
+              : "RAZORPAY_KEY_ID + RAZORPAY_WEBHOOK_SECRET"
+          } to enable real payments.`,
         );
+        return;
+      }
+
+      if (gateway === "STRIPE") {
+        await handleStripeCheckout({ rupees, currency, result });
+        return;
+      }
+
+      // ---- Razorpay path (default) ----
+      if (!result.init.keyId) {
+        setErr("Razorpay key not returned by server.");
         return;
       }
 
@@ -446,6 +492,62 @@ export default function WalletsPage() {
     } finally {
       setRecharging(false);
     }
+  }
+
+  /**
+   * Stripe.js confirmPayment branch. Loads Stripe.js on demand,
+   * mounts a minimal redirect-based flow via stripe.confirmPayment.
+   * The webhook is the source of truth — we just kick off the
+   * client-side confirmation and refresh after.
+   */
+  async function handleStripeCheckout(args: {
+    rupees: number;
+    currency: string;
+    result: {
+      init: {
+        gatewayOrderId: string;
+        publishableKey?: string | null;
+        clientSecret?: string | null;
+      };
+    };
+  }) {
+    const { publishableKey, clientSecret } = args.result.init;
+    if (!publishableKey || !clientSecret) {
+      setErr("Stripe keys not returned by server.");
+      return;
+    }
+    await loadStripeJs();
+    const win = window as unknown as {
+      Stripe?: (
+        key: string,
+      ) => {
+        confirmPayment: (opts: {
+          clientSecret: string;
+          confirmParams: { return_url: string };
+        }) => Promise<{ error?: { message?: string } }>;
+      };
+    };
+    if (!win.Stripe) {
+      setErr("Could not load Stripe.js. Refresh and try again.");
+      return;
+    }
+    const stripe = win.Stripe(publishableKey);
+    const ret = await stripe.confirmPayment({
+      clientSecret,
+      confirmParams: { return_url: window.location.href },
+    });
+    if (ret.error) {
+      setErr(ret.error.message ?? "Stripe checkout failed.");
+      return;
+    }
+    setNotice(
+      "Payment submitted. Wallet will update once the webhook is processed (usually a few seconds).",
+    );
+    window.setTimeout(() => {
+      void loadWallets();
+      if (selected) void loadTransactions(selected.tenant.id);
+      void loadInvoices();
+    }, 4000);
   }
 
   /**
@@ -573,32 +675,57 @@ export default function WalletsPage() {
                     <div>
                       <h2 className="text-sm font-semibold text-emerald-900">Add balance</h2>
                       <p className="mt-0.5 text-xs text-emerald-800">
-                        Recharge via Razorpay. Funds credit to your wallet once
-                        the payment is captured.
+                        Recharge with Razorpay or Stripe. Funds credit to your
+                        wallet once the payment webhook is captured.
                       </p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {PRESET_RECHARGE_RUPEES.map((rupees) => (
+                  <div className="mb-4 grid gap-2 sm:grid-cols-2">
+                    {(["RAZORPAY", "STRIPE"] as Gateway[]).map((item) => (
                       <button
-                        key={rupees}
+                        key={item}
                         type="button"
-                        onClick={() => setRechargeAmount(String(rupees))}
+                        onClick={() => setGateway(item)}
+                        disabled={recharging}
+                        className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                          gateway === item
+                            ? "border-emerald-700 bg-white text-emerald-900 shadow-sm"
+                            : "border-emerald-200 bg-white/70 text-emerald-800 hover:bg-white"
+                        }`}
+                      >
+                        <span className="block font-semibold">
+                          {item === "RAZORPAY" ? "Razorpay" : "Stripe"}
+                        </span>
+                        <span className="mt-0.5 block text-xs opacity-80">
+                          {item === "RAZORPAY"
+                            ? "INR checkout for India payments"
+                            : "USD card checkout via PaymentIntent"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {PRESET_RECHARGE_RUPEES.map((amount) => (
+                      <button
+                        key={amount}
+                        type="button"
+                        onClick={() => setRechargeAmount(String(amount))}
                         className={`rounded-full px-3 py-1 text-sm font-medium ${
-                          Number(rechargeAmount) === rupees
+                          Number(rechargeAmount) === amount
                             ? "bg-emerald-700 text-white"
                             : "border border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"
                         }`}
                         disabled={recharging}
                       >
-                        ₹{rupees.toLocaleString("en-IN")}
+                        {gateway === "STRIPE" ? "$" : "₹"}
+                        {amount.toLocaleString("en-IN")}
                       </button>
                     ))}
                   </div>
                   <div className="mt-3 flex flex-wrap items-end gap-3">
                     <label className="block">
                       <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-900">
-                        Custom amount (₹)
+                        Custom amount ({gateway === "STRIPE" ? "$" : "₹"})
                       </span>
                       <input
                         type="number"
@@ -619,7 +746,9 @@ export default function WalletsPage() {
                       {recharging ? "Starting…" : "Recharge"}
                     </button>
                     <p className="text-xs text-emerald-800">
-                      Each ₹1 → 100 wallet credits.
+                      {gateway === "STRIPE"
+                        ? "Stripe amounts are sent in USD cents."
+                        : "Each ₹1 → 100 wallet credits."}
                     </p>
                   </div>
                 </section>
