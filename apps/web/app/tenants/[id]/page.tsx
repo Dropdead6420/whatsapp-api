@@ -42,6 +42,18 @@ interface BrandColors {
   accent?: string;
 }
 
+interface CreditLine {
+  id: string;
+  limitCredits: number;
+  status: "ACTIVE" | "SUSPENDED" | "CLOSED";
+  dueDate: string | null;
+  approvedByUserId: string | null;
+  notes: string | null;
+  openedAt: string;
+  closedAt: string | null;
+  suspendedAt: string | null;
+}
+
 function parseColors(raw: string | null): BrandColors {
   if (!raw) return {};
   try {
@@ -69,6 +81,13 @@ export default function TenantDetailPage() {
   >([]);
   const [features, setFeatures] = useState<Record<string, boolean>>({});
   const [featureSaving, setFeatureSaving] = useState(false);
+
+  // Credit-line panel state (Claude FINAL §4 slice 8/11).
+  const [creditLines, setCreditLines] = useState<CreditLine[]>([]);
+  const [newLineLimit, setNewLineLimit] = useState("");
+  const [newLineDueDate, setNewLineDueDate] = useState("");
+  const [newLineNotes, setNewLineNotes] = useState("");
+  const [creditLineBusy, setCreditLineBusy] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -145,10 +164,91 @@ export default function TenantDetailPage() {
     }
   }
 
+  /**
+   * Loads every credit line ever issued to this tenant — the
+   * service-layer partial UNIQUE keeps only one ACTIVE row, but
+   * we want the full history for the audit panel.
+   */
+  async function loadCreditLines() {
+    if (!id) return;
+    try {
+      const lines = await api.get<CreditLine[]>(
+        `/api/v1/admin/credit-lines?tenantId=${id}&limit=50`,
+      );
+      setCreditLines(lines);
+    } catch {
+      setCreditLines([]);
+    }
+  }
+
+  async function openCreditLine() {
+    if (!id) return;
+    const limit = Number(newLineLimit);
+    if (!Number.isInteger(limit) || limit < 1) {
+      setErr("Limit must be a positive integer (credits).");
+      return;
+    }
+    setCreditLineBusy(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      const body: Record<string, unknown> = {
+        tenantId: id,
+        limitCredits: limit,
+      };
+      if (newLineDueDate) {
+        // datetime-local → ISO with timezone; gateway accepts both.
+        body.dueDate = new Date(newLineDueDate).toISOString();
+      }
+      if (newLineNotes.trim()) body.notes = newLineNotes.trim();
+      await api.post("/api/v1/admin/credit-lines", body);
+      setInfo("Credit line opened. Wallet flipped to POSTPAID.");
+      setNewLineLimit("");
+      setNewLineDueDate("");
+      setNewLineNotes("");
+      await loadCreditLines();
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError ? e.message : "Failed to open credit line.",
+      );
+    } finally {
+      setCreditLineBusy(false);
+    }
+  }
+
+  async function transitionCreditLine(
+    lineId: string,
+    kind: "suspend" | "reactivate" | "close",
+  ) {
+    setCreditLineBusy(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      await api.post(`/api/v1/admin/credit-lines/${lineId}/${kind}`, {});
+      setInfo(
+        kind === "close"
+          ? "Credit line closed. Wallet reset to PREPAID."
+          : kind === "suspend"
+            ? "Credit line suspended. Wallet temporarily PREPAID."
+            : "Credit line reactivated. Wallet back to POSTPAID.",
+      );
+      await loadCreditLines();
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError
+          ? e.message
+          : `Failed to ${kind} credit line.`,
+      );
+    } finally {
+      setCreditLineBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (user && id) {
       load();
       loadFeatures();
+      loadCreditLines();
     }
   }, [user, id]);
 
@@ -546,6 +646,198 @@ export default function TenantDetailPage() {
           box-shadow: 0 0 0 1px rgb(16 185 129);
         }
       `}</style>
+
+      <section className="mt-8 rounded-lg border border-purple-200 bg-purple-50/40 p-5">
+        <header className="mb-4">
+          <h2 className="text-sm font-semibold text-purple-900">
+            Postpaid credit line
+          </h2>
+          <p className="mt-0.5 text-xs text-purple-800">
+            Only one ACTIVE line per tenant. Opening flips the wallet to
+            POSTPAID with this limit; closing or suspending resets it.
+          </p>
+        </header>
+
+        {(() => {
+          const active = creditLines.find((l) => l.status === "ACTIVE");
+          if (!active) {
+            return (
+              <div className="rounded-md border border-purple-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-purple-700">
+                  No active credit line
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Open a new line below. The wallet stays PREPAID until you do.
+                </p>
+              </div>
+            );
+          }
+          return (
+            <div className="rounded-md border border-purple-300 bg-white p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-purple-700">
+                    Active
+                  </p>
+                  <p className="mt-1 text-lg font-semibold text-slate-950">
+                    {active.limitCredits.toLocaleString("en-IN")} credits limit
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Opened {new Date(active.openedAt).toLocaleDateString()}
+                    {active.dueDate
+                      ? ` · due ${new Date(active.dueDate).toLocaleDateString()}`
+                      : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void transitionCreditLine(active.id, "suspend")}
+                    disabled={creditLineBusy}
+                    className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    Suspend
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void transitionCreditLine(active.id, "close")}
+                    disabled={creditLineBusy}
+                    className="rounded-md border border-rose-300 bg-white px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+              {active.notes && (
+                <p className="mt-2 text-xs italic text-slate-600">
+                  {active.notes}
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
+        {!creditLines.some((l) => l.status === "ACTIVE") && (
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="block">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-purple-900">
+                Limit (credits)
+              </span>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={newLineLimit}
+                onChange={(e) => setNewLineLimit(e.target.value)}
+                className="mt-1 w-full rounded-md border border-purple-200 bg-white px-3 py-2 text-sm"
+                placeholder="100000"
+                disabled={creditLineBusy}
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-purple-900">
+                Due date (optional)
+              </span>
+              <input
+                type="datetime-local"
+                value={newLineDueDate}
+                onChange={(e) => setNewLineDueDate(e.target.value)}
+                className="mt-1 w-full rounded-md border border-purple-200 bg-white px-3 py-2 text-sm"
+                disabled={creditLineBusy}
+              />
+            </label>
+            <label className="block md:col-span-2">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-purple-900">
+                Notes (audit trail — e.g. "Enterprise contract #1234")
+              </span>
+              <textarea
+                value={newLineNotes}
+                onChange={(e) => setNewLineNotes(e.target.value)}
+                rows={2}
+                maxLength={1024}
+                className="mt-1 w-full rounded-md border border-purple-200 bg-white px-3 py-2 text-sm"
+                disabled={creditLineBusy}
+              />
+            </label>
+            <div className="md:col-span-2">
+              <button
+                type="button"
+                onClick={() => void openCreditLine()}
+                disabled={creditLineBusy || !newLineLimit}
+                className="rounded-md bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-600 disabled:opacity-50"
+              >
+                {creditLineBusy ? "Working…" : "Open credit line"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {creditLines.filter((l) => l.status !== "ACTIVE").length > 0 && (
+          <div className="mt-5">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              History
+            </h3>
+            <ul className="mt-2 divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+              {creditLines
+                .filter((l) => l.status !== "ACTIVE")
+                .map((line) => (
+                  <li
+                    key={line.id}
+                    className="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2 text-xs"
+                  >
+                    <div>
+                      <span
+                        className={`mr-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                          line.status === "SUSPENDED"
+                            ? "bg-amber-50 text-amber-800"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {line.status}
+                      </span>
+                      <span className="font-medium text-slate-900">
+                        {line.limitCredits.toLocaleString("en-IN")} credits
+                      </span>
+                      <span className="ml-2 text-slate-500">
+                        opened{" "}
+                        {new Date(line.openedAt).toLocaleDateString()}
+                        {line.closedAt
+                          ? ` · closed ${new Date(line.closedAt).toLocaleDateString()}`
+                          : line.suspendedAt
+                            ? ` · suspended ${new Date(line.suspendedAt).toLocaleDateString()}`
+                            : ""}
+                      </span>
+                    </div>
+                    {line.status === "SUSPENDED" && (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void transitionCreditLine(line.id, "reactivate")
+                          }
+                          disabled={creditLineBusy}
+                          className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Reactivate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void transitionCreditLine(line.id, "close")
+                          }
+                          disabled={creditLineBusy}
+                          className="rounded-md border border-rose-300 bg-white px-2 py-0.5 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
+      </section>
     </DashboardShell>
   );
 }
