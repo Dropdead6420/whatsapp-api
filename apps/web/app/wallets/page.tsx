@@ -64,6 +64,21 @@ interface TransactionResponse {
   items: WalletTransaction[];
 }
 
+interface Invoice {
+  id: string;
+  invoiceNumber: string;
+  amountInPaisa: number;
+  subtotalInPaisa: number;
+  taxInPaisa: number;
+  currency: string;
+  status: string;
+  pdfUrl: string | null;
+  paymentOrderId: string | null;
+  rechargeRequestId: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
 function formatCredits(value: number) {
   return new Intl.NumberFormat("en-IN").format(value);
 }
@@ -147,6 +162,11 @@ export default function WalletsPage() {
   const [manualNote, setManualNote] = useState("");
   const [filingManual, setFilingManual] = useState(false);
 
+  // Customer invoices (Claude FINAL §4 slice 9). Auto-issued on
+  // every successful recharge — PDF URL is null until the PDF
+  // generation worker fills it in.
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+
   const canManage = user?.role === "SUPER_ADMIN" || user?.role === "WHITE_LABEL_ADMIN";
   const canSelfRecharge = user?.role === "BUSINESS_ADMIN";
   const selected = useMemo(
@@ -181,6 +201,25 @@ export default function WalletsPage() {
     }
   }
 
+  /**
+   * Loads the customer's auto-issued invoices. Uses the customer
+   * endpoint (server enforces tenant scope) so this works even for
+   * BUSINESS_ADMIN users who can't hit the SuperAdmin /api/v1/wallets
+   * paths. Silently swallows errors — the rest of the page is more
+   * important than this list, and the UI degrades to an empty
+   * "No invoices yet" gracefully.
+   */
+  async function loadInvoices() {
+    try {
+      const data = await api.get<Invoice[]>(
+        `/api/v1/customer/wallets/invoices`,
+      );
+      setInvoices(data);
+    } catch {
+      setInvoices([]);
+    }
+  }
+
   function syncSettings(wallet: Wallet) {
     setBillingMode(wallet.billingMode);
     setStatus(wallet.status);
@@ -204,6 +243,7 @@ export default function WalletsPage() {
     setSelectedTenantId(selected.tenant.id);
     syncSettings(selected.wallet);
     void loadTransactions(selected.tenant.id);
+    void loadInvoices();
   }, [selected?.tenant.id]);
 
   async function adjust(event: FormEvent<HTMLFormElement>) {
@@ -389,6 +429,7 @@ export default function WalletsPage() {
           window.setTimeout(() => {
             void loadWallets();
             if (selected) void loadTransactions(selected.tenant.id);
+            void loadInvoices();
           }, 4000);
         },
         modal: {
@@ -906,6 +947,99 @@ export default function WalletsPage() {
                       <tr>
                         <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                           No transactions yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </section>
+
+              <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-slate-950">
+                      Invoices
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      Auto-issued for every successful recharge. Download the
+                      PDF once it's generated.
+                    </p>
+                  </div>
+                </header>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Number</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Amount</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">PDF</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {invoices.map((inv) => {
+                      const major = inv.amountInPaisa / 100;
+                      const amountLabel = (() => {
+                        try {
+                          return new Intl.NumberFormat("en-IN", {
+                            style: "currency",
+                            currency: inv.currency,
+                            maximumFractionDigits: 0,
+                          }).format(major);
+                        } catch {
+                          return `${inv.currency} ${major.toLocaleString("en-IN")}`;
+                        }
+                      })();
+                      return (
+                        <tr key={inv.id}>
+                          <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                            {inv.invoiceNumber}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-500">
+                            {new Date(
+                              inv.paidAt ?? inv.createdAt,
+                            ).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {amountLabel}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                                inv.status === "paid"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : inv.status === "failed"
+                                    ? "bg-rose-50 text-rose-700"
+                                    : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {inv.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            {inv.pdfUrl ? (
+                              <a
+                                href={inv.pdfUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sky-700 underline hover:text-sky-900"
+                              >
+                                Download
+                              </a>
+                            ) : (
+                              <span className="italic text-slate-400">
+                                Generating…
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {invoices.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                          No invoices yet. They'll appear after your first
+                          recharge.
                         </td>
                       </tr>
                     )}
