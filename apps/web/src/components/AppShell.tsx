@@ -91,6 +91,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         activeRoutes: ["/inbox", "/agent/inbox"],
       },
       {
+        href: "/follow-ups",
+        label: "Follow-ups",
+        icon: ClipboardList,
+        roles: INBOX_ROLES,
+      },
+      {
         href: "/dashboard/contacts",
         label: "Contacts",
         icon: Users,
