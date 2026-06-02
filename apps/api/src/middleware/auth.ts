@@ -12,6 +12,16 @@ export interface RequestWithAuth extends Request {
   tenantId?: string;
   userId?: string;
   userRole?: UserRole;
+  /**
+   * When the request is being made under an impersonation session,
+   * `actorUserId` is the real SUPER_ADMIN behind the keyboard. `userId`
+   * + `userRole` + `tenantId` still reflect the *target* so existing
+   * tenant-scoped queries work unchanged.
+   */
+  actorUserId?: string;
+  actorRole?: UserRole;
+  /** True when this request is impersonating (i.e. actorUserId is set). */
+  impersonating?: boolean;
 }
 
 function extractToken(req: Request): string | null {
@@ -36,6 +46,11 @@ export const authMiddleware = (
     req.userId = payload.userId;
     req.userRole = payload.role;
     if (payload.tenantId) req.tenantId = payload.tenantId;
+    if (payload.actorUserId) {
+      req.actorUserId = payload.actorUserId;
+      req.actorRole = payload.actorRole;
+      req.impersonating = true;
+    }
   } catch {
     // Optional auth — silently skip on invalid token. requireAuth will enforce.
   }
@@ -113,6 +128,11 @@ export const requireAuth = async (
       req.userId = payload.userId;
       req.userRole = payload.role;
       if (payload.tenantId) req.tenantId = payload.tenantId;
+      if (payload.actorUserId) {
+        req.actorUserId = payload.actorUserId;
+        req.actorRole = payload.actorRole;
+        req.impersonating = true;
+      }
       tokenIat = payload.iat;
       userId = payload.userId;
     }

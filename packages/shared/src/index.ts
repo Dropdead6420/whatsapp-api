@@ -499,6 +499,7 @@ export const ErrorCodes = {
   COMPLIANCE_BLOCKED: "COMPLIANCE_BLOCKED",
   EMAIL_NOT_VERIFIED: "EMAIL_NOT_VERIFIED",
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
+  IMPERSONATION_BLOCKED: "IMPERSONATION_BLOCKED",
 } as const;
 
 // ============================================================================

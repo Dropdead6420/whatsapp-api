@@ -7,6 +7,16 @@ export interface TokenPayload {
   userId: string;
   role: UserRole;
   tenantId?: string;
+  /**
+   * Impersonation claims (set only when a SUPER_ADMIN started an
+   * impersonation session). The token presents as the *target* (userId
+   * + role + tenantId), so existing tenant-scoped queries Just Work —
+   * but the real actor is preserved here so the audit trail can stamp
+   * who's behind the keyboard and the dangerous-action gate can refuse
+   * irreversible mutations.
+   */
+  actorUserId?: string;
+  actorRole?: UserRole;
   iat?: number;
   exp?: number;
 }
@@ -55,6 +65,33 @@ export class AuthService {
       userId,
       role,
       ...(tenantId && { tenantId }),
+    };
+    const options: SignOptions = {
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+      algorithm: "HS256",
+    };
+    return jwt.sign(payload, this.jwtSecret, options);
+  }
+
+  /**
+   * Mint a short-lived (15-minute) impersonation token. The token's
+   * subject is the *target* user — so all tenant-scoped routes apply
+   * exactly as if the target had logged in — but it carries actorUserId
+   * + actorRole so audit + dangerous-action gating know who's behind it.
+   */
+  generateImpersonationToken(args: {
+    actorUserId: string;
+    actorRole: UserRole;
+    targetUserId: string;
+    targetRole: UserRole;
+    targetTenantId?: string;
+  }): string {
+    const payload: TokenPayload = {
+      userId: args.targetUserId,
+      role: args.targetRole,
+      actorUserId: args.actorUserId,
+      actorRole: args.actorRole,
+      ...(args.targetTenantId && { tenantId: args.targetTenantId }),
     };
     const options: SignOptions = {
       expiresIn: ACCESS_TOKEN_TTL_SECONDS,
