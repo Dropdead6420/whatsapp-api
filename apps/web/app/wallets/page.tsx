@@ -68,6 +68,33 @@ function formatCredits(value: number) {
   return new Intl.NumberFormat("en-IN").format(value);
 }
 
+const RAZORPAY_CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
+
+// Single-flight loader: subsequent calls return the same promise so
+// concurrent recharge clicks don't append duplicate <script> tags.
+let razorpayCheckoutPromise: Promise<void> | null = null;
+function loadRazorpayCheckout(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if ((window as unknown as { Razorpay?: unknown }).Razorpay) {
+    return Promise.resolve();
+  }
+  if (razorpayCheckoutPromise) return razorpayCheckoutPromise;
+  razorpayCheckoutPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = RAZORPAY_CHECKOUT_SRC;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      razorpayCheckoutPromise = null;
+      reject(new Error("Failed to load Razorpay Checkout"));
+    };
+    document.head.appendChild(script);
+  });
+  return razorpayCheckoutPromise;
+}
+
+const PRESET_RECHARGE_RUPEES = [500, 1000, 2000, 5000];
+
 function statusClass(status: string) {
   return status === "ACTIVE"
     ? "bg-emerald-50 text-emerald-700"
@@ -107,6 +134,11 @@ export default function WalletsPage() {
   const [toTenantId, setToTenantId] = useState("");
   const [transferAmount, setTransferAmount] = useState("500");
   const [transferReason, setTransferReason] = useState("Credit transfer");
+
+  // Customer self-recharge (Claude FINAL §4). Amount is held in INR
+  // (display units) and converted to paise before POSTing.
+  const [rechargeAmount, setRechargeAmount] = useState("500");
+  const [recharging, setRecharging] = useState(false);
 
   const canManage = user?.role === "SUPER_ADMIN" || user?.role === "WHITE_LABEL_ADMIN";
   const selected = useMemo(
@@ -272,6 +304,101 @@ export default function WalletsPage() {
     return <div className="p-10 text-sm text-slate-500">Loading...</div>;
   }
 
+  /**
+   * Customer self-recharge. Always targets the *current user's*
+   * tenant — the server pins tenantId via JWT, so the selected row
+   * in the sidebar is irrelevant for the request itself.
+   *
+   * Razorpay Checkout.js is loaded on demand the first time a user
+   * clicks Recharge so we don't bloat every page load with their
+   * script tag.
+   */
+  async function recharge(rupees: number) {
+    setErr(null);
+    setNotice(null);
+    if (!Number.isFinite(rupees) || rupees < 1) {
+      setErr("Pick a valid amount (minimum ₹1).");
+      return;
+    }
+    setRecharging(true);
+    try {
+      const amountPaise = Math.round(rupees * 100);
+      const idempotencyKey = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const result = await api.post<{
+        orderId: string;
+        status: string;
+        replayed: boolean;
+        init: {
+          gatewayOrderId: string;
+          keyId: string | null;
+          amount: number;
+          currency: string;
+          stubMode: boolean;
+        };
+      }>("/api/v1/customer/wallets/recharge", {
+        amount: amountPaise,
+        currency: "INR",
+        idempotencyKey,
+        gateway: "RAZORPAY",
+      });
+
+      if (result.init.stubMode || !result.init.keyId) {
+        // Dev / test env — no real Razorpay keys configured. The
+        // PaymentOrder is created but no checkout happens; an
+        // operator would simulate a payment.captured webhook by hand.
+        setNotice(
+          `Stub-mode recharge created (order ${result.init.gatewayOrderId}). Configure RAZORPAY_KEY_ID + RAZORPAY_WEBHOOK_SECRET to enable real payments.`,
+        );
+        return;
+      }
+
+      // Load Razorpay Checkout.js on demand. Resolves immediately if
+      // already loaded.
+      await loadRazorpayCheckout();
+      const win = window as unknown as {
+        Razorpay?: new (opts: Record<string, unknown>) => {
+          open(): void;
+        };
+      };
+      if (!win.Razorpay) {
+        setErr("Could not load Razorpay Checkout. Refresh and try again.");
+        return;
+      }
+      const checkout = new win.Razorpay({
+        key: result.init.keyId,
+        order_id: result.init.gatewayOrderId,
+        amount: result.init.amount,
+        currency: result.init.currency,
+        name: "Wallet recharge",
+        description: `${rupees} ${result.init.currency} credit`,
+        handler: () => {
+          setNotice(
+            "Payment captured. Wallet will update once the webhook is processed (usually a few seconds).",
+          );
+          // The webhook is the source of truth; we just refetch a
+          // few seconds later so the balance reflects the credit
+          // without forcing a page reload.
+          window.setTimeout(() => {
+            void loadWallets();
+            if (selected) void loadTransactions(selected.tenant.id);
+          }, 4000);
+        },
+        modal: {
+          ondismiss: () => {
+            setNotice("Checkout dismissed. No payment was captured.");
+          },
+        },
+      });
+      checkout.open();
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError ? e.message : "Recharge could not be initiated.",
+      );
+    } finally {
+      setRecharging(false);
+    }
+  }
+
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
       <header className="mb-6">
@@ -343,6 +470,62 @@ export default function WalletsPage() {
                 <StatCard label="Reserved" value={formatCredits(selected.wallet.reservedCredits)} />
                 <StatCard label="Credit line" value={formatCredits(selected.wallet.creditLimit)} />
                 <StatCard label="Low balance" value={formatCredits(selected.wallet.lowBalanceThreshold)} />
+              </section>
+
+              <section className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-5">
+                <div className="mb-3 flex items-baseline justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-emerald-900">Add balance</h2>
+                    <p className="mt-0.5 text-xs text-emerald-800">
+                      Recharge via Razorpay. Funds credit to your wallet once
+                      the payment is captured.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {PRESET_RECHARGE_RUPEES.map((rupees) => (
+                    <button
+                      key={rupees}
+                      type="button"
+                      onClick={() => setRechargeAmount(String(rupees))}
+                      className={`rounded-full px-3 py-1 text-sm font-medium ${
+                        Number(rechargeAmount) === rupees
+                          ? "bg-emerald-700 text-white"
+                          : "border border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"
+                      }`}
+                      disabled={recharging}
+                    >
+                      ₹{rupees.toLocaleString("en-IN")}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <label className="block">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-900">
+                      Custom amount (₹)
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={rechargeAmount}
+                      onChange={(e) => setRechargeAmount(e.target.value)}
+                      className="mt-1 w-40 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm"
+                      disabled={recharging}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void recharge(Number(rechargeAmount))}
+                    disabled={recharging || !rechargeAmount}
+                    className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50"
+                  >
+                    {recharging ? "Starting…" : "Recharge"}
+                  </button>
+                  <p className="text-xs text-emerald-800">
+                    Each ₹1 → 100 wallet credits.
+                  </p>
+                </div>
               </section>
 
               {canManage && (
