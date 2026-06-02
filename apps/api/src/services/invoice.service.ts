@@ -12,6 +12,8 @@
 // matches typical SaaS conventions.
 // ============================================================================
 
+import fs from "node:fs/promises";
+import path from "node:path";
 import {
   prisma,
   type Invoice,
@@ -19,6 +21,11 @@ import {
   type RechargeRequest,
 } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import {
+  invoicePdfPath,
+  invoicePdfPublicUrl,
+} from "../lib/invoiceStorage";
+import { renderInvoicePdf } from "./invoicePdfRenderer.service";
 
 // ---- Pure helpers (unit-tested) -------------------------------------------
 
@@ -182,7 +189,7 @@ export async function createInvoiceForPaymentOrder(
   });
   if (existing) return existing;
 
-  return createInvoiceWithRetry({
+  const created = await createInvoiceWithRetry({
     tenantId: order.tenantId,
     amountInPaisa: order.amount,
     currency: order.currency,
@@ -190,6 +197,18 @@ export async function createInvoiceForPaymentOrder(
     status: "paid",
     paidAt: order.paidAt ?? new Date(),
   });
+
+  // Fire-and-forget PDF generation. Wrapped in catch so a renderer
+  // hiccup never bubbles back to the wallet credit path; the
+  // customer's download route will regenerate on demand if the
+  // pdfUrl never got stamped here.
+  generateAndStoreInvoicePdf(created).catch((err) => {
+    console.warn(
+      `[invoice] PDF generation failed for ${created.id}:`,
+      (err as Error).message,
+    );
+  });
+  return created;
 }
 
 /**
@@ -206,7 +225,7 @@ export async function createInvoiceForRechargeRequest(
   });
   if (existing) return existing;
 
-  return createInvoiceWithRetry({
+  const created = await createInvoiceWithRetry({
     tenantId: request.tenantId,
     amountInPaisa: request.amount,
     currency: request.currency,
@@ -214,6 +233,64 @@ export async function createInvoiceForRechargeRequest(
     status: "paid",
     paidAt: request.approvedAt ?? new Date(),
   });
+
+  generateAndStoreInvoicePdf(created).catch((err) => {
+    console.warn(
+      `[invoice] PDF generation failed for ${created.id}:`,
+      (err as Error).message,
+    );
+  });
+  return created;
+}
+
+/**
+ * Render the invoice PDF + write to disk + stamp pdfUrl on the row.
+ * Fire-and-forget from the caller — failures here must not propagate
+ * back to the wallet credit path.
+ */
+export async function generateAndStoreInvoicePdf(
+  invoice: Invoice,
+  args: { tenantName?: string | null } = {},
+): Promise<Invoice> {
+  const filePath = invoicePdfPath({
+    tenantId: invoice.tenantId,
+    invoiceId: invoice.id,
+  });
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+  const buffer = await renderInvoicePdf({
+    invoice,
+    tenantName: args.tenantName ?? null,
+  });
+  await fs.writeFile(filePath, buffer);
+
+  return prisma.invoice.update({
+    where: { id: invoice.id },
+    data: { pdfUrl: invoicePdfPublicUrl(invoice.id) },
+  });
+}
+
+/**
+ * Re-renders an existing invoice on demand — used when the customer
+ * hits the download route and pdfUrl was never stamped (PDF
+ * generation failed during the original credit path). Caller has
+ * already verified tenant scope.
+ */
+export async function loadInvoicePdfBytes(invoice: Invoice): Promise<Buffer> {
+  const filePath = invoicePdfPath({
+    tenantId: invoice.tenantId,
+    invoiceId: invoice.id,
+  });
+  try {
+    return await fs.readFile(filePath);
+  } catch {
+    // File doesn't exist yet — generate on demand. Write-through so
+    // the next request is fast.
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    const buffer = await renderInvoicePdf({ invoice });
+    await fs.writeFile(filePath, buffer);
+    return buffer;
+  }
 }
 
 export async function listInvoicesForTenant(args: {

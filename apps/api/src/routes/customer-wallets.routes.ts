@@ -26,7 +26,11 @@ import {
   createRechargeRequest,
   listRechargeRequests,
 } from "../services/rechargeRequest.service";
-import { listInvoicesForTenant } from "../services/invoice.service";
+import {
+  listInvoicesForTenant,
+  loadInvoicePdfBytes,
+} from "../services/invoice.service";
+import { prisma } from "@nexaflow/db";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 
 const router = Router();
@@ -178,6 +182,43 @@ router.get(
         tenantId: req.tenantId!,
       });
       res.json({ success: true, data: items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * GET /api/v1/customer/wallets/invoices/:id/pdf
+ *
+ * Streams the invoice PDF as application/pdf. Tenant scope is
+ * enforced server-side: the prisma lookup filters by tenantId so a
+ * customer can never download another tenant's invoice even by
+ * guessing the id.
+ *
+ * The route regenerates the PDF on demand if the file isn't on disk
+ * (e.g. fresh container, ephemeral storage). Production should mount
+ * a volume at INVOICE_STORAGE_DIR or front the renderer with an R2
+ * adapter.
+ */
+router.get(
+  "/invoices/:id/pdf",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const invoice = await prisma.invoice.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId! },
+      });
+      if (!invoice) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Invoice not found.");
+      }
+      const bytes = await loadInvoicePdfBytes(invoice);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${invoice.invoiceNumber}.pdf"`,
+      );
+      res.send(bytes);
     } catch (err) {
       next(err);
     }
