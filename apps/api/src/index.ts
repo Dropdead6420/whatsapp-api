@@ -37,6 +37,7 @@ import walletsRoutes from "./routes/wallets.routes";
 import apiKeysRoutes from "./routes/api-keys.routes";
 import publicApiRoutes from "./routes/public-api.routes";
 import pricingRoutes from "./routes/pricing.routes";
+import billingRoutes from "./routes/billing.routes";
 import providerRoutesRoutes from "./routes/provider-routes.routes";
 import demoRoutes from "./routes/demo.routes";
 import proposalRoutes from "./routes/proposal.routes";
@@ -263,6 +264,7 @@ app.get(["/ready", "/api/v1/ready"], async (_req: Request, res: Response) => {
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/pricing", pricingRoutes);
+app.use("/api/v1/billing", billingRoutes);
 app.use("/api/v1/tenants", tenantsRoutes);
 app.use("/api/v1/contacts", contactsRoutes);
 app.use("/api/v1/leads", leadsRoutes);

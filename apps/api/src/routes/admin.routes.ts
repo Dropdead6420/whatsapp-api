@@ -709,7 +709,7 @@ router.post(
 // GET /api/v1/admin/billing
 router.get("/billing", async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
-    const [plans, subscriptions] = await prisma.$transaction([
+    const [plans, subscriptions, planRequests] = await prisma.$transaction([
       prisma.plan.findMany({
         orderBy: [{ priceInPaisa: "asc" }, { name: "asc" }],
         include: { _count: { select: { subscriptions: true } } },
@@ -720,6 +720,15 @@ router.get("/billing", async (_req: RequestWithAuth, res: Response, next: NextFu
         include: {
           plan: true,
           tenant: { select: { id: true, name: true, type: true, status: true } },
+        },
+      }),
+      prisma.auditLog.findMany({
+        where: { action: "BILLING_PLAN_REQUEST" },
+        take: 20,
+        orderBy: { createdAt: "desc" },
+        include: {
+          tenant: { select: { id: true, name: true, status: true } },
+          user: { select: { id: true, name: true, email: true } },
         },
       }),
     ]);
@@ -741,6 +750,15 @@ router.get("/billing", async (_req: RequestWithAuth, res: Response, next: NextFu
           activeMrrInPaisa,
           planCount: plans.length,
         },
+        planRequests: planRequests.map((request) => ({
+          id: request.id,
+          tenant: request.tenant,
+          user: request.user,
+          resourceId: request.resourceId,
+          currentPlan: request.oldValues ? JSON.parse(request.oldValues) : null,
+          requestedPlan: request.newValues ? JSON.parse(request.newValues) : null,
+          createdAt: request.createdAt,
+        })),
       },
     });
   } catch (err) {

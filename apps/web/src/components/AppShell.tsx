@@ -160,6 +160,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         activeRoutes: ["/wallets"],
       },
       {
+        href: "/dashboard/billing",
+        label: "Plan / Billing",
+        icon: CreditCard,
+        roles: ["WHITE_LABEL_ADMIN", "BUSINESS_ADMIN"],
+      },
+      {
         href: "/dashboard/analytics",
         label: "Analytics",
         icon: BarChart3,

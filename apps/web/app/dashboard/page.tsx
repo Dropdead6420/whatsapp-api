@@ -5,6 +5,7 @@ import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api } from "../../src/lib/api";
 import {
+  billingIntentHref,
   readBillingIntentFromWindow,
   type BillingIntent,
 } from "../../src/lib/billingIntent";
@@ -113,8 +114,14 @@ export default function DashboardPage() {
               : "Plan selection saved"}
           </div>
           <div className="mt-1 text-emerald-800/80">
-            Finish WhatsApp setup and contact the platform admin to activate the
-            matching subscription for this tenant.
+            Review the plan details and send the activation request from{" "}
+            <a
+              href={billingIntentHref("/dashboard/billing", billingIntent)}
+              className="font-semibold underline"
+            >
+              Plan & Billing
+            </a>
+            .
           </div>
         </div>
       )}

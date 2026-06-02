@@ -49,6 +49,20 @@ interface Subscription {
   tenant: { id: string; name: string; type: string; status: string };
 }
 
+interface PlanRequest {
+  id: string;
+  tenant: { id: string; name: string; status: string };
+  user: { id: string; name: string; email: string };
+  currentPlan: { displayName?: string; planName?: string } | null;
+  requestedPlan: {
+    requestedDisplayName?: string;
+    requestedPlanName?: string;
+    priceInPaisa?: number;
+    billingCycle?: string;
+  } | null;
+  createdAt: string;
+}
+
 interface Tenant {
   id: string;
   name: string;
@@ -64,6 +78,7 @@ interface BillingResponse {
     activeMrrInPaisa: number;
     planCount: number;
   };
+  planRequests: PlanRequest[];
 }
 
 function formatCurrencyFromPaisa(value: number) {
@@ -287,6 +302,58 @@ export default function BillingPage() {
             {billing?.metrics.planCount ?? "-"}
           </div>
         </div>
+      </section>
+
+      <section className="mb-6 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">
+          Recent Plan Requests
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Tenant</th>
+              <th className="px-4 py-3">Requested Plan</th>
+              <th className="px-4 py-3">Current Plan</th>
+              <th className="px-4 py-3">Requested By</th>
+              <th className="px-4 py-3">Date</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {billing?.planRequests.map((request) => (
+              <tr key={request.id}>
+                <td className="px-4 py-3 font-medium">{request.tenant.name}</td>
+                <td className="px-4 py-3">
+                  <div className="font-medium">
+                    {request.requestedPlan?.requestedDisplayName ?? "-"}
+                  </div>
+                  {typeof request.requestedPlan?.priceInPaisa === "number" && (
+                    <div className="text-xs text-slate-500">
+                      {formatCurrencyFromPaisa(request.requestedPlan.priceInPaisa)}
+                      /{request.requestedPlan.billingCycle ?? "monthly"}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  {request.currentPlan?.displayName ?? request.currentPlan?.planName ?? "None"}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  <div>{request.user.name}</div>
+                  <div className="text-xs text-slate-500">{request.user.email}</div>
+                </td>
+                <td className="px-4 py-3 text-slate-500">
+                  {new Date(request.createdAt).toLocaleString()}
+                </td>
+              </tr>
+            ))}
+            {billing?.planRequests.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                  No plan requests yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </section>
 
       <section className="mb-6 grid gap-6 lg:grid-cols-[1fr_360px]">

@@ -62,5 +62,8 @@ export function billingDestinationForRole(
   if (role === "SUPER_ADMIN") {
     return billingIntentHref("/billing", intent);
   }
+  if (role === "BUSINESS_ADMIN" || role === "WHITE_LABEL_ADMIN") {
+    return billingIntentHref("/dashboard/billing", intent);
+  }
   return billingIntentHref(fallback, intent);
 }
