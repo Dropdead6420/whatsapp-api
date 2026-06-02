@@ -256,6 +256,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: Bell,
         roles: ["SUPER_ADMIN"],
       },
+      {
+        href: "/recharge-requests",
+        label: "Recharge requests",
+        icon: WalletCards,
+        roles: ["SUPER_ADMIN"],
+      },
     ],
   },
   {

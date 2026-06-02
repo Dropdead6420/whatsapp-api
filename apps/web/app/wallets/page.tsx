@@ -140,6 +140,13 @@ export default function WalletsPage() {
   const [rechargeAmount, setRechargeAmount] = useState("500");
   const [recharging, setRecharging] = useState(false);
 
+  // Manual bank transfer request (Claude FINAL §4 slice 6).
+  const [manualAmount, setManualAmount] = useState("");
+  const [manualProofUrl, setManualProofUrl] = useState("");
+  const [manualReference, setManualReference] = useState("");
+  const [manualNote, setManualNote] = useState("");
+  const [filingManual, setFilingManual] = useState(false);
+
   const canManage = user?.role === "SUPER_ADMIN" || user?.role === "WHITE_LABEL_ADMIN";
   const canSelfRecharge = user?.role === "BUSINESS_ADMIN";
   const selected = useMemo(
@@ -400,6 +407,52 @@ export default function WalletsPage() {
     }
   }
 
+  /**
+   * File a manual bank-transfer recharge request. Customer pastes
+   * the proof URL + UTR; SuperAdmin reviews + approves to credit the
+   * wallet. The request is rate-limited by good sense — there's no
+   * server-side rate cap because each request requires admin action
+   * anyway.
+   */
+  async function fileManualRecharge() {
+    setErr(null);
+    setNotice(null);
+    const rupees = Number(manualAmount);
+    if (!Number.isFinite(rupees) || rupees < 1) {
+      setErr("Pick a valid amount (minimum ₹1).");
+      return;
+    }
+    setFilingManual(true);
+    try {
+      const body: Record<string, unknown> = {
+        amount: Math.round(rupees * 100),
+        currency: "INR",
+      };
+      const proof = manualProofUrl.trim();
+      if (proof) body.proofUrl = proof;
+      const ref = manualReference.trim();
+      if (ref) body.reference = ref;
+      const note = manualNote.trim();
+      if (note) body.customerNote = note;
+      await api.post("/api/v1/customer/wallets/recharge-requests", body);
+      setNotice(
+        "Bank transfer recorded. A SuperAdmin will review your proof and credit the wallet within 24 hours.",
+      );
+      setManualAmount("");
+      setManualProofUrl("");
+      setManualReference("");
+      setManualNote("");
+    } catch (e) {
+      setErr(
+        e instanceof ApiClientError
+          ? e.message
+          : "Could not file the recharge request.",
+      );
+    } finally {
+      setFilingManual(false);
+    }
+  }
+
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
       <header className="mb-6">
@@ -526,6 +579,93 @@ export default function WalletsPage() {
                     </button>
                     <p className="text-xs text-emerald-800">
                       Each ₹1 → 100 wallet credits.
+                    </p>
+                  </div>
+                </section>
+              )}
+
+              {canSelfRecharge && (
+                <section className="rounded-lg border border-sky-200 bg-sky-50/40 p-5">
+                  <div className="mb-3">
+                    <h2 className="text-sm font-semibold text-sky-900">
+                      File a manual bank transfer
+                    </h2>
+                    <p className="mt-0.5 text-xs text-sky-800">
+                      Already paid by NEFT/IMPS/UPI? Paste your proof and the
+                      transaction reference — a SuperAdmin will credit your
+                      wallet after reviewing (typically within 24 hours).
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="block">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-sky-900">
+                        Amount (₹)
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={manualAmount}
+                        onChange={(e) => setManualAmount(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-sky-200 bg-white px-3 py-2 text-sm"
+                        disabled={filingManual}
+                        placeholder="1000"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-sky-900">
+                        Reference (UTR / txn id)
+                      </span>
+                      <input
+                        type="text"
+                        value={manualReference}
+                        onChange={(e) => setManualReference(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-sky-200 bg-white px-3 py-2 text-sm"
+                        disabled={filingManual}
+                        placeholder="UTR1234567890"
+                        maxLength={80}
+                      />
+                    </label>
+                    <label className="block md:col-span-2">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-sky-900">
+                        Proof URL (link to receipt / screenshot)
+                      </span>
+                      <input
+                        type="url"
+                        value={manualProofUrl}
+                        onChange={(e) => setManualProofUrl(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-sky-200 bg-white px-3 py-2 text-sm"
+                        disabled={filingManual}
+                        placeholder="https://files.example.com/receipt.pdf"
+                        maxLength={1024}
+                      />
+                    </label>
+                    <label className="block md:col-span-2">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-sky-900">
+                        Note (optional — bank, payer name, etc.)
+                      </span>
+                      <textarea
+                        value={manualNote}
+                        onChange={(e) => setManualNote(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-sky-200 bg-white px-3 py-2 text-sm"
+                        rows={2}
+                        maxLength={1024}
+                        disabled={filingManual}
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void fileManualRecharge()}
+                      disabled={filingManual || !manualAmount}
+                      className="rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
+                    >
+                      {filingManual ? "Filing…" : "File request"}
+                    </button>
+                    <p className="text-xs text-sky-800">
+                      You can also check the status of past requests with your
+                      account manager.
                     </p>
                   </div>
                 </section>
