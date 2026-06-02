@@ -7,6 +7,7 @@ import {
   setAuthContext,
   type CachedAuthContext,
 } from "../lib/redis";
+import { assertNotDangerousAction } from "../services/impersonation.service";
 
 export interface RequestWithAuth extends Request {
   tenantId?: string;
@@ -189,4 +190,21 @@ export const requireTenantScope = (
     );
   }
   next();
+};
+
+export const blockDangerousImpersonationActions = (
+  req: RequestWithAuth,
+  _res: Response,
+  next: NextFunction,
+): void => {
+  try {
+    assertNotDangerousAction({
+      impersonating: req.impersonating,
+      method: req.method,
+      path: req.path,
+    });
+    next();
+  } catch (err) {
+    next(err);
+  }
 };

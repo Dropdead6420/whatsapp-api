@@ -13,7 +13,10 @@ import {
 } from "./lib/observability";
 import { errorHandler } from "./middleware/errorHandler";
 import { redisRateLimit } from "./middleware/redisRateLimit";
-import { authMiddleware } from "./middleware/auth";
+import {
+  authMiddleware,
+  blockDangerousImpersonationActions,
+} from "./middleware/auth";
 import authRoutes from "./routes/auth.routes";
 import tenantsRoutes from "./routes/tenants.routes";
 import contactsRoutes from "./routes/contacts.routes";
@@ -24,6 +27,7 @@ import conversationsRoutes from "./routes/conversations.routes";
 import aiRoutes from "./routes/ai.routes";
 import analyticsRoutes from "./routes/analytics.routes";
 import adminRoutes from "./routes/admin.routes";
+import impersonationRoutes from "./routes/impersonation.routes";
 import whatsappRoutes, { webhookRouter } from "./routes/whatsapp.routes";
 import cannedRepliesRoutes from "./routes/canned-replies.routes";
 import servicesRoutes from "./routes/services.routes";
@@ -230,6 +234,7 @@ const apiLimiter = redisRateLimit({
 app.use("/api/", apiLimiter);
 
 app.use(authMiddleware);
+app.use(blockDangerousImpersonationActions);
 
 app.get("/live", (_req: Request, res: Response) => {
   res.json({ status: "alive", timestamp: new Date().toISOString() });
@@ -275,6 +280,7 @@ app.use("/api/v1/conversations", conversationsRoutes);
 app.use("/api/v1/whatsapp", whatsappRoutes);
 app.use("/api/v1/ai", aiRoutes);
 app.use("/api/v1/analytics", analyticsRoutes);
+app.use("/api/v1/admin/impersonate", impersonationRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/canned-replies", cannedRepliesRoutes);
 app.use("/api/v1/services", servicesRoutes);

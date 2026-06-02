@@ -47,8 +47,10 @@ export const DANGEROUS_ACTION_PATTERNS: ReadonlyArray<string> = [
   // Plan / billing changes.
   "POST /api/v1/billing",
   "PATCH /api/v1/billing",
-  // Anything that would extend an impersonation session indefinitely.
-  "POST /api/v1/admin/impersonate",
+  // Block stacking another impersonation on top of an existing one.
+  // /exit is intentionally NOT here — an impersonator must always be
+  // able to leave a session.
+  "POST /api/v1/admin/impersonate/start",
 ];
 
 /**

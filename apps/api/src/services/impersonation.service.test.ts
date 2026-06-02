@@ -61,6 +61,12 @@ describe("isDangerousAction", () => {
     );
   });
 
+  it("does NOT block /impersonate/exit — operator must always be able to leave a session", () => {
+    expect(isDangerousAction("POST", "/api/v1/admin/impersonate/exit")).toBe(
+      false,
+    );
+  });
+
   it("case-insensitive on the method", () => {
     expect(isDangerousAction("delete", "/api/v1/tenants/x")).toBe(true);
   });
