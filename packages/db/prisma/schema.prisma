@@ -15,9 +15,9 @@ datasource db {
 // ============================================================================
 
 enum TenantType {
-  DIRECT           // Direct business (not resold)
-  WHITE_LABEL      // White-label reseller
-  BUSINESS         // Business under a white-label reseller
+  DIRECT // Direct business (not resold)
+  WHITE_LABEL // White-label reseller
+  BUSINESS // Business under a white-label reseller
 }
 
 enum TenantStatus {
@@ -59,76 +59,76 @@ enum DomainStatus {
 }
 
 model Tenant {
-  id                       String           @id @default(cuid())
-  name                     String
-  type                     TenantType       @default(DIRECT)
-  status                   TenantStatus     @default(ACTIVE)
-  domain                   String?          @unique  // Custom domain for white-label
-  parentTenantId           String?          // For businesses under resellers
-  parentTenant             Tenant?          @relation("ResellChildren", fields: [parentTenantId], references: [id], onDelete: Cascade)
-  resellChildren           Tenant[]         @relation("ResellChildren")
+  id             String       @id @default(cuid())
+  name           String
+  type           TenantType   @default(DIRECT)
+  status         TenantStatus @default(ACTIVE)
+  domain         String?      @unique // Custom domain for white-label
+  parentTenantId String? // For businesses under resellers
+  parentTenant   Tenant?      @relation("ResellChildren", fields: [parentTenantId], references: [id], onDelete: Cascade)
+  resellChildren Tenant[]     @relation("ResellChildren")
 
   // Branding
-  logoUrl                  String?
-  faviconUrl               String?
-  brandColors              String?          // JSON: { primary, secondary, accent }
-  customCss                String?
-  customFont               String?
+  logoUrl     String?
+  faviconUrl  String?
+  brandColors String? // JSON: { primary, secondary, accent }
+  customCss   String?
+  customFont  String?
 
   // WhatsApp Configuration
-  metaBusinessId           String?          // Parent Meta Business Manager id (T-004)
-  wabaId                   String?          // WhatsApp Business Account ID
-  wabaPhoneNumber          String?
-  wabaAccessToken          String?          // Encrypted (T-094)
-  wabaTokenExpiresAt       DateTime?        // expires_in stamped at OAuth exchange (T-004 follow-up)
-  wabaTokenExpiryWarnedAt  DateTime?        // last time the expiry-warn worker fired
-  wabaDisplayPhoneNumber   String?
-  wabaQualityRating        String?
-  wabaMessagingLimitTier   String?
-  wabaAccountStatus        String?
-  wabaLastSyncedAt         DateTime?
-  wabaLastSyncError        String?
+  metaBusinessId          String? // Parent Meta Business Manager id (T-004)
+  wabaId                  String? // WhatsApp Business Account ID
+  wabaPhoneNumber         String?
+  wabaAccessToken         String? // Encrypted (T-094)
+  wabaTokenExpiresAt      DateTime? // expires_in stamped at OAuth exchange (T-004 follow-up)
+  wabaTokenExpiryWarnedAt DateTime? // last time the expiry-warn worker fired
+  wabaDisplayPhoneNumber  String?
+  wabaQualityRating       String?
+  wabaMessagingLimitTier  String?
+  wabaAccountStatus       String?
+  wabaLastSyncedAt        DateTime?
+  wabaLastSyncError       String?
 
   // Business profile pulled from Meta after onboarding (T-004 follow-up).
   // Flat columns instead of a JSON blob so the inbox header and
   // analytics queries can read them without an extra parse.
-  wabaBusinessName             String?
-  wabaBusinessVertical         String?
-  wabaBusinessAbout            String?
-  wabaBusinessProfileSyncedAt  DateTime?
+  wabaBusinessName            String?
+  wabaBusinessVertical        String?
+  wabaBusinessAbout           String?
+  wabaBusinessProfileSyncedAt DateTime?
 
   // Email Configuration
-  emailProvider            String?          // "resend", "sendgrid", "smtp"
-  emailFromAddress         String?
-  emailConfig              String?          // JSON: provider-specific config
+  emailProvider    String? // "resend", "sendgrid", "smtp"
+  emailFromAddress String?
+  emailConfig      String? // JSON: provider-specific config
 
   // Features & Limits
-  messageQuotaPerMonth     Int              @default(10000)
-  contactLimit             Int              @default(1000)
-  agentLimit               Int              @default(5)
-  aiCreditsPerMonth        Int              @default(1000)
-  campaignLimit            Int              @default(100)
-  featuresEnabled          String?          // JSON: { chatbot, ads, creative_studio, ... }
+  messageQuotaPerMonth Int     @default(10000)
+  contactLimit         Int     @default(1000)
+  agentLimit           Int     @default(5)
+  aiCreditsPerMonth    Int     @default(1000)
+  campaignLimit        Int     @default(100)
+  featuresEnabled      String? // JSON: { chatbot, ads, creative_studio, ... }
 
   // T-052 slice 4: master switch for inbound auto-reply via the
   // tenant's default AiAgent. Off by default so tenants opt in
   // explicitly; flipping this on without a default agent set is a
   // no-op (the webhook checks both).
-  aiAgentAutoReply         Boolean          @default(false)
+  aiAgentAutoReply Boolean @default(false)
 
   // T-070: partner-portal nav customization. Only meaningful on
   // WHITE_LABEL tenants — controls which sidebar items are visible
   // in the partner's own portal and what label/icon they use. Shape
   // (validated at the route): { items: [{ key, label, icon, enabled }] }.
-  partnerMenuConfig        Json?
+  partnerMenuConfig Json?
 
   // T-080: per-tenant Compliance Firewall mode. Shape:
   // { default: "ASSISTED" | "MANUAL" | "AUTOPILOT",
   //   CAMPAIGN?, DRIP_STEP?, TEMPLATE?, REPLY? }
   // Missing scopes fall back to `default`; missing `default` is ASSISTED.
-  complianceMode           Json?
+  complianceMode Json?
 
-  complianceChecks         ComplianceCheck[]
+  complianceChecks ComplianceCheck[]
 
   // T-041: Custom email sender (white-label). `emailFromAddress`
   // exists already (declared in the Email Configuration block above).
@@ -138,63 +138,64 @@ model Tenant {
   // sendEmail uses the tenant's address; otherwise falls back to
   // the platform default sender. Re-verify regularly catches
   // domain misconfig (SPF deletion, DKIM key rotation, etc.).
-  emailFromName            String?
-  emailDomainVerifiedAt    DateTime?
-  emailDomainLastError     String?
+  emailFromName         String?
+  emailDomainVerifiedAt DateTime?
+  emailDomainLastError  String?
 
   // Inbox / support SLA — minutes from inbound to first agent reply
-  slaMinutes               Int              @default(30)
+  slaMinutes Int @default(30)
 
   // Relations
-  users                    User[]
-  teams                    Team[]
-  whatsappTemplates        WhatsAppTemplate[]
-  contacts                 Contact[]
-  campaigns                Campaign[]
-  conversations            Conversation[]
-  leads                    Lead[]
-  chatbotFlows             ChatbotFlow[]
-  subscriptions            Subscription[]
-  apiKeys                  ApiKey[]
-  apiRequestLogs           ApiRequestLog[]
-  webhooks                 Webhook[]
-  auditLogs                AuditLog[]
-  aiUsage                  AiUsage[]
-  knowledgeBaseEntries     KnowledgeBaseEntry[]
-  aiAgents                 AiAgent[]
-  invoices                 Invoice[]
-  wallet                   Wallet?
-  walletTransactions       WalletTransaction[] @relation("TenantWalletTransactions")
-  domains                  Domain[]         @relation("TenantDomains")
-  partnerDomains           Domain[]         @relation("PartnerDomains")
-  passwordResetTokens      PasswordResetToken[]
-  emailVerificationTokens  EmailVerificationToken[]
-  cannedReplies            CannedReply[]
-  conversationNotes        ConversationNote[]
-  services                 Service[]
-  appointments             Appointment[]
-  flowRuns                 FlowRun[]
-  providerRoutes           ProviderRoute[]
-  branding                 Branding?
-  demoTenant               DemoTenant?
-  createdDemos             DemoTenant[] @relation("DemoCreatedBy")
-  supportTickets           SupportTicket[]
-  dripSequences            DripSequence[]
-  dripEnrollments          DripEnrollment[]
-  metaAdsConnection        MetaAdsConnection?
-  metaAdsLeadForms         MetaAdsLeadForm[]
-  metaAdsAudiences         MetaAdsAudience[]
-  googleAdsConnection      GoogleAdsConnection?
-  walletRiskAssessments    WalletRiskAssessment[]
-  providerHealthSamples    ProviderHealthSample[]
-  platformActionItems      PlatformActionItem[]
-  customerHealthScores     CustomerHealthScore[]
-  partnerProposals         Proposal[]          @relation("PartnerProposals")
-  contactRetentionScores   ContactRetentionScore[]
-  retentionConfig          RetentionConfig?
+  users                   User[]
+  teams                   Team[]
+  whatsappTemplates       WhatsAppTemplate[]
+  contacts                Contact[]
+  campaigns               Campaign[]
+  conversations           Conversation[]
+  leads                   Lead[]
+  chatbotFlows            ChatbotFlow[]
+  subscriptions           Subscription[]
+  apiKeys                 ApiKey[]
+  apiRequestLogs          ApiRequestLog[]
+  webhooks                Webhook[]
+  auditLogs               AuditLog[]
+  aiUsage                 AiUsage[]
+  knowledgeBaseEntries    KnowledgeBaseEntry[]
+  aiAgents                AiAgent[]
+  invoices                Invoice[]
+  wallet                  Wallet?
+  walletTransactions      WalletTransaction[]      @relation("TenantWalletTransactions")
+  domains                 Domain[]                 @relation("TenantDomains")
+  partnerDomains          Domain[]                 @relation("PartnerDomains")
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  cannedReplies           CannedReply[]
+  conversationNotes       ConversationNote[]
+  followUpTasks           FollowUpTask[]
+  services                Service[]
+  appointments            Appointment[]
+  flowRuns                FlowRun[]
+  providerRoutes          ProviderRoute[]
+  branding                Branding?
+  demoTenant              DemoTenant?
+  createdDemos            DemoTenant[]             @relation("DemoCreatedBy")
+  supportTickets          SupportTicket[]
+  dripSequences           DripSequence[]
+  dripEnrollments         DripEnrollment[]
+  metaAdsConnection       MetaAdsConnection?
+  metaAdsLeadForms        MetaAdsLeadForm[]
+  metaAdsAudiences        MetaAdsAudience[]
+  googleAdsConnection     GoogleAdsConnection?
+  walletRiskAssessments   WalletRiskAssessment[]
+  providerHealthSamples   ProviderHealthSample[]
+  platformActionItems     PlatformActionItem[]
+  customerHealthScores    CustomerHealthScore[]
+  partnerProposals        Proposal[]               @relation("PartnerProposals")
+  contactRetentionScores  ContactRetentionScore[]
+  retentionConfig         RetentionConfig?
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([parentTenantId])
   @@index([status])
@@ -236,43 +237,43 @@ model ProviderHealthSample {
   phoneNumberId String?
   kind          WhatsAppSendKind
 
-  success       Boolean
+  success    Boolean
   // Provider HTTP status when known. Adapters that don't expose one
   // (e.g. SDK callbacks) leave this null.
-  statusCode    Int?
+  statusCode Int?
   // Provider-shaped error code on failure (e.g. Meta's "131056"). Free-form
   // because each provider has its own taxonomy; the SuperAdmin view groups
   // by code so operators can spot patterns.
-  errorCode     String?
+  errorCode  String?
   // Round-trip latency in ms. Null only when timing wasn't captured (very
   // rare — the wrapper always sets it).
-  latencyMs     Int?
+  latencyMs  Int?
 
-  createdAt     DateTime            @default(now())
+  createdAt DateTime @default(now())
 
   @@index([tenantId, providerKey, createdAt])
   @@index([providerKey, createdAt])
 }
 
 model ProviderRoute {
-  id            String              @id @default(cuid())
-  tenantId      String
-  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  providerKey   WhatsAppProviderKey
+  providerKey WhatsAppProviderKey
 
   // Optional: scope this route to a single WABA phone number. NULL means
   // "default route for this tenant".
   phoneNumberId String?
 
-  isActive      Boolean             @default(true)
+  isActive Boolean @default(true)
 
   // Provider-specific config blob — Gupshup needs an API key + app name;
   // 360dialog needs an API key; etc. JSON, envelope-encrypted on write.
-  config        String?
+  config String?
 
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // One active default route per tenant (NULL phone) and one per
   // (tenant, phone). Deactivate before reassigning.
@@ -282,34 +283,34 @@ model ProviderRoute {
 }
 
 model Domain {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation("TenantDomains", fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation("TenantDomains", fields: [tenantId], references: [id], onDelete: Cascade)
 
-  partnerTenantId          String?
-  partnerTenant            Tenant?          @relation("PartnerDomains", fields: [partnerTenantId], references: [id], onDelete: SetNull)
+  partnerTenantId String?
+  partnerTenant   Tenant? @relation("PartnerDomains", fields: [partnerTenantId], references: [id], onDelete: SetNull)
 
-  domain                   String           @unique
-  portalType               DomainPortalType
-  verificationToken        String
+  domain            String           @unique
+  portalType        DomainPortalType
+  verificationToken String
 
-  cnameHost                String
-  cnameValue               String
-  txtHost                  String
-  txtValue                 String
+  cnameHost  String
+  cnameValue String
+  txtHost    String
+  txtValue   String
 
-  dnsStatus                DomainDnsStatus  @default(PENDING)
-  sslStatus                DomainSslStatus  @default(PENDING)
-  status                   DomainStatus     @default(PENDING_DNS)
-  isPrimary                Boolean          @default(false)
+  dnsStatus DomainDnsStatus @default(PENDING)
+  sslStatus DomainSslStatus @default(PENDING)
+  status    DomainStatus    @default(PENDING_DNS)
+  isPrimary Boolean         @default(false)
 
-  lastCheckedAt            DateTime?
-  lastError                String?
+  lastCheckedAt DateTime?
+  lastError     String?
 
-  healthSamples            DomainHealthSample[]
+  healthSamples DomainHealthSample[]
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([partnerTenantId])
@@ -322,11 +323,11 @@ model Domain {
 // ============================================================================
 
 enum UserRole {
-  SUPER_ADMIN      // Platform owner
+  SUPER_ADMIN // Platform owner
   WHITE_LABEL_ADMIN // Reseller
-  BUSINESS_ADMIN   // Business owner
-  TEAM_LEAD        // Team lead
-  AGENT            // Support/sales agent
+  BUSINESS_ADMIN // Business owner
+  TEAM_LEAD // Team lead
+  AGENT // Support/sales agent
 }
 
 enum UserStatus {
@@ -337,35 +338,37 @@ enum UserStatus {
 }
 
 model User {
-  id                       String           @id @default(cuid())
-  email                    String
-  name                     String
-  password                 String           // Hashed
-  role                     UserRole
-  status                   UserStatus       @default(PENDING_EMAIL_VERIFICATION)
-  emailVerified            DateTime?
-  twoFactorEnabled         Boolean          @default(false)
-  twoFactorSecret          String?          // For TOTP
+  id               String     @id @default(cuid())
+  email            String
+  name             String
+  password         String // Hashed
+  role             UserRole
+  status           UserStatus @default(PENDING_EMAIL_VERIFICATION)
+  emailVerified    DateTime?
+  twoFactorEnabled Boolean    @default(false)
+  twoFactorSecret  String? // For TOTP
 
   // Multi-tenant scoping
-  tenantId                 String?
-  tenant                   Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // Team scoping (for agents under businesses)
-  assignedTeamId           String?
-  assignedTeam             Team?            @relation(fields: [assignedTeamId], references: [id])
+  assignedTeamId String?
+  assignedTeam   Team?   @relation(fields: [assignedTeamId], references: [id])
 
   // Relations
-  conversations            Conversation[]   @relation("ConversationAgent")
-  leads                    Lead[]           @relation("LeadAssignee")
-  apiKeys                  ApiKey[]
-  auditLogs                AuditLog[]
-  walletTransactions       WalletTransaction[]
-  oauthAccounts            OAuthAccount[]
+  conversations      Conversation[]      @relation("ConversationAgent")
+  leads              Lead[]              @relation("LeadAssignee")
+  apiKeys            ApiKey[]
+  auditLogs          AuditLog[]
+  walletTransactions WalletTransaction[]
+  oauthAccounts      OAuthAccount[]
+  followUpsAssigned  FollowUpTask[]      @relation("FollowUpAssignee")
+  followUpsCreated   FollowUpTask[]      @relation("FollowUpCreator")
 
-  lastLoginAt              DateTime?
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@unique([email, tenantId])
   @@index([tenantId])
@@ -373,20 +376,20 @@ model User {
 }
 
 model OAuthAccount {
-  id                       String           @id @default(cuid())
-  userId                   String
-  user                     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider                 String           // "google", "github", "apple"
-  providerAccountId        String
-  email                    String?
-  name                     String?
-  image                    String?
-  refreshToken             String?
-  accessToken              String?
-  expiresAt                Int?
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String // "google", "github", "apple"
+  providerAccountId String
+  email             String?
+  name              String?
+  image             String?
+  refreshToken      String?
+  accessToken       String?
+  expiresAt         Int?
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([provider, providerAccountId])
   @@index([userId])
@@ -397,19 +400,19 @@ model OAuthAccount {
 // ============================================================================
 
 model Team {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name                     String
-  description              String?
+  id          String  @id @default(cuid())
+  tenantId    String
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
 
   // Relations
-  agents                   User[]
-  conversations            Conversation[]
-  leads                    Lead[]
+  agents        User[]
+  conversations Conversation[]
+  leads         Lead[]
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
 }
@@ -419,28 +422,28 @@ model Team {
 // ============================================================================
 
 model PasswordResetToken {
-  id          String   @id @default(cuid())
-  userId      String
-  tenantId    String?
-  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  tokenHash   String   @unique
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdAt   DateTime @default(now())
+  id        String    @id @default(cuid())
+  userId    String
+  tenantId  String?
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@index([expiresAt])
 }
 
 model EmailVerificationToken {
-  id          String   @id @default(cuid())
-  userId      String
-  tenantId    String?
-  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  tokenHash   String   @unique
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdAt   DateTime @default(now())
+  id        String    @id @default(cuid())
+  userId    String
+  tenantId  String?
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@index([expiresAt])
@@ -460,30 +463,31 @@ enum LifecycleStage {
 }
 
 model Contact {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  phoneNumber              String
-  name                     String
-  email                    String?
-  avatar                   String?
-  tags                     String[]         // JSON array
-  customFields             String?          // JSON object
-  optedOut                 Boolean          @default(false)
-  optedOutAt               DateTime?
-  lastInteractionAt        DateTime?
-  aiScore                  Float?           // AI lead score (0-1)
-  lifecycleStage           LifecycleStage   @default(LEAD)
+  id                String         @id @default(cuid())
+  tenantId          String
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  phoneNumber       String
+  name              String
+  email             String?
+  avatar            String?
+  tags              String[] // JSON array
+  customFields      String? // JSON object
+  optedOut          Boolean        @default(false)
+  optedOutAt        DateTime?
+  lastInteractionAt DateTime?
+  aiScore           Float? // AI lead score (0-1)
+  lifecycleStage    LifecycleStage @default(LEAD)
 
   // Relations
-  conversations            Conversation[]
-  leads                    Lead[]
-  appointments             Appointment[]
-  dripEnrollments          DripEnrollment[]
-  retentionScores          ContactRetentionScore[]
+  conversations   Conversation[]
+  leads           Lead[]
+  appointments    Appointment[]
+  dripEnrollments DripEnrollment[]
+  retentionScores ContactRetentionScore[]
+  followUpTasks   FollowUpTask[]
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, phoneNumber])
   @@index([tenantId])
@@ -510,38 +514,38 @@ enum LeadFollowUpStatus {
 }
 
 model Lead {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contactId                String
-  contact                  Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  
-  title                    String
-  description              String?
-  status                   LeadStatus       @default(NEW)
-  value                    Float?           // Deal value
-  probability              Float?           // Probability of close (AI scored)
-  
-  assigneeId               String?
-  assignee                 User?            @relation("LeadAssignee", fields: [assigneeId], references: [id])
-  
-  teamId                   String?
-  team                     Team?            @relation(fields: [teamId], references: [id])
+  id        String  @id @default(cuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  status      LeadStatus @default(NEW)
+  value       Float? // Deal value
+  probability Float? // Probability of close (AI scored)
+
+  assigneeId String?
+  assignee   User?   @relation("LeadAssignee", fields: [assigneeId], references: [id])
+
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id])
 
   // AI follow-up recommendation and automation state.
-  followUpStatus           LeadFollowUpStatus?
-  followUpPriority         String?          // "low", "medium", "high"
-  followUpMessage          String?
-  followUpReason           String?
-  followUpDueAt            DateTime?
-  followUpRecommendedAt    DateTime?
-  followUpSentAt           DateTime?
-  followUpLastError        String?
+  followUpStatus        LeadFollowUpStatus?
+  followUpPriority      String? // "low", "medium", "high"
+  followUpMessage       String?
+  followUpReason        String?
+  followUpDueAt         DateTime?
+  followUpRecommendedAt DateTime?
+  followUpSentAt        DateTime?
+  followUpLastError     String?
 
-  closedAt                 DateTime?
-  closedWonAt              DateTime?
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  closedAt    DateTime?
+  closedWonAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([tenantId])
   @@index([contactId])
@@ -549,6 +553,58 @@ model Lead {
   @@index([assigneeId])
   @@index([followUpStatus])
   @@index([followUpDueAt])
+}
+
+// ============================================================================
+// FOLLOW-UP TASKS (PRD-v2 §7 — Agent inbox)
+// ============================================================================
+//
+// Lightweight reminder system. An agent reading a conversation can drop a
+// task on their own (or a teammate's) queue with a due date. Separate
+// from Lead.followUp* (which is the AI-recommended lead-driven nudge);
+// these are operator-authored.
+
+enum FollowUpTaskStatus {
+  PENDING
+  DONE
+  CANCELLED
+}
+
+model FollowUpTask {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  title  String             @db.VarChar(280)
+  notes  String?
+  status FollowUpTaskStatus @default(PENDING)
+  dueAt  DateTime
+
+  // The agent the task is for. Can be reassigned.
+  assigneeId String
+  assignee   User   @relation("FollowUpAssignee", fields: [assigneeId], references: [id])
+
+  // Who created the task (audit). Goes null if the creator user is
+  // later deleted so the task itself survives.
+  createdById String?
+  createdBy   User?   @relation("FollowUpCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Optional links — a task can be tenant-only with no contact context.
+  contactId      String?
+  contact        Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([assigneeId, status, dueAt])
+  @@index([contactId])
+  @@index([conversationId])
 }
 
 // ============================================================================
@@ -569,35 +625,36 @@ enum MessageStatus {
 }
 
 model Conversation {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contactId                String
-  contact                  Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  
-  teamId                   String?
-  team                     Team?            @relation(fields: [teamId], references: [id])
-  
-  agentId                  String?
-  agent                    User?            @relation("ConversationAgent", fields: [agentId], references: [id])
+  id        String  @id @default(cuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  lastMessageAt            DateTime?
-  lastInboundAt            DateTime?        // for SLA computation
-  lastOutboundAt           DateTime?        // for first-response computation
-  isActive                 Boolean          @default(true)
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id])
+
+  agentId String?
+  agent   User?   @relation("ConversationAgent", fields: [agentId], references: [id])
+
+  lastMessageAt  DateTime?
+  lastInboundAt  DateTime? // for SLA computation
+  lastOutboundAt DateTime? // for first-response computation
+  isActive       Boolean   @default(true)
 
   // V2 §3.3.5: tag conversations (Urgent, Follow-up, Closed, …)
-  labels                   String[]         @default([])
+  labels String[] @default([])
 
   // SLA tracking (V2 §6.1 "Multi-Agent WhatsApp Inbox — SLA timers")
-  slaBreachedAt            DateTime?        // stamped when last-inbound exceeds slaMinutes without an agent reply
-  firstResponseSeconds     Int?             // seconds from first inbound → first outbound (after the conversation existed)
+  slaBreachedAt        DateTime? // stamped when last-inbound exceeds slaMinutes without an agent reply
+  firstResponseSeconds Int? // seconds from first inbound → first outbound (after the conversation existed)
 
   // Relations
-  messages                 Message[]
+  messages      Message[]
+  followUpTasks FollowUpTask[]
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([contactId])
@@ -609,33 +666,33 @@ model Conversation {
 }
 
 model Message {
-  id                       String           @id @default(cuid())
-  conversationId           String
-  conversation             Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  campaignId               String?
-  campaign                 Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  
-  direction                MessageDirection
-  status                   MessageStatus    @default(PENDING)
-  
-  content                  String
-  mediaUrl                 String?
-  mediaType                String?          // "image", "video", "audio", "document"
-  
-  templateId               String?
-  template                 WhatsAppTemplate? @relation(fields: [templateId], references: [id])
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
-  metaMessageId            String?          @unique
-  
-  aiGenerated              Boolean          @default(false)
-  aiModel                  String?          // "claude-3-sonnet", etc.
+  direction MessageDirection
+  status    MessageStatus    @default(PENDING)
 
-  readAt                   DateTime?
-  deliveredAt              DateTime?
-  failureReason            String?
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  content   String
+  mediaUrl  String?
+  mediaType String? // "image", "video", "audio", "document"
+
+  templateId String?
+  template   WhatsAppTemplate? @relation(fields: [templateId], references: [id])
+
+  metaMessageId String? @unique
+
+  aiGenerated Boolean @default(false)
+  aiModel     String? // "claude-3-sonnet", etc.
+
+  readAt        DateTime?
+  deliveredAt   DateTime?
+  failureReason String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([conversationId])
   @@index([campaignId])
@@ -656,34 +713,34 @@ enum TemplateStatus {
 }
 
 model WhatsAppTemplate {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  name                     String
-  metaTemplateId           String?          // Meta's template ID
-  category                 String           // "MARKETING", "OTP", "ACCOUNT_UPDATE"
-  language                 String           @default("en")
-  
-  headerText               String?
-  bodyText                 String           // Main message
-  footerText               String?
-  
-  status                   TemplateStatus   @default(DRAFT)
-  approvalReason           String?          // Why it was rejected/flagged
-  
-  variants                 String[]         // JSON array of variant texts
-  aiScoreApprovalChance    Float?           // AI prediction of approval
-  
-  messageCount             Int              @default(0)
-  successRate              Float?           // Success rate
-  
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name           String
+  metaTemplateId String? // Meta's template ID
+  category       String // "MARKETING", "OTP", "ACCOUNT_UPDATE"
+  language       String  @default("en")
+
+  headerText String?
+  bodyText   String // Main message
+  footerText String?
+
+  status         TemplateStatus @default(DRAFT)
+  approvalReason String? // Why it was rejected/flagged
+
+  variants              String[] // JSON array of variant texts
+  aiScoreApprovalChance Float? // AI prediction of approval
+
+  messageCount Int    @default(0)
+  successRate  Float? // Success rate
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  messages                 Message[]
-  campaigns                Campaign[]
+  messages  Message[]
+  campaigns Campaign[]
 
   @@index([tenantId])
   @@index([status])
@@ -710,45 +767,45 @@ enum CampaignStatus {
 }
 
 model Campaign {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  name                     String
-  description              String?
-  type                     CampaignType
-  status                   CampaignStatus   @default(DRAFT)
-  
-  templateId               String
-  template                 WhatsAppTemplate @relation(fields: [templateId], references: [id])
-  
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  type        CampaignType
+  status      CampaignStatus @default(DRAFT)
+
+  templateId String
+  template   WhatsAppTemplate @relation(fields: [templateId], references: [id])
+
   // Audience
-  targetContacts           String           // JSON: array of contact IDs or filter criteria
-  excludedContacts         String?          // JSON array
-  
+  targetContacts   String // JSON: array of contact IDs or filter criteria
+  excludedContacts String? // JSON array
+
   // Scheduling
-  scheduledFor             DateTime?
-  runEvery                 String?          // Cron expression for recurring
-  
+  scheduledFor DateTime?
+  runEvery     String? // Cron expression for recurring
+
   // A/B Testing
-  variantId                String?          // If this is a variant
-  
+  variantId String? // If this is a variant
+
   // Analytics
-  totalContacts            Int              @default(0)
-  sentCount                Int              @default(0)
-  deliveredCount           Int              @default(0)
-  readCount                Int              @default(0)
-  clickCount               Int              @default(0)
-  conversionCount          Int              @default(0)
+  totalContacts   Int @default(0)
+  sentCount       Int @default(0)
+  deliveredCount  Int @default(0)
+  readCount       Int @default(0)
+  clickCount      Int @default(0)
+  conversionCount Int @default(0)
 
   // Relations
-  messages                 Message[]
-  
-  startedAt                DateTime?
-  completedAt              DateTime?
-  
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  messages Message[]
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([status])
@@ -770,26 +827,26 @@ enum FlowNodeType {
 }
 
 model ChatbotFlow {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  name                     String
-  description              String?
-  isActive                 Boolean          @default(false)
-  
-  trigger                  String           // "message_received", "keyword", "button_click"
-  triggerKeywords          String[]         // JSON array
-  
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  isActive    Boolean @default(false)
+
+  trigger         String // "message_received", "keyword", "button_click"
+  triggerKeywords String[] // JSON array
+
   // Flow nodes and edges (JSON)
-  nodes                    String           // JSON array of flow nodes
-  edges                    String?          // JSON array of connections
-  
-  aiIntentEnabled          Boolean          @default(false)
-  aiIntentModels           String?          // "claude-3-sonnet"
-  
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  nodes String // JSON array of flow nodes
+  edges String? // JSON array of connections
+
+  aiIntentEnabled Boolean @default(false)
+  aiIntentModels  String? // "claude-3-sonnet"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([isActive])
@@ -811,36 +868,36 @@ enum WebhookEvent {
 }
 
 model Webhook {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  url                      String
-  events                   WebhookEvent[]
-  isActive                 Boolean          @default(true)
-  secret                   String           // For HMAC signature verification
-  
-  retryAttempts            Int              @default(3)
-  retryDelay               Int              @default(300) // seconds
-  
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  url      String
+  events   WebhookEvent[]
+  isActive Boolean        @default(true)
+  secret   String // For HMAC signature verification
+
+  retryAttempts Int @default(3)
+  retryDelay    Int @default(300) // seconds
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
 }
 
 model WebhookLog {
-  id                       String           @id @default(cuid())
-  webhookId                String
-  event                    String
-  payload                  String           // JSON
-  statusCode               Int?
-  response                 String?
-  error                    String?
-  attempt                  Int              @default(1)
-  nextRetryAt              DateTime?
-  
-  createdAt                DateTime         @default(now())
+  id          String    @id @default(cuid())
+  webhookId   String
+  event       String
+  payload     String // JSON
+  statusCode  Int?
+  response    String?
+  error       String?
+  attempt     Int       @default(1)
+  nextRetryAt DateTime?
+
+  createdAt DateTime @default(now())
 }
 
 // ============================================================================
@@ -856,30 +913,30 @@ enum PlanName {
 }
 
 model Plan {
-  id                       String           @id @default(cuid())
-  name                     PlanName
-  displayName              String
-  description              String?
-  priceInPaisa             Int              // Price in smallest currency unit (paise for INR)
-  billingCycle             String           // "monthly", "annual"
-  
+  id           String   @id @default(cuid())
+  name         PlanName
+  displayName  String
+  description  String?
+  priceInPaisa Int // Price in smallest currency unit (paise for INR)
+  billingCycle String // "monthly", "annual"
+
   // Limits
-  messageQuota             Int
-  contactLimit             Int
-  agentLimit               Int
-  aiCreditsPerMonth        Int
-  campaignLimit            Int
-  
+  messageQuota      Int
+  contactLimit      Int
+  agentLimit        Int
+  aiCreditsPerMonth Int
+  campaignLimit     Int
+
   // Features
-  chatbotEnabled           Boolean          @default(false)
-  adsIntegrationEnabled    Boolean          @default(false)
-  creativeStudioEnabled    Boolean          @default(false)
-  apiAccessEnabled         Boolean          @default(false)
+  chatbotEnabled        Boolean @default(false)
+  adsIntegrationEnabled Boolean @default(false)
+  creativeStudioEnabled Boolean @default(false)
+  apiAccessEnabled      Boolean @default(false)
 
-  subscriptions            Subscription[]
+  subscriptions Subscription[]
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum SubscriptionStatus {
@@ -918,38 +975,38 @@ enum WalletTransactionDirection {
 }
 
 model Wallet {
-  id                       String           @id @default(cuid())
-  tenantId                 String           @unique
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  status                   WalletStatus     @default(ACTIVE)
-  billingMode              WalletBillingMode @default(PREPAID)
-  balanceCredits           Int              @default(0)
-  reservedCredits          Int              @default(0)
-  creditLimit              Int              @default(0)
-  lowBalanceThreshold      Int              @default(100)
+  status              WalletStatus      @default(ACTIVE)
+  billingMode         WalletBillingMode @default(PREPAID)
+  balanceCredits      Int               @default(0)
+  reservedCredits     Int               @default(0)
+  creditLimit         Int               @default(0)
+  lowBalanceThreshold Int               @default(100)
 
   // T-021: auto-recharge config.
   // enabled + amount + paymentMethodToken must ALL be set for the worker
   // to attempt a charge. The token is the payment provider's opaque
   // reference (Razorpay subscription id, Stripe customer id, etc.) —
   // we never store raw card data.
-  autoRechargeEnabled      Boolean          @default(false)
-  autoRechargeAmountCredits Int             @default(0)
+  autoRechargeEnabled            Boolean   @default(false)
+  autoRechargeAmountCredits      Int       @default(0)
   autoRechargePaymentMethodToken String?
-  autoRechargePaymentProvider String?       // "razorpay" | "stripe" | future providers
+  autoRechargePaymentProvider    String? // "razorpay" | "stripe" | future providers
   // Stamp set after a successful auto-recharge so a hot-fire bug
   // can't drain the customer's card; the worker refuses to recharge
   // again within `AUTO_RECHARGE_COOLDOWN_HOURS` of the last attempt.
-  lastAutoRechargeAt       DateTime?
-  lastAutoRechargeError    String?
+  lastAutoRechargeAt             DateTime?
+  lastAutoRechargeError          String?
 
-  transactions             WalletTransaction[] @relation("WalletTransactions")
-  counterpartyTransactions WalletTransaction[] @relation("CounterpartyWallet")
+  transactions             WalletTransaction[]    @relation("WalletTransactions")
+  counterpartyTransactions WalletTransaction[]    @relation("CounterpartyWallet")
   riskAssessments          WalletRiskAssessment[]
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([billingMode])
@@ -982,28 +1039,28 @@ enum WalletRiskAction {
 }
 
 model WalletRiskAssessment {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  walletId                 String
-  wallet                   Wallet           @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   // UTC date key (YYYY-MM-DD) — gives the (tenantId, dayKey) uniqueness
   // that keeps repeat scans idempotent within a day.
-  dayKey                   String
-  assessedAt               DateTime         @default(now())
+  dayKey     String
+  assessedAt DateTime @default(now())
 
   // Snapshot of inputs at assessment time so a re-read isn't dependent on
   // the live wallet (which may have moved since).
-  balanceCredits           Int
-  lowBalanceThreshold      Int
+  balanceCredits      Int
+  lowBalanceThreshold Int
 
   // 14-day rolling stats. Float because the average isn't an integer when
   // burn happens in small increments per send.
-  dailyBurnAvg             Float
-  dailyBurnP90             Float
-  daysToLowBalance         Float?
-  daysToZero               Float?
+  dailyBurnAvg     Float
+  dailyBurnP90     Float
+  daysToLowBalance Float?
+  daysToZero       Float?
 
   riskTier                 WalletRiskTier
   recommendedActionCode    WalletRiskAction @default(NONE)
@@ -1013,9 +1070,9 @@ model WalletRiskAssessment {
   // True when the LLM was consulted. Tiers below WATCH skip the LLM call
   // to keep AI spend bounded; the row still exists with deterministic
   // math, just without a narrative.
-  llmUsed                  Boolean          @default(false)
+  llmUsed Boolean @default(false)
 
-  createdAt                DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([tenantId, dayKey])
   @@index([tenantId, assessedAt(sort: Desc)])
@@ -1023,83 +1080,82 @@ model WalletRiskAssessment {
 }
 
 model WalletTransaction {
-  id                       String           @id @default(cuid())
-  walletId                 String
-  wallet                   Wallet           @relation("WalletTransactions", fields: [walletId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  walletId String
+  wallet   Wallet @relation("WalletTransactions", fields: [walletId], references: [id], onDelete: Cascade)
 
-  tenantId                 String
-  tenant                   Tenant           @relation("TenantWalletTransactions", fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation("TenantWalletTransactions", fields: [tenantId], references: [id], onDelete: Cascade)
 
-  actorUserId              String?
-  actorUser                User?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUserId String?
+  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
-  type                     WalletTransactionType
-  direction                WalletTransactionDirection
-  amountCredits            Int
-  balanceAfterCredits      Int
-  reason                   String
-  referenceType            String?
-  referenceId              String?
-  counterpartyWalletId     String?
-  counterpartyWallet       Wallet?          @relation("CounterpartyWallet", fields: [counterpartyWalletId], references: [id], onDelete: SetNull)
-  metadata                 String?
+  type                 WalletTransactionType
+  direction            WalletTransactionDirection
+  amountCredits        Int
+  balanceAfterCredits  Int
+  reason               String
+  referenceType        String?
+  referenceId          String?
+  counterpartyWalletId String?
+  counterpartyWallet   Wallet?                    @relation("CounterpartyWallet", fields: [counterpartyWalletId], references: [id], onDelete: SetNull)
+  metadata             String?
 
-  createdAt                DateTime         @default(now())
-
-  @@index([walletId, createdAt])
-  @@index([tenantId, createdAt])
-  @@index([actorUserId])
-  @@index([type])
-  @@index([referenceType, referenceId])
+  createdAt DateTime @default(now())
 
   // Idempotency: a given (wallet, referenceType, referenceId) can only have one
   // ledger entry. Postgres unique constraints treat NULL as distinct by default,
   // so admin/manual entries (no referenceId) are unaffected.
   @@unique([walletId, referenceType, referenceId])
+  @@index([walletId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([actorUserId])
+  @@index([type])
+  @@index([referenceType, referenceId])
 }
 
 model Subscription {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  planId                   String
-  plan                     Plan             @relation(fields: [planId], references: [id])
-  
-  status                   SubscriptionStatus @default(ACTIVE)
-  
-  currentPeriodStart       DateTime
-  currentPeriodEnd         DateTime
-  cancelledAt              DateTime?
-  
-  razorpaySubscriptionId   String?
-  stripeSubscriptionId     String?
-  
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  status SubscriptionStatus @default(ACTIVE)
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelledAt        DateTime?
+
+  razorpaySubscriptionId String?
+  stripeSubscriptionId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([status])
 }
 
 model Invoice {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  subscriptionId           String?
+  id             String  @id @default(cuid())
+  tenantId       String
+  tenant         Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId String?
 
-  invoiceNumber            String           @unique
-  amountInPaisa            Int
-  status                   String           // "draft", "sent", "paid", "failed"
-  
-  razorpayInvoiceId        String?
-  stripeInvoiceId          String?
-  
-  dueAt                    DateTime
-  paidAt                   DateTime?
-  
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  invoiceNumber String @unique
+  amountInPaisa Int
+  status        String // "draft", "sent", "paid", "failed"
+
+  razorpayInvoiceId String?
+  stripeInvoiceId   String?
+
+  dueAt  DateTime
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([status])
@@ -1110,45 +1166,45 @@ model Invoice {
 // ============================================================================
 
 model ApiKey {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  userId                   String
-  user                     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  keyHash                  String           @unique // Hashed API key
-  name                     String
-  
-  lastUsedAt               DateTime?
-  rateLimit                Int              @default(1000) // per minute
-  
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
-  expiresAt                DateTime?
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  requestLogs              ApiRequestLog[]
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  keyHash String @unique // Hashed API key
+  name    String
+
+  lastUsedAt DateTime?
+  rateLimit  Int       @default(1000) // per minute
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  expiresAt DateTime?
+
+  requestLogs ApiRequestLog[]
 
   @@index([tenantId])
   @@index([keyHash])
 }
 
 model ApiRequestLog {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  apiKeyId                 String
-  apiKey                   ApiKey           @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  apiKeyId String
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
 
-  method                   String
-  path                     String
-  statusCode               Int
-  durationMs               Int
-  ipAddress                String?
-  userAgent                String?
+  method     String
+  path       String
+  statusCode Int
+  durationMs Int
+  ipAddress  String?
+  userAgent  String?
 
-  createdAt                DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   @@index([tenantId, createdAt])
   @@index([apiKeyId, createdAt])
@@ -1160,18 +1216,18 @@ model ApiRequestLog {
 // ============================================================================
 
 model AiUsage {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  model                    String           // "claude-3-sonnet", "gpt-4", "dall-e-3"
-  feature                  String           // "copywriting", "intent_detection", "image_generation"
-  
-  inputTokens              Int              @default(0)
-  outputTokens             Int              @default(0)
-  costInCents              Int              // Cost in cents
-  
-  createdAt                DateTime         @default(now())
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  model   String // "claude-3-sonnet", "gpt-4", "dall-e-3"
+  feature String // "copywriting", "intent_detection", "image_generation"
+
+  inputTokens  Int @default(0)
+  outputTokens Int @default(0)
+  costInCents  Int // Cost in cents
+
+  createdAt DateTime @default(now())
 
   @@index([tenantId])
   @@index([model])
@@ -1199,30 +1255,30 @@ enum KnowledgeBaseStatus {
 }
 
 model KnowledgeBaseEntry {
-  id                       String                @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  title                    String
-  content                  String
-  summary                  String?
-  category                 KnowledgeBaseCategory @default(FAQ)
-  tags                     String[]              @default([])
-  source                   String?
-  sourceUrl                String?
+  title     String
+  content   String
+  summary   String?
+  category  KnowledgeBaseCategory @default(FAQ)
+  tags      String[]              @default([])
+  source    String?
+  sourceUrl String?
 
-  status                   KnowledgeBaseStatus   @default(DRAFT)
-  publishedAt              DateTime?
-  archivedAt               DateTime?
+  status      KnowledgeBaseStatus @default(DRAFT)
+  publishedAt DateTime?
+  archivedAt  DateTime?
 
-  embeddingVector          Float[]               @default([])
-  embeddingModel           String?
-  embeddingTextHash        String?
-  lastEmbeddedAt           DateTime?
-  embeddingError           String?
+  embeddingVector   Float[]   @default([])
+  embeddingModel    String?
+  embeddingTextHash String?
+  lastEmbeddedAt    DateTime?
+  embeddingError    String?
 
-  createdAt                DateTime              @default(now())
-  updatedAt                DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, status])
   @@index([tenantId, category])
@@ -1248,54 +1304,54 @@ enum AiAgentFallback {
 }
 
 model AiAgent {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  name                     String
-  description              String?
+  name        String
+  description String?
   // Persona / system prompt — the agent's instructions, sent as the
   // system message on every LLM call. Distinct from `description`
   // (operator-facing label) so we can iterate on persona without
   // confusing UX copy.
-  persona                  String
+  persona     String
 
   // Model selection — provider + model name. Validated against an
   // allowlist in the service layer so a bad PATCH can't pick a
   // model we don't actually support.
-  provider                 String           @default("openai")  // "openai" | "anthropic"
-  model                    String           @default("gpt-4o-mini")
-  temperature              Float            @default(0.7)
-  maxTokens                Int              @default(800)
+  provider    String @default("openai") // "openai" | "anthropic"
+  model       String @default("gpt-4o-mini")
+  temperature Float  @default(0.7)
+  maxTokens   Int    @default(800)
 
   // Knowledge base scope — JSON: { categories: string[], tags: string[], topK: number }
   // Empty arrays mean "no restriction" within the tenant; topK caps the
   // number of KB entries injected into the prompt (default 5).
-  knowledgeScope           Json             @default("{}")
+  knowledgeScope Json @default("{}")
 
   // Tools the agent is allowed to invoke. Stored as a list of tool
   // keys (CREATE_LEAD, ADD_TAG, BOOK_APPOINTMENT, TRANSFER_TO_HUMAN,
   // SEND_TEMPLATE). The runtime walks this list when registering
   // function-calling tools with the LLM.
-  tools                    String[]         @default([])
+  tools String[] @default([])
 
-  fallbackBehavior         AiAgentFallback  @default(ESCALATE_TO_HUMAN)
+  fallbackBehavior   AiAgentFallback @default(ESCALATE_TO_HUMAN)
   // If fallbackBehavior=SEND_TEMPLATE, which template to send.
-  fallbackTemplateId       String?
+  fallbackTemplateId String?
 
   // T-052 slice 4: when true AND Tenant.aiAgentAutoReply is also true,
   // this agent answers inbound DMs that don't trigger any other flow.
   // Only one default per tenant; the service layer enforces by demoting
   // any prior default inside a transaction.
-  isDefault                Boolean          @default(false)
+  isDefault Boolean @default(false)
 
-  status                   AiAgentStatus    @default(DRAFT)
-  publishedAt              DateTime?
-  disabledAt               DateTime?
-  archivedAt               DateTime?
+  status      AiAgentStatus @default(DRAFT)
+  publishedAt DateTime?
+  disabledAt  DateTime?
+  archivedAt  DateTime?
 
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, status])
   @@index([tenantId, updatedAt])
@@ -1309,24 +1365,24 @@ model AiAgent {
 // ============================================================================
 
 model AuditLog {
-  id                       String           @id @default(cuid())
-  tenantId                 String
-  tenant                   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  userId                   String
-  user                     User             @relation(fields: [userId], references: [id])
-  
-  action                   String           // "CREATE", "UPDATE", "DELETE", "LOGIN", etc.
-  resource                 String           // "Contact", "Campaign", etc.
-  resourceId               String?
-  
-  oldValues                String?          // JSON
-  newValues                String?          // JSON
-  
-  ipAddress                String?
-  userAgent                String?
-  
-  createdAt                DateTime         @default(now())
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  action     String // "CREATE", "UPDATE", "DELETE", "LOGIN", etc.
+  resource   String // "Contact", "Campaign", etc.
+  resourceId String?
+
+  oldValues String? // JSON
+  newValues String? // JSON
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
 
   @@index([tenantId])
   @@index([userId])
@@ -1338,27 +1394,27 @@ model AuditLog {
 // ============================================================================
 
 model CannedReply {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  shortcut    String   // e.g. "/hours" — must be tenant-unique
-  title       String
-  body        String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shortcut  String // e.g. "/hours" — must be tenant-unique
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, shortcut])
   @@index([tenantId])
 }
 
 model ConversationNote {
-  id              String   @id @default(cuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversationId  String
-  authorId        String
-  body            String
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversationId String
+  authorId       String
+  body           String
+  createdAt      DateTime @default(now())
 
   @@index([conversationId])
   @@index([tenantId])
@@ -1369,63 +1425,63 @@ model ConversationNote {
 // ============================================================================
 
 model Service {
-  id              String        @id @default(cuid())
-  tenantId        String
-  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   name            String
   description     String?
-  durationMinutes Int           // service duration in minutes (e.g. 30, 60)
-  priceInPaisa    Int           // price in smallest unit (paise for INR)
-  isActive        Boolean       @default(true)
+  durationMinutes Int // service duration in minutes (e.g. 30, 60)
+  priceInPaisa    Int // price in smallest unit (paise for INR)
+  isActive        Boolean @default(true)
 
-  appointments    Appointment[]
+  appointments Appointment[]
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId])
   @@index([isActive])
 }
 
 enum AppointmentStatus {
-  PENDING          // newly created, awaiting confirmation
-  CONFIRMED        // confirmed by business
-  CANCELLED        // cancelled (by customer or business)
-  COMPLETED        // the appointment happened
-  NO_SHOW          // customer didn't turn up
+  PENDING // newly created, awaiting confirmation
+  CONFIRMED // confirmed by business
+  CANCELLED // cancelled (by customer or business)
+  COMPLETED // the appointment happened
+  NO_SHOW // customer didn't turn up
 }
 
 model Appointment {
-  id                  String             @id @default(cuid())
-  tenantId            String
-  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  contactId           String
-  contact             Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  serviceId           String
-  service             Service            @relation(fields: [serviceId], references: [id])
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
 
-  scheduledAt         DateTime
-  durationMinutes     Int                // snapshot at booking time so changing the Service later doesn't break history
-  status              AppointmentStatus  @default(PENDING)
-  notes               String?
+  scheduledAt     DateTime
+  durationMinutes Int // snapshot at booking time so changing the Service later doesn't break history
+  status          AppointmentStatus @default(PENDING)
+  notes           String?
 
-  source              String             @default("PUBLIC_FORM") // PUBLIC_FORM | ADMIN | API | WHATSAPP_FLOW
+  source String @default("PUBLIC_FORM") // PUBLIC_FORM | ADMIN | API | WHATSAPP_FLOW
 
-  confirmationSentAt  DateTime?
-  reminderSentAt      DateTime?
+  confirmationSentAt DateTime?
+  reminderSentAt     DateTime?
   // PRD §3.3.9: post-visit follow-up (review/feedback ask). Stamped
   // by the appointment worker once we've sent it, so the next scan
   // skips the row. Decoupled from `completedAt` so an operator who
   // manually back-dates a completion doesn't trigger a stale message.
-  postVisitSentAt     DateTime?
-  completedAt         DateTime?
-  cancelledAt         DateTime?
+  postVisitSentAt    DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
 
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, scheduledAt])
   @@index([contactId])
@@ -1443,27 +1499,27 @@ enum FlowRunStatus {
   COMPLETED
   FAILED
   ABORTED
-  WAITING       // paused at a delay or wait-for-reply node
+  WAITING // paused at a delay or wait-for-reply node
 }
 
 model FlowRun {
-  id              String         @id @default(cuid())
-  tenantId        String
-  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  flowId          String
-  contactId       String?
-  conversationId  String?
+  flowId         String
+  contactId      String?
+  conversationId String?
 
-  status          FlowRunStatus  @default(RUNNING)
-  currentNodeId   String?        // id of the node currently waiting / next to run
-  context         String         @default("{}") // JSON: per-run variables
-  trail           String         @default("[]") // JSON: array of {nodeId, at, action}
-  error           String?
+  status        FlowRunStatus @default(RUNNING)
+  currentNodeId String? // id of the node currently waiting / next to run
+  context       String        @default("{}") // JSON: per-run variables
+  trail         String        @default("[]") // JSON: array of {nodeId, at, action}
+  error         String?
 
-  startedAt       DateTime       @default(now())
-  resumeAt        DateTime?      // when WAITING due to a delay
-  completedAt     DateTime?
+  startedAt   DateTime  @default(now())
+  resumeAt    DateTime? // when WAITING due to a delay
+  completedAt DateTime?
 
   @@index([tenantId])
   @@index([flowId])
@@ -1476,26 +1532,26 @@ model FlowRun {
 // ============================================================================
 
 model Branding {
-  id                 String      @id @default(cuid())
-  tenantId           String      @unique
-  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  logoUrl            String?     // Primary logo
-  logoSquareUrl      String?     // Square version for favicon
-  faviconUrl         String?     // Favicon URL
-  
-  primaryColor       String      @default("#0066cc")
-  secondaryColor     String      @default("#f0f0f0")
-  accentColor        String      @default("#ff6600")
-  
-  fontFamily         String      @default("Inter")
-  fontUrl            String?     // Google Fonts or custom font URL
-  
-  customCss          String?     // Custom CSS overrides
-  
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  logoUrl       String? // Primary logo
+  logoSquareUrl String? // Square version for favicon
+  faviconUrl    String? // Favicon URL
+
+  primaryColor   String @default("#0066cc")
+  secondaryColor String @default("#f0f0f0")
+  accentColor    String @default("#ff6600")
+
+  fontFamily String  @default("Inter")
+  fontUrl    String? // Google Fonts or custom font URL
+
+  customCss String? // Custom CSS overrides
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([tenantId])
 }
 
@@ -1513,7 +1569,7 @@ model FlowTemplate {
   name        String
   industry    String
   description String?
-  definition  String   // JSON FlowDefinition
+  definition  String // JSON FlowDefinition
   isPublic    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1523,20 +1579,20 @@ model FlowTemplate {
 }
 
 model DemoTenant {
-  id                 String      @id @default(cuid())
-  tenantId           String      @unique
-  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  
-  createdByPartnerId String      // Partner tenant ID that created this demo
-  createdByPartner   Tenant      @relation("DemoCreatedBy", fields: [createdByPartnerId], references: [id], onDelete: Cascade)
-  
-  expiresAt          DateTime    // When demo should be auto-deleted
-  renewalCount       Int         @default(0) // How many times renewed (max 2)
-  lastRenewedAt      DateTime?   // When renewal last happened
-  
-  sampleDataSeeded   Boolean     @default(false) // Tracks if sample data was created
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  createdAt          DateTime    @default(now())
+  createdByPartnerId String // Partner tenant ID that created this demo
+  createdByPartner   Tenant @relation("DemoCreatedBy", fields: [createdByPartnerId], references: [id], onDelete: Cascade)
+
+  expiresAt     DateTime // When demo should be auto-deleted
+  renewalCount  Int       @default(0) // How many times renewed (max 2)
+  lastRenewedAt DateTime? // When renewal last happened
+
+  sampleDataSeeded Boolean @default(false) // Tracks if sample data was created
+
+  createdAt DateTime @default(now())
 
   @@index([createdByPartnerId])
   @@index([expiresAt])
@@ -1567,48 +1623,48 @@ enum ComplianceScope {
 }
 
 enum ComplianceVerdict {
-  PASS    // good to send
-  REVIEW  // soft violations; operator decides in ASSISTED/MANUAL, blocked in AUTOPILOT
-  BLOCK   // hard violations; never auto-sent regardless of mode
+  PASS // good to send
+  REVIEW // soft violations; operator decides in ASSISTED/MANUAL, blocked in AUTOPILOT
+  BLOCK // hard violations; never auto-sent regardless of mode
 }
 
 enum ComplianceMode {
-  MANUAL    // operator can override any verdict (with audit log)
-  ASSISTED  // PASS auto-sends; REVIEW pauses for OK; BLOCK is hard stop
+  MANUAL // operator can override any verdict (with audit log)
+  ASSISTED // PASS auto-sends; REVIEW pauses for OK; BLOCK is hard stop
   AUTOPILOT // anything not PASS aborts the send and notifies the operator
 }
 
 model ComplianceCheck {
-  id              String             @id @default(cuid())
-  tenantId        String
-  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  scope           ComplianceScope
+  scope ComplianceScope
   // Optional reference to the entity being checked (campaignId, drip
   // sequence id, template id, conversation id). String so we can point
   // at any of the four scopes without a polymorphic FK.
-  refId           String?
+  refId String?
 
-  content         String
+  content     String
   // SHA-256 hex of content + scope. Used for short-window idempotency so
   // re-running the same preview doesn't re-bill the LLM.
-  contentHash     String
+  contentHash String
 
-  verdict         ComplianceVerdict
+  verdict    ComplianceVerdict
   // 0-100, where higher = more risk. Combined heuristic + LLM score.
-  score           Int
+  score      Int
   // Array of { code, severity, detail } objects.
-  violations      Json               @default("[]")
-  rewrite         String?
-  reasoning       String?
+  violations Json              @default("[]")
+  rewrite    String?
+  reasoning  String?
 
-  mode            ComplianceMode     @default(ASSISTED)
+  mode               ComplianceMode @default(ASSISTED)
   // Did an operator override a non-PASS verdict? Captured here + in audit.
-  overridden      Boolean            @default(false)
-  overriddenReason String?
+  overridden         Boolean        @default(false)
+  overriddenReason   String?
   overriddenByUserId String?
 
-  createdAt       DateTime           @default(now())
+  createdAt       DateTime @default(now())
   createdByUserId String?
 
   @@index([tenantId, scope, createdAt])
@@ -1631,20 +1687,20 @@ enum DevicePlatform {
 }
 
 model UserDevice {
-  id           String         @id @default(cuid())
-  userId       String
+  id       String         @id @default(cuid())
+  userId   String
   // Denormalised so the push service can scope a fanout without joining
   // through User. Updated on every refresh.
-  tenantId     String?
-  fcmToken     String         @unique
-  platform    DevicePlatform  @default(ANDROID)
+  tenantId String?
+  fcmToken String         @unique
+  platform DevicePlatform @default(ANDROID)
   // Human-readable label so operators recognise their devices in an
   // eventual "Manage logged-in devices" page.
-  label       String?
+  label    String?
 
-  lastSeenAt   DateTime       @default(now())
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([userId])
   @@index([tenantId])
@@ -1678,14 +1734,14 @@ enum SupportTicketSenderType {
 }
 
 model SupportTicket {
-  id              String                @id @default(cuid())
+  id       String @id @default(cuid())
   // Customer (child) tenant that raised the ticket.
-  tenantId        String
-  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  subject         String
-  status          SupportTicketStatus   @default(NEW)
-  priority        SupportTicketPriority @default(MEDIUM)
+  subject  String
+  status   SupportTicketStatus   @default(NEW)
+  priority SupportTicketPriority @default(MEDIUM)
 
   // Creator (User.id, no FK relation — kept loose so deleting a user
   // doesn't cascade-trash ticket history).
@@ -1693,15 +1749,15 @@ model SupportTicket {
 
   // Last user (User.id) on the partner side to touch the ticket.
   lastRepliedByUserId String?
-  lastRepliedAt   DateTime?
+  lastRepliedAt       DateTime?
 
-  resolvedAt      DateTime?
-  closedAt        DateTime?
+  resolvedAt DateTime?
+  closedAt   DateTime?
 
-  messages        SupportTicketMessage[]
+  messages SupportTicketMessage[]
 
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, status])
   @@index([status, priority])
@@ -1709,17 +1765,17 @@ model SupportTicket {
 }
 
 model SupportTicketMessage {
-  id           String                  @id @default(cuid())
-  ticketId     String
-  ticket       SupportTicket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  id       String        @id @default(cuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   senderType   SupportTicketSenderType
-  senderUserId String?                 // User.id, no FK relation
+  senderUserId String? // User.id, no FK relation
   content      String
   // Internal notes are partner-only and not shown to the customer.
   internalNote Boolean                 @default(false)
 
-  createdAt    DateTime                @default(now())
+  createdAt DateTime @default(now())
 
   @@index([ticketId, createdAt])
 }
@@ -1732,10 +1788,10 @@ model SupportTicketMessage {
 // ============================================================================
 
 enum DripSequenceStatus {
-  DRAFT     // operator is still authoring; no enrollments accepted
-  ACTIVE    // accepting new enrollments; existing ones progress
-  PAUSED    // existing enrollments freeze; no new ones accepted
-  ARCHIVED  // hidden from UI; nothing happens
+  DRAFT // operator is still authoring; no enrollments accepted
+  ACTIVE // accepting new enrollments; existing ones progress
+  PAUSED // existing enrollments freeze; no new ones accepted
+  ARCHIVED // hidden from UI; nothing happens
 }
 
 enum DripSequenceTrigger {
@@ -1747,70 +1803,70 @@ enum DripSequenceTrigger {
 }
 
 enum DripEnrollmentStatus {
-  RUNNING    // making progress through steps
-  COMPLETED  // finished the final step
-  CANCELLED  // operator pulled them out
-  FAILED     // unrecoverable error mid-sequence
+  RUNNING // making progress through steps
+  COMPLETED // finished the final step
+  CANCELLED // operator pulled them out
+  FAILED // unrecoverable error mid-sequence
 }
 
 model DripSequence {
-  id              String                @id @default(cuid())
-  tenantId        String
-  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  name            String
-  description     String?
-  status          DripSequenceStatus    @default(DRAFT)
-  trigger         DripSequenceTrigger   @default(MANUAL)
+  name        String
+  description String?
+  status      DripSequenceStatus  @default(DRAFT)
+  trigger     DripSequenceTrigger @default(MANUAL)
   // When trigger=TAG_ADDED, the tag that activates enrollment.
-  triggerTag      String?
+  triggerTag  String?
 
   // Ordered list of steps. Stored as JSON so we can iterate without
   // a join — each step is small and the list is short. Shape:
   //   [{ delayHours: number, templateId: string, languageCode?: string,
   //      bodyParams?: string[] }]
   // Validated at the route layer (zod).
-  steps           Json                  @default("[]")
+  steps Json @default("[]")
 
-  enrollments     DripEnrollment[]
-  retentionConfigs RetentionConfig[]   @relation("RetentionWinbackSequence")
+  enrollments      DripEnrollment[]
+  retentionConfigs RetentionConfig[] @relation("RetentionWinbackSequence")
 
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, status])
   @@index([trigger, status])
 }
 
 model DripEnrollment {
-  id              String                @id @default(cuid())
+  id       String @id @default(cuid())
   // Denormalized for fast tenant-scoped reads + a tenantId index on
   // the scan-worker query.
-  tenantId        String
-  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  sequenceId      String
-  sequence        DripSequence          @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
-  contactId       String
-  contact         Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  sequenceId String
+  sequence   DripSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  contactId  String
+  contact    Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   // Index into DripSequence.steps[] for the NEXT step to fire. When
   // the worker fires step N, it advances to N+1; if N+1 == steps.length
   // the enrollment is marked COMPLETED.
-  currentStep     Int                   @default(0)
-  status          DripEnrollmentStatus  @default(RUNNING)
+  currentStep Int                  @default(0)
+  status      DripEnrollmentStatus @default(RUNNING)
 
   // Scan-worker wakeup driver: find RUNNING rows where nextStepAt <= now.
-  nextStepAt      DateTime?
-  lastStepAt      DateTime?
+  nextStepAt DateTime?
+  lastStepAt DateTime?
 
-  sentCount       Int                   @default(0)
-  failedCount     Int                   @default(0)
+  sentCount   Int     @default(0)
+  failedCount Int     @default(0)
   // Set when status moves to FAILED — what went wrong on the last send.
-  lastError       String?
+  lastError   String?
 
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // One enrollment per contact per sequence — re-enrolling a contact
   // is an explicit operator action (cancel-then-enroll), not a silent
@@ -1829,31 +1885,31 @@ model DripEnrollment {
 // ============================================================================
 
 model MetaAdsConnection {
-  id              String   @id @default(cuid())
-  tenantId        String   @unique
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // Facebook user/system-user access token. Stored encrypted via the same
   // envelope helper used for WABA tokens (lib/tokenCrypto.ts).
-  accessToken     String
+  accessToken String
 
   // act_<numeric-id> — the active ad account. Operators can have many in
   // a single Facebook business account; this records which one we're
   // reading from. Stored without the "act_" prefix.
-  adAccountId     String
+  adAccountId   String
   // Display label shown in the UI so operators recognize the account.
-  adAccountName   String?
+  adAccountName String?
 
   // Cached metadata pulled from Meta on connect. Refreshed on next sync.
-  businessName    String?
-  currency        String?  // 3-letter ISO, e.g. "INR"
-  timeZoneName    String?  // IANA tz, e.g. "Asia/Kolkata"
+  businessName String?
+  currency     String? // 3-letter ISO, e.g. "INR"
+  timeZoneName String? // IANA tz, e.g. "Asia/Kolkata"
 
-  lastSyncedAt    DateTime?
-  lastSyncError   String?
+  lastSyncedAt  DateTime?
+  lastSyncError String?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ============================================================================
@@ -1870,20 +1926,20 @@ model MetaAdsConnection {
 // /<form_id>/leads endpoint every few minutes, page through entries newer
 // than `lastFetchedAt`, and create a Contact + Lead in NexaFlow.
 model MetaAdsLeadForm {
-  id             String    @id @default(cuid())
-  tenantId       String
-  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  formId         String    // Meta lead form id (numeric string)
-  formName       String?
+  formId   String // Meta lead form id (numeric string)
+  formName String?
   // Meta page that owns the form. Captured for display; not used at fetch
   // time since the form id is globally unique on Meta's side.
-  pageId         String?
-  pageName       String?
+  pageId   String?
+  pageName String?
 
   // Tag every imported Contact with this label so operators can segment
   // "leads from Meta" quickly. Optional — empty disables tag injection.
-  importTag      String?
+  importTag String?
 
   // Polling state.
   isActive       Boolean   @default(true)
@@ -1891,8 +1947,8 @@ model MetaAdsLeadForm {
   lastFetchError String?
   importedCount  Int       @default(0)
 
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, formId])
   @@index([tenantId, isActive])
@@ -1911,64 +1967,64 @@ enum MetaAudienceStatus {
 }
 
 model MetaAdsAudience {
-  id              String              @id @default(cuid())
-  tenantId        String
-  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // Meta-side custom audience id (returned on creation). Empty until the
   // first successful create call; routes refuse refresh when null.
-  metaAudienceId  String?
+  metaAudienceId String?
 
-  name            String
-  description     String?
+  name        String
+  description String?
   // The filter spec that resolved the contact list at create / last
   // refresh time. Stored as JSON so we can re-resolve on refresh.
   // Shape matches SegmentFilterSpec from services/ai.service.ts.
-  filterSpec      Json                @default("{}")
+  filterSpec  Json    @default("{}")
 
-  status          MetaAudienceStatus  @default(CREATING)
-  lastSyncError   String?
+  status        MetaAudienceStatus @default(CREATING)
+  lastSyncError String?
 
   // Counters reflect the most recent successful refresh.
-  lastSyncedAt    DateTime?
-  contactCount    Int                 @default(0)
+  lastSyncedAt  DateTime?
+  contactCount  Int       @default(0)
   // Meta returns a 24-72h match window so the audience size is eventually
   // consistent; we only know how many rows we uploaded.
-  uploadedCount   Int                 @default(0)
+  uploadedCount Int       @default(0)
 
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, name])
   @@index([tenantId, status])
 }
 
 model GoogleAdsConnection {
-  id                  String   @id @default(cuid())
-  tenantId            String   @unique
-  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   // OAuth refresh token issued by Google. Encrypted with the same envelope
   // helper used for WABA + Meta Ads.
-  refreshToken        String
+  refreshToken String
 
   // 10-digit Google Ads customer id (no dashes). The account this
   // connection reads from.
-  customerId          String
+  customerId      String
   // Optional Manager (MCC) customer id. When set, this is sent as the
   // login-customer-id header so Google routes the request via the manager.
-  loginCustomerId     String?
+  loginCustomerId String?
 
   // Cached metadata fetched on connect.
-  customerName        String?
-  currency            String?  // 3-letter ISO, e.g. "INR"
-  timeZoneName        String?  // IANA tz, e.g. "Asia/Kolkata"
+  customerName String?
+  currency     String? // 3-letter ISO, e.g. "INR"
+  timeZoneName String? // IANA tz, e.g. "Asia/Kolkata"
 
-  lastSyncedAt        DateTime?
-  lastSyncError       String?
+  lastSyncedAt  DateTime?
+  lastSyncError String?
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ============================================================================
@@ -2022,24 +2078,24 @@ enum PlatformActionCode {
 // ============================================================================
 
 enum CustomerHealthTier {
-  THRIVING   // score >= 80
-  HEALTHY    // score >= 60
-  AT_RISK    // score >= 40
-  CHURNING   // score < 40
+  THRIVING // score >= 80
+  HEALTHY // score >= 60
+  AT_RISK // score >= 40
+  CHURNING // score < 40
 }
 
 model CustomerHealthScore {
-  id              String              @id @default(cuid())
-  tenantId        String
-  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  dayKey          String              // YYYY-MM-DD (UTC)
-  assessedAt      DateTime            @default(now())
+  dayKey     String // YYYY-MM-DD (UTC)
+  assessedAt DateTime @default(now())
 
   // Composite score 0-100. Tier derived deterministically from score
   // (no LLM in this slice; slice 2 layers an LLM narrative on top).
-  score           Int
-  tier            CustomerHealthTier
+  score Int
+  tier  CustomerHealthTier
 
   // Per-factor breakdown so partners + the AI assistant can see WHY a
   // tenant scored where they did. Shape:
@@ -2048,12 +2104,12 @@ model CustomerHealthScore {
   //     compliance: { ... },
   //     engagement: { ... },
   //     onboarding: { ... } }
-  factors         Json                @default("{}")
+  factors Json @default("{}")
 
   // Optional short recommendation (filled by the AI assistant in slice 2).
-  recommendation  String?
+  recommendation String?
 
-  createdAt       DateTime            @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([tenantId, dayKey])
   @@index([tenantId, assessedAt(sort: Desc)])
@@ -2061,32 +2117,32 @@ model CustomerHealthScore {
 }
 
 model PlatformActionItem {
-  id                String                  @id @default(cuid())
-  code              PlatformActionCode
-  severity          PlatformActionSeverity
-  title             String
-  body              String
+  id       String                 @id @default(cuid())
+  code     PlatformActionCode
+  severity PlatformActionSeverity
+  title    String
+  body     String
 
   // Most items target a tenant. Cross-tenant items (e.g. global provider
   // outage) leave both null.
-  targetTenantId    String?
-  targetTenant      Tenant?                 @relation(fields: [targetTenantId], references: [id], onDelete: SetNull)
+  targetTenantId String?
+  targetTenant   Tenant? @relation(fields: [targetTenantId], references: [id], onDelete: SetNull)
 
   // Free-form context the UI surfaces (provider key, conversation id,
   // assessment id, etc.). Bounded to ~2KB by convention.
-  context           Json                    @default("{}")
+  context Json @default("{}")
 
-  status            PlatformActionStatus    @default(OPEN)
-  resolvedAt        DateTime?
-  resolvedByUserId  String?
-  snoozedUntil      DateTime?
+  status           PlatformActionStatus @default(OPEN)
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  snoozedUntil     DateTime?
 
   // Deterministic key the scan computes from (code, target, day) so
   // a repeated scan upserts the same row instead of creating duplicates.
-  dedupeKey         String                  @unique
+  dedupeKey String @unique
 
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status, severity, createdAt])
   @@index([targetTenantId, status])
@@ -2116,18 +2172,18 @@ enum ProposalStatus {
 }
 
 model Proposal {
-  id              String          @id @default(cuid())
+  id String @id @default(cuid())
 
   // Partner tenant that owns this proposal (the seller, not the prospect).
   partnerTenantId String
-  partnerTenant   Tenant          @relation("PartnerProposals", fields: [partnerTenantId], references: [id], onDelete: Cascade)
+  partnerTenant   Tenant @relation("PartnerProposals", fields: [partnerTenantId], references: [id], onDelete: Cascade)
 
   // Prospect is free-text — they are not a tenant yet.
-  prospectName    String
-  industry        String
+  prospectName String
+  industry     String
 
   // The brief the partner submitted, kept so a proposal can be regenerated.
-  brief           Json            @default("{}")
+  brief Json @default("{}")
 
   // Full AI-generated structured draft. Shape:
   //   { executiveSummary, painPoints[],
@@ -2135,25 +2191,25 @@ model Proposal {
   //     roiEstimate { summary, metrics[] },
   //     timeline [{ phase, duration, detail }],
   //     callToAction }
-  content         Json            @default("{}")
+  content Json @default("{}")
 
   // Denormalized for list views without parsing `content`.
-  title           String
-  currency        String          @default("INR")
-  estimatedValue  Int?            // recommended plan price, whole currency units
+  title          String
+  currency       String @default("INR")
+  estimatedValue Int? // recommended plan price, whole currency units
 
-  status          ProposalStatus  @default(DRAFT)
-  source          String          @default("ai") // "ai" | "fallback"
+  status ProposalStatus @default(DRAFT)
+  source String         @default("ai") // "ai" | "fallback"
 
   // Public read-only share page token. The API only exposes SENT / ACCEPTED
   // proposals so drafts and declined deals stay private.
-  shareToken      String          @unique @default(cuid())
+  shareToken String @unique @default(cuid())
 
   createdByUserId String?
   sentAt          DateTime?
 
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([partnerTenantId, createdAt(sort: Desc)])
   @@index([partnerTenantId, status])
@@ -2175,31 +2231,31 @@ model Proposal {
 // ============================================================================
 
 enum RetentionTier {
-  ACTIVE   // engaged recently — no action
-  COOLING  // slipping — gentle nudge
-  DORMANT  // gone quiet — win-back candidate
-  LOST     // opted out or long gone
+  ACTIVE // engaged recently — no action
+  COOLING // slipping — gentle nudge
+  DORMANT // gone quiet — win-back candidate
+  LOST // opted out or long gone
 }
 
 model ContactRetentionScore {
-  id                   String         @id @default(cuid())
-  tenantId             String
-  tenant               Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contactId            String
-  contact              Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  dayKey               String         // YYYY-MM-DD (UTC)
-  assessedAt           DateTime       @default(now())
+  dayKey     String // YYYY-MM-DD (UTC)
+  assessedAt DateTime @default(now())
 
   // 0-100; higher = healthier retention. Tier derived from score + recency.
   score                Int
   tier                 RetentionTier
   daysSinceInteraction Int
 
-  factors              Json           @default("{}")
-  recommendation       String?
+  factors        Json    @default("{}")
+  recommendation String?
 
-  createdAt            DateTime       @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([tenantId, contactId, dayKey])
   @@index([tenantId, tier, score])
@@ -2228,25 +2284,25 @@ enum RetentionMode {
 }
 
 model RetentionConfig {
-  id                String         @id @default(cuid())
-  tenantId          String         @unique
-  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  mode              RetentionMode  @default(MANUAL)
+  mode RetentionMode @default(MANUAL)
 
   // Win-back sequence DORMANT contacts get enrolled into under AUTOPILOT.
   winbackSequenceId String?
-  winbackSequence   DripSequence?  @relation("RetentionWinbackSequence", fields: [winbackSequenceId], references: [id], onDelete: SetNull)
+  winbackSequence   DripSequence? @relation("RetentionWinbackSequence", fields: [winbackSequenceId], references: [id], onDelete: SetNull)
 
   // Safety cap on enrollments per autopilot run so a first run on a large
   // dormant book can't fan out thousands of sends at once.
-  maxEnrollPerRun   Int            @default(50)
+  maxEnrollPerRun Int @default(50)
 
   lastRunAt         DateTime?
-  lastEnrolledCount Int            @default(0)
+  lastEnrolledCount Int       @default(0)
 
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([mode])
 }
@@ -2263,31 +2319,31 @@ model RetentionConfig {
 // ============================================================================
 
 enum DomainHealthOutcome {
-  OK              // DNS + SSL both pass
-  DNS_DRIFT       // domain was LIVE; CNAME or TXT no longer resolves
-  SSL_FAILED      // DNS still good; SSL handshake failed
-  UNREACHABLE     // sample errored (network / DNS timeout)
+  OK // DNS + SSL both pass
+  DNS_DRIFT // domain was LIVE; CNAME or TXT no longer resolves
+  SSL_FAILED // DNS still good; SSL handshake failed
+  UNREACHABLE // sample errored (network / DNS timeout)
 }
 
 model DomainHealthSample {
-  id           String              @id @default(cuid())
-  domainId     String
-  domain       Domain              @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  domainId String
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
 
   // Denormalized so we can group/list by partner without an extra join.
   tenantId        String
   partnerTenantId String?
 
-  outcome      DomainHealthOutcome
-  cnameOk      Boolean
-  txtOk        Boolean
-  sslOk        Boolean
+  outcome   DomainHealthOutcome
+  cnameOk   Boolean
+  txtOk     Boolean
+  sslOk     Boolean
   // Round-trip latency for the worker's slowest check, ms (debugging only).
-  latencyMs    Int?
+  latencyMs Int?
   // Short, bounded error string when outcome != OK.
-  error        String?
+  error     String?
 
-  observedAt   DateTime            @default(now())
+  observedAt DateTime @default(now())
 
   @@index([domainId, observedAt(sort: Desc)])
   @@index([tenantId, observedAt(sort: Desc)])
