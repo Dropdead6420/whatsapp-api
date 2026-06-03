@@ -112,6 +112,13 @@ nexaflow-ai/
    npm run seed
    ```
 
+   To create/update demo logins for every panel, run this from the repo root:
+   ```bash
+   SEED_PANEL_PASSWORD="your-demo-password" npm run seed:panel-users
+   ```
+   This creates Super Admin, Partner Admin, Business Admin, Team Lead, and Agent
+   accounts with configurable emails via `SEED_*_EMAIL` environment variables.
+
 6. **Start development servers**
    ```bash
    npm run dev
