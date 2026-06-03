@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { WalletType } from "@nexaflow/shared";
 
 const rechargeSchema = z.object({
   amount: z.number().int().positive(),
@@ -15,7 +16,8 @@ const rechargeSchema = z.object({
     .regex(/^[A-Z]{3}$/i, "Currency must be a 3-letter ISO code")
     .optional(),
   idempotencyKey: z.string().min(8).max(80),
-  gateway: z.enum(["RAZORPAY"]).default("RAZORPAY"),
+  gateway: z.enum(["RAZORPAY", "STRIPE"]).default("RAZORPAY"),
+  walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
 });
 
 describe("rechargeSchema", () => {
@@ -27,7 +29,20 @@ describe("rechargeSchema", () => {
   it("accepts the minimal valid body", () => {
     const parsed = rechargeSchema.parse(baseValidBody);
     expect(parsed.gateway).toBe("RAZORPAY"); // default
+    expect(parsed.walletType).toBe(WalletType.WHATSAPP_USAGE); // default
     expect(parsed.amount).toBe(50_000);
+  });
+
+  it("accepts Stripe and explicit AI credit wallet recharge", () => {
+    const parsed = rechargeSchema.parse({
+      ...baseValidBody,
+      gateway: "STRIPE",
+      walletType: WalletType.AI_CREDIT,
+      currency: "USD",
+    });
+    expect(parsed.gateway).toBe("STRIPE");
+    expect(parsed.walletType).toBe(WalletType.AI_CREDIT);
+    expect(parsed.currency).toBe("USD");
   });
 
   it("rejects non-integer amount (fractional paise are invalid)", () => {

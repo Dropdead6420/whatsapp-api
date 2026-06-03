@@ -45,6 +45,22 @@ import { extractRequestMeta, logAudit } from "../services/audit.service";
 const router = Router();
 router.use(requireAuth, requireTenantScope);
 
+const customerWalletTypes = [
+  WalletType.WHATSAPP_USAGE,
+  WalletType.AI_CREDIT,
+] as const;
+
+const ledgerQuerySchema = z.object({
+  walletType: z.nativeEnum(WalletType).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+const usageQuerySchema = z.object({
+  walletType: z.nativeEnum(WalletType).optional(),
+  sinceDays: z.coerce.number().int().min(1).max(90).optional(),
+});
+
 const rechargeSchema = z.object({
   amount: z.number().int().positive(),
   currency: z
@@ -58,6 +74,34 @@ const rechargeSchema = z.object({
   gateway: z.enum(["RAZORPAY", "STRIPE"]).default("RAZORPAY"),
   walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
 });
+
+router.get(
+  "/",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const wallets = await Promise.all(
+        customerWalletTypes.map((walletType) =>
+          ensureWallet(req.tenantId!, walletType),
+        ),
+      );
+      res.json({
+        success: true,
+        data: {
+          wallets,
+          primaryWallet:
+            wallets.find((wallet) => wallet.type === WalletType.WHATSAPP_USAGE) ??
+            wallets[0],
+          aiWallet:
+            wallets.find((wallet) => wallet.type === WalletType.AI_CREDIT) ??
+            null,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.post(
   "/recharge",
@@ -210,14 +254,61 @@ router.get(
   requirePermission(Permissions.WALLET_VIEW),
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
+      const q = usageQuerySchema.parse(req.query);
       const summary = await getWalletUsage({
         tenantId: req.tenantId!,
-        sinceDays:
-          typeof req.query.sinceDays === "string"
-            ? Number.parseInt(req.query.sinceDays, 10)
-            : undefined,
+        walletType: q.walletType,
+        sinceDays: q.sinceDays,
       });
       res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/ledger",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const q = ledgerQuerySchema.parse(req.query);
+      const where = {
+        tenantId: req.tenantId!,
+        ...(q.walletType ? { wallet: { type: q.walletType } } : {}),
+      };
+      const [total, items] = await prisma.$transaction([
+        prisma.walletTransaction.count({ where }),
+        prisma.walletTransaction.findMany({
+          where,
+          skip: (q.page - 1) * q.limit,
+          take: q.limit,
+          orderBy: { createdAt: "desc" },
+          include: {
+            actorUser: { select: { id: true, name: true, email: true } },
+            counterpartyWallet: {
+              select: {
+                id: true,
+                tenant: { select: { id: true, name: true, type: true } },
+              },
+            },
+            wallet: { select: { id: true, type: true } },
+          },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          items,
+          pagination: {
+            page: q.page,
+            limit: q.limit,
+            total,
+            totalPages: Math.max(1, Math.ceil(total / q.limit)),
+          },
+        },
+      });
     } catch (err) {
       next(err);
     }

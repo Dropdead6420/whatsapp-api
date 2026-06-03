@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { prismaRead } from "@nexaflow/db";
+import { WalletType } from "@nexaflow/shared";
 
 export type UsageCategory = "messaging" | "ai" | "workflow" | "other";
 
@@ -155,6 +156,7 @@ export function aggregateUsageByDay(
  */
 export async function getWalletUsage(args: {
   tenantId: string;
+  walletType?: WalletType;
   sinceDays?: number;
 }): Promise<WalletUsageSummary> {
   const { windowDays, windowStart } = resolveUsageWindow(args.sinceDays);
@@ -165,6 +167,7 @@ export async function getWalletUsage(args: {
       tenantId: args.tenantId,
       direction: "DEBIT",
       createdAt: { gte: windowStart },
+      ...(args.walletType ? { wallet: { type: args.walletType } } : {}),
     },
     select: { type: true, direction: true, amountCredits: true, createdAt: true },
     orderBy: { createdAt: "asc" },

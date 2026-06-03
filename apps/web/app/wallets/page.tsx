@@ -13,9 +13,12 @@ interface TenantSummary {
   parentTenantId?: string | null;
 }
 
+type WalletType = "WHATSAPP_USAGE" | "AI_CREDIT" | "PARTNER_CREDIT";
+
 interface Wallet {
   id: string;
   tenantId: string;
+  type: WalletType;
   status: "ACTIVE" | "SUSPENDED";
   billingMode: "PREPAID" | "POSTPAID";
   balanceCredits: number;
@@ -34,6 +37,7 @@ type AutoRechargeProvider = "razorpay" | "stripe" | "";
 interface WalletRow {
   tenant: TenantSummary;
   wallet: Wallet;
+  wallets?: Wallet[];
 }
 
 interface WalletListResponse {
@@ -44,6 +48,12 @@ interface WalletListResponse {
     total: number;
     totalPages: number;
   };
+}
+
+interface CustomerWalletsResponse {
+  wallets: Wallet[];
+  primaryWallet: Wallet;
+  aiWallet: Wallet | null;
 }
 
 interface WalletTransaction {
@@ -58,6 +68,7 @@ interface WalletTransaction {
   counterpartyWallet?: {
     tenant: { id: string; name: string; type: string };
   } | null;
+  wallet?: { id: string; type: WalletType } | null;
 }
 
 interface TransactionResponse {
@@ -162,6 +173,28 @@ type Gateway = "RAZORPAY" | "STRIPE";
 
 const PRESET_RECHARGE_RUPEES = [500, 1000, 2000, 5000];
 const USAGE_WINDOWS: UsageWindowDays[] = [7, 30, 90];
+const CUSTOMER_WALLET_TYPES: Array<{
+  key: Extract<WalletType, "WHATSAPP_USAGE" | "AI_CREDIT">;
+  label: string;
+  shortLabel: string;
+  description: string;
+  accent: string;
+}> = [
+  {
+    key: "WHATSAPP_USAGE",
+    label: "WhatsApp Usage Wallet",
+    shortLabel: "WhatsApp",
+    description: "Broadcasts, chat replies, templates, and Meta message spend.",
+    accent: "from-emerald-500 to-teal-500",
+  },
+  {
+    key: "AI_CREDIT",
+    label: "AI Credit Wallet",
+    shortLabel: "AI Credit",
+    description: "AI agents, reply suggestions, scoring, and creative generation.",
+    accent: "from-violet-500 to-indigo-500",
+  },
+];
 const USAGE_CATEGORIES: Array<{
   key: WalletUsageCategory;
   label: string;
@@ -200,6 +233,28 @@ function statusClass(status: string) {
     : "bg-red-50 text-red-700";
 }
 
+function walletLabel(type: WalletType) {
+  return (
+    CUSTOMER_WALLET_TYPES.find((wallet) => wallet.key === type)?.label ??
+    type.replace(/_/g, " ")
+  );
+}
+
+function shortWalletLabel(type: WalletType) {
+  return (
+    CUSTOMER_WALLET_TYPES.find((wallet) => wallet.key === type)?.shortLabel ??
+    type.replace(/_/g, " ")
+  );
+}
+
+function walletFor(row: WalletRow | undefined, type: WalletType) {
+  if (!row) return null;
+  return (
+    row.wallets?.find((wallet) => wallet.type === type) ??
+    (row.wallet.type === type ? row.wallet : null)
+  );
+}
+
 export default function WalletsPage() {
   const { user, features, loading, signOut } = useAuth({
     required: true,
@@ -207,6 +262,8 @@ export default function WalletsPage() {
   });
   const [rows, setRows] = useState<WalletRow[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState("");
+  const [selectedWalletType, setSelectedWalletType] =
+    useState<WalletType>("WHATSAPP_USAGE");
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -261,28 +318,53 @@ export default function WalletsPage() {
     () => rows.find((row) => row.tenant.id === selectedTenantId) ?? rows[0],
     [rows, selectedTenantId],
   );
+  const selectedWallet = useMemo(
+    () => walletFor(selected, selectedWalletType) ?? selected?.wallet ?? null,
+    [selected, selectedWalletType],
+  );
 
   async function loadWallets() {
     setErr(null);
     try {
       const data = await api.get<WalletListResponse>("/api/v1/wallets?limit=100");
-      setRows(data.items);
-      const first = data.items[0];
+      let items = data.items;
+      if (canSelfRecharge && items[0]) {
+        const customerWallets =
+          await api.get<CustomerWalletsResponse>("/api/v1/customer/wallets");
+        items = items.map((item, index) =>
+          index === 0
+            ? {
+                ...item,
+                wallet:
+                  customerWallets.primaryWallet ??
+                  customerWallets.wallets[0] ??
+                  item.wallet,
+                wallets: customerWallets.wallets,
+              }
+            : item,
+        );
+      }
+      setRows(items);
+      const first = items[0];
       setSelectedTenantId((current) => current || first?.tenant.id || "");
       if (first && !selectedTenantId) {
-        syncSettings(first.wallet);
+        syncSettings(walletFor(first, "WHATSAPP_USAGE") ?? first.wallet);
       }
     } catch (error) {
       setErr(error instanceof ApiClientError ? error.message : "Failed to load wallets");
     }
   }
 
-  async function loadTransactions(tenantId: string) {
+  async function loadTransactions(
+    tenantId: string,
+    walletType: WalletType = selectedWalletType,
+  ) {
     if (!tenantId) return;
     try {
-      const data = await api.get<TransactionResponse>(
-        `/api/v1/wallets/${tenantId}/transactions?limit=25`,
-      );
+      const endpoint = canSelfRecharge
+        ? `/api/v1/customer/wallets/ledger?limit=25&walletType=${walletType}`
+        : `/api/v1/wallets/${tenantId}/transactions?limit=25&walletType=${walletType}`;
+      const data = await api.get<TransactionResponse>(endpoint);
       setTransactions(data.items);
     } catch (error) {
       setErr(error instanceof ApiClientError ? error.message : "Failed to load transactions");
@@ -319,7 +401,7 @@ export default function WalletsPage() {
     setUsageLoading(true);
     try {
       const data = await api.get<WalletUsageSummary>(
-        `/api/v1/customer/wallets/usage?sinceDays=${days}`,
+        `/api/v1/customer/wallets/usage?sinceDays=${days}&walletType=${selectedWalletType}`,
       );
       setUsage(data);
     } catch {
@@ -350,10 +432,15 @@ export default function WalletsPage() {
   useEffect(() => {
     if (!selected) return;
     setSelectedTenantId(selected.tenant.id);
-    syncSettings(selected.wallet);
-    void loadTransactions(selected.tenant.id);
+    syncSettings(selectedWallet ?? selected.wallet);
+    void loadTransactions(selected.tenant.id, selectedWalletType);
     if (canSelfRecharge) void loadInvoices();
-  }, [selected?.tenant.id, canSelfRecharge]);
+  }, [
+    selected?.tenant.id,
+    selectedWalletType,
+    selectedWallet?.id,
+    canSelfRecharge,
+  ]);
 
   useEffect(() => {
     if (!user || !canSelfRecharge) {
@@ -361,7 +448,7 @@ export default function WalletsPage() {
       return;
     }
     void loadUsage(usageWindow);
-  }, [user?.id, canSelfRecharge, usageWindow]);
+  }, [user?.id, canSelfRecharge, usageWindow, selectedWalletType]);
 
   async function adjust(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -370,13 +457,14 @@ export default function WalletsPage() {
     setNotice(null);
     try {
       await api.post(`/api/v1/wallets/${selected.tenant.id}/adjust`, {
+        walletType: selectedWalletType,
         direction,
         amountCredits: Number(amountCredits),
         reason,
       });
       setNotice("Wallet adjusted and transaction recorded.");
       await loadWallets();
-      await loadTransactions(selected.tenant.id);
+      await loadTransactions(selected.tenant.id, selectedWalletType);
     } catch (error) {
       setErr(error instanceof ApiClientError ? error.message : "Adjustment failed");
     }
@@ -389,6 +477,7 @@ export default function WalletsPage() {
     setNotice(null);
     try {
       await api.patch(`/api/v1/wallets/${selected.tenant.id}/settings`, {
+        walletType: selectedWalletType,
         status,
         billingMode,
         creditLimit: Number(creditLimit),
@@ -431,6 +520,7 @@ export default function WalletsPage() {
     setSavingAutoRecharge(true);
     try {
       await api.patch(`/api/v1/wallets/${selected.tenant.id}/settings`, {
+        walletType: selectedWalletType,
         autoRechargeEnabled,
         autoRechargeAmountCredits: Number(autoRechargeAmount),
         autoRechargePaymentProvider: autoRechargeProvider || null,
@@ -500,12 +590,13 @@ export default function WalletsPage() {
       await api.post("/api/v1/wallets/transfer", {
         fromTenantId: selected.tenant.id,
         toTenantId,
+        walletType: selectedWalletType,
         amountCredits: Number(transferAmount),
         reason: transferReason,
       });
       setNotice("Credits transferred and both ledgers updated.");
       await loadWallets();
-      await loadTransactions(selected.tenant.id);
+      await loadTransactions(selected.tenant.id, selectedWalletType);
     } catch (error) {
       setErr(error instanceof ApiClientError ? error.message : "Transfer failed");
     }
@@ -560,6 +651,7 @@ export default function WalletsPage() {
         currency,
         idempotencyKey,
         gateway,
+        walletType: selectedWalletType,
       });
 
       if (result.init.stubMode) {
@@ -612,7 +704,7 @@ export default function WalletsPage() {
           // without forcing a page reload.
           window.setTimeout(() => {
             void loadWallets();
-            if (selected) void loadTransactions(selected.tenant.id);
+            if (selected) void loadTransactions(selected.tenant.id, selectedWalletType);
             void loadInvoices();
             void loadUsage(usageWindow);
           }, 4000);
@@ -684,7 +776,7 @@ export default function WalletsPage() {
     );
     window.setTimeout(() => {
       void loadWallets();
-      if (selected) void loadTransactions(selected.tenant.id);
+      if (selected) void loadTransactions(selected.tenant.id, selectedWalletType);
       void loadInvoices();
       void loadUsage(usageWindow);
     }, 4000);
@@ -710,6 +802,7 @@ export default function WalletsPage() {
       const body: Record<string, unknown> = {
         amount: Math.round(rupees * 100),
         currency: "INR",
+        walletType: selectedWalletType,
       };
       const proof = manualProofUrl.trim();
       if (proof) body.proofUrl = proof;
@@ -760,12 +853,12 @@ export default function WalletsPage() {
         <aside className="space-y-3">
           {rows.map((row) => (
             <button
-              key={row.wallet.id}
+              key={row.tenant.id}
               type="button"
               onClick={() => {
                 setSelectedTenantId(row.tenant.id);
-                syncSettings(row.wallet);
-                void loadTransactions(row.tenant.id);
+                syncSettings(walletFor(row, selectedWalletType) ?? row.wallet);
+                void loadTransactions(row.tenant.id, selectedWalletType);
               }}
               className={`w-full rounded-lg border p-4 text-left text-sm ${
                 selected?.tenant.id === row.tenant.id
@@ -784,10 +877,25 @@ export default function WalletsPage() {
                   {row.wallet.status}
                 </span>
               </div>
-              <div className="mt-4 text-2xl font-semibold">
-                {formatCredits(row.wallet.balanceCredits)}
+              <div className="mt-4 grid gap-2">
+                {CUSTOMER_WALLET_TYPES.map((meta) => {
+                  const wallet = walletFor(row, meta.key);
+                  return (
+                    <div
+                      key={meta.key}
+                      className="flex items-center justify-between rounded-md bg-white/70 px-2 py-1.5"
+                    >
+                      <span className="text-xs text-slate-500">
+                        {meta.shortLabel}
+                      </span>
+                      <span className="font-semibold text-slate-900">
+                        {formatCredits(wallet?.balanceCredits ?? 0)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="mt-1 text-xs text-slate-500">
+              <div className="mt-2 text-xs text-slate-500">
                 {row.wallet.billingMode} · limit {formatCredits(row.wallet.creditLimit)}
               </div>
             </button>
@@ -802,21 +910,82 @@ export default function WalletsPage() {
         <main className="space-y-6">
           {selected && (
             <>
+              <section className="grid gap-4 md:grid-cols-2">
+                {CUSTOMER_WALLET_TYPES.map((meta) => {
+                  const wallet = walletFor(selected, meta.key);
+                  const isActive = selectedWalletType === meta.key;
+                  return (
+                    <button
+                      key={meta.key}
+                      type="button"
+                      onClick={() => setSelectedWalletType(meta.key)}
+                      className={`overflow-hidden rounded-lg border bg-white text-left transition ${
+                        isActive
+                          ? "border-slate-900 shadow-sm"
+                          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className={`h-1.5 bg-gradient-to-r ${meta.accent}`} />
+                      <div className="p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-950">
+                              {meta.label}
+                            </div>
+                            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                              {meta.description}
+                            </p>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              isActive
+                                ? "bg-slate-900 text-white"
+                                : "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            {isActive ? "Selected" : "View"}
+                          </span>
+                        </div>
+                        <div className="mt-5 flex items-end justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                              Available credits
+                            </div>
+                            <div className="mt-1 text-3xl font-semibold text-slate-950">
+                              {formatCredits(wallet?.balanceCredits ?? 0)}
+                            </div>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-medium ${statusClass(
+                              wallet?.status ?? "ACTIVE",
+                            )}`}
+                          >
+                            {wallet?.status ?? "ACTIVE"}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </section>
+
               <section className="grid gap-4 md:grid-cols-4">
-                <StatCard label="Balance" value={formatCredits(selected.wallet.balanceCredits)} />
-                <StatCard label="Reserved" value={formatCredits(selected.wallet.reservedCredits)} />
-                <StatCard label="Credit line" value={formatCredits(selected.wallet.creditLimit)} />
-                <StatCard label="Low balance" value={formatCredits(selected.wallet.lowBalanceThreshold)} />
+                <StatCard label="Balance" value={formatCredits(selectedWallet?.balanceCredits ?? 0)} />
+                <StatCard label="Reserved" value={formatCredits(selectedWallet?.reservedCredits ?? 0)} />
+                <StatCard label="Credit line" value={formatCredits(selectedWallet?.creditLimit ?? 0)} />
+                <StatCard label="Low balance" value={formatCredits(selectedWallet?.lowBalanceThreshold ?? 0)} />
               </section>
 
               {canSelfRecharge && (
                 <section className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-5">
                   <div className="mb-3 flex items-baseline justify-between gap-3">
                     <div>
-                      <h2 className="text-sm font-semibold text-emerald-900">Add balance</h2>
+                      <h2 className="text-sm font-semibold text-emerald-900">
+                        Add balance to {shortWalletLabel(selectedWalletType)}
+                      </h2>
                       <p className="mt-0.5 text-xs text-emerald-800">
                         Recharge with Razorpay or Stripe. Funds credit to your
-                        wallet once the payment webhook is captured.
+                        {` ${shortWalletLabel(selectedWalletType)} wallet once the payment webhook is captured.`}
                       </p>
                     </div>
                   </div>
@@ -898,12 +1067,12 @@ export default function WalletsPage() {
                 <section className="rounded-lg border border-sky-200 bg-sky-50/40 p-5">
                   <div className="mb-3">
                     <h2 className="text-sm font-semibold text-sky-900">
-                      File a manual bank transfer
+                      File a manual bank transfer for {shortWalletLabel(selectedWalletType)}
                     </h2>
                     <p className="mt-0.5 text-xs text-sky-800">
                       Already paid by NEFT/IMPS/UPI? Paste your proof and the
                       transaction reference — a SuperAdmin will credit your
-                      wallet after reviewing (typically within 24 hours).
+                      selected wallet after reviewing (typically within 24 hours).
                     </p>
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
@@ -986,11 +1155,12 @@ export default function WalletsPage() {
                   usage={usage}
                   loading={usageLoading}
                   windowDays={usageWindow}
+                  walletLabel={walletLabel(selectedWalletType)}
                   onWindowChange={setUsageWindow}
                 />
               )}
 
-              {canSelfRecharge && (
+              {canSelfRecharge && selectedWalletType === "WHATSAPP_USAGE" && (
                 <section className="rounded-lg border border-slate-200 bg-white p-5">
                   <h2 className="text-sm font-semibold">Wallet settings</h2>
                   <p className="mt-1 text-xs text-slate-500">
@@ -1076,7 +1246,12 @@ export default function WalletsPage() {
               {canManage && (
                 <section className="grid gap-6 lg:grid-cols-3">
                   <form onSubmit={adjust} className="rounded-lg border border-slate-200 bg-white p-5">
-                    <h2 className="text-sm font-semibold">Manual adjustment</h2>
+                    <h2 className="text-sm font-semibold">
+                      Manual adjustment
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Applies to {walletLabel(selectedWalletType)}.
+                    </p>
                     <select
                       value={direction}
                       onChange={(event) => setDirection(event.target.value as "CREDIT" | "DEBIT")}
@@ -1104,6 +1279,9 @@ export default function WalletsPage() {
 
                   <form onSubmit={saveSettings} className="rounded-lg border border-slate-200 bg-white p-5">
                     <h2 className="text-sm font-semibold">Settings</h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Applies to {walletLabel(selectedWalletType)}.
+                    </p>
                     <select
                       value={status}
                       onChange={(event) => setStatus(event.target.value as "ACTIVE" | "SUSPENDED")}
@@ -1149,8 +1327,8 @@ export default function WalletsPage() {
                       <div>
                         <h2 className="text-sm font-semibold">Auto-recharge</h2>
                         <p className="mt-1 text-xs text-slate-500">
-                          Top up automatically when the balance drops below the
-                          low-balance alert above.
+                          Top up {shortWalletLabel(selectedWalletType)} when the
+                          balance drops below the low-balance alert above.
                         </p>
                       </div>
                       <label className="inline-flex shrink-0 items-center gap-2">
@@ -1230,6 +1408,9 @@ export default function WalletsPage() {
 
                   <form onSubmit={transfer} className="rounded-lg border border-slate-200 bg-white p-5">
                     <h2 className="text-sm font-semibold">Transfer credits</h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Transfers {walletLabel(selectedWalletType)} credits.
+                    </p>
                     <select
                       value={toTenantId}
                       onChange={(event) => setToTenantId(event.target.value)}
@@ -1266,7 +1447,7 @@ export default function WalletsPage() {
 
               <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                 <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">
-                  Transaction ledger
+                  {walletLabel(selectedWalletType)} ledger
                 </div>
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -1419,11 +1600,13 @@ function WalletUsageCard({
   usage,
   loading,
   windowDays,
+  walletLabel,
   onWindowChange,
 }: {
   usage: WalletUsageSummary | null;
   loading: boolean;
   windowDays: UsageWindowDays;
+  walletLabel: string;
   onWindowChange: (days: UsageWindowDays) => void;
 }) {
   const days = usage?.days ?? [];
@@ -1436,7 +1619,7 @@ function WalletUsageCard({
       <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-950">
-            Credit usage
+            {walletLabel} usage
           </h2>
           <p className="mt-1 text-xs text-slate-500">
             Daily debit breakdown across messaging, AI, workflow, and other
