@@ -101,6 +101,26 @@ export function isTerminalStatus(status: PaymentOrderStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
 }
 
+/** Default age past which a non-terminal order is considered abandoned. */
+export const STALE_ORDER_THRESHOLD_HOURS = 24;
+
+/**
+ * Pure predicate — exported for tests. An order is stale when it's
+ * still in a non-terminal state (CREATED / PENDING) AND was created
+ * more than `thresholdHours` ago. By 24h both Razorpay's checkout
+ * session and Stripe's PaymentIntent are long dead, so a webhook is
+ * never going to arrive for it — safe to expire.
+ */
+export function isStalePaymentOrder(
+  order: { status: PaymentOrderStatus; createdAt: Date },
+  now: Date,
+  thresholdHours: number = STALE_ORDER_THRESHOLD_HOURS,
+): boolean {
+  if (order.status !== "CREATED" && order.status !== "PENDING") return false;
+  const ageMs = now.getTime() - order.createdAt.getTime();
+  return ageMs >= thresholdHours * 60 * 60 * 1000;
+}
+
 /**
  * Sanitizes a recharge amount. The caller is expected to have already
  * converted to the smallest currency unit (paise for INR, cents for
@@ -454,4 +474,67 @@ export async function initiateStripeRecharge(args: {
     },
     replayed: false,
   };
+}
+
+// ----------------------------------------------------------------------------
+// Stale order sweep (Claude FINAL §5 — "payment reconciliation" worker)
+// ----------------------------------------------------------------------------
+
+export interface StaleOrderSweepResult {
+  scanned: number;
+  expired: number;
+}
+
+/**
+ * Transitions abandoned CREATED/PENDING orders older than the threshold
+ * to EXPIRED. Called from the wallet-reconciliation worker run so it
+ * shares the existing 6-hour cadence — no new BullMQ wiring.
+ *
+ * Why this matters beyond tidiness: the (tenantId, idempotencyKey)
+ * UNIQUE means a customer who abandons a checkout and retries with the
+ * same client-generated key would hit a CONFLICT against the stale
+ * PENDING row. Expiring it doesn't free the key (the row persists for
+ * audit), but it does move the order out of the "in flight" set the
+ * customer's recharge history shows, and the customer's next attempt
+ * uses a fresh key anyway (web_<ts>_<rand>).
+ */
+export async function sweepStalePaymentOrders(
+  thresholdHours: number = STALE_ORDER_THRESHOLD_HOURS,
+): Promise<StaleOrderSweepResult> {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - thresholdHours * 60 * 60 * 1000);
+
+  // Bounded batch so a backlog can't run the worker for minutes; the
+  // next scheduled run picks up the remainder.
+  const candidates = await prisma.paymentOrder.findMany({
+    where: {
+      status: { in: ["CREATED", "PENDING"] },
+      createdAt: { lt: cutoff },
+    },
+    select: { id: true, status: true, createdAt: true },
+    take: 1000,
+  });
+
+  let expired = 0;
+  for (const order of candidates) {
+    // Re-check via the pure predicate so the DB filter and the
+    // expiry decision can never drift apart.
+    if (!isStalePaymentOrder(order, now, thresholdHours)) continue;
+    try {
+      // Conditional update: only flip rows still in a non-terminal
+      // state, so a webhook that lands between our read and write
+      // (status already SUCCEEDED) is never clobbered.
+      const res = await prisma.paymentOrder.updateMany({
+        where: { id: order.id, status: { in: ["CREATED", "PENDING"] } },
+        data: { status: "EXPIRED", failureReason: "Expired by stale-order sweep." },
+      });
+      expired += res.count;
+    } catch (err) {
+      console.warn(
+        `[payment-sweep] failed to expire order ${order.id}:`,
+        (err as Error).message,
+      );
+    }
+  }
+  return { scanned: candidates.length, expired };
 }

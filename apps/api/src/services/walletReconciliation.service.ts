@@ -6,6 +6,7 @@ import {
   trackWorker,
   type WalletReconciliationJobData,
 } from "../lib/queue";
+import { sweepStalePaymentOrders } from "./paymentOrder.service";
 
 // T-023: daily wallet reconciliation.
 //
@@ -252,6 +253,23 @@ export async function startWalletReconciliationWorker(): Promise<void> {
       } else {
         console.log(
           `[wallet-reconciliation] scan clean — ${summary.scanned} wallet${summary.scanned === 1 ? "" : "s"} reconciled`,
+        );
+      }
+      // Piggyback the abandoned-payment-order sweep on the same cadence
+      // (Claude FINAL §5 "payment reconciliation"). Isolated try/catch
+      // so a sweep failure never poisons the wallet-drift summary the
+      // last-run view reads back from Job.returnvalue.
+      try {
+        const sweep = await sweepStalePaymentOrders();
+        if (sweep.expired > 0) {
+          console.warn(
+            `[wallet-reconciliation] expired ${sweep.expired} stale payment order${sweep.expired === 1 ? "" : "s"} (scanned ${sweep.scanned})`,
+          );
+        }
+      } catch (err) {
+        console.error(
+          "[wallet-reconciliation] stale payment-order sweep failed:",
+          (err as Error).message,
         );
       }
       // Return the summary so BullMQ stores it on Job.returnvalue —
