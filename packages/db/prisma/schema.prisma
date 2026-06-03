@@ -20,6 +20,31 @@ enum TenantType {
   BUSINESS // Business under a white-label reseller
 }
 
+// Partner billing/provider models (Claude Final Corrected Billing §4).
+// Set on a WHITE_LABEL partner tenant at creation.
+enum PartnerModel {
+  RESELLER // Model A — resells NexaFlow on NexaFlow/approved provider; NexaFlow owns rates
+  BRING_YOUR_OWN_META // Model B — partner brings own Meta/BSP credentials
+  HYBRID // Model C — per-customer choice of NexaFlow vs partner route
+}
+
+// Who owns the WhatsApp provider credentials for a given customer
+// (Claude Final §4: "Provider ownership must be recorded").
+enum ProviderOwnership {
+  NEXAFLOW_OWNED
+  PARTNER_OWNED
+  CUSTOMER_OWNED
+}
+
+// Where a customer's usage is charged from (Claude Final §4: "Credit
+// source must be recorded").
+enum CreditSource {
+  CUSTOMER_WALLET
+  PARTNER_WALLET
+  PARTNER_CREDIT_LINE
+  CUSTOMER_CREDIT_LINE
+}
+
 enum TenantStatus {
   ACTIVE
   SUSPENDED
@@ -67,6 +92,16 @@ model Tenant {
   parentTenantId String? // For businesses under resellers
   parentTenant   Tenant?      @relation("ResellChildren", fields: [parentTenantId], references: [id], onDelete: Cascade)
   resellChildren Tenant[]     @relation("ResellChildren")
+
+  // Partner model (Claude Final Corrected Billing §4). partnerModel +
+  // partnerMarginEnabled are set on the WHITE_LABEL partner tenant.
+  // providerOwnership + creditSource are set per customer (BUSINESS)
+  // tenant at provisioning — a HYBRID partner can mix routes/credit
+  // sources across its customers.
+  partnerModel         PartnerModel?
+  partnerMarginEnabled Boolean           @default(false)
+  providerOwnership    ProviderOwnership @default(NEXAFLOW_OWNED)
+  creditSource         CreditSource      @default(CUSTOMER_WALLET)
 
   // Branding
   logoUrl     String?

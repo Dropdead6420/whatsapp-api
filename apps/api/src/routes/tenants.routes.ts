@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { prisma } from "@nexaflow/db";
+import { prisma, PartnerModel } from "@nexaflow/db";
 import {
   ApiError,
   ErrorCodes,
@@ -36,6 +36,11 @@ const createSchema = z.object({
   contactLimit: z.number().int().positive().optional(),
   agentLimit: z.number().int().positive().optional(),
   aiCreditsPerMonth: z.number().int().nonnegative().optional(),
+  // Corrected Billing §4 — partner model is recorded on the WHITE_LABEL
+  // partner tenant. partnerMarginEnabled gates whether the partner may
+  // fund its customers (partner wallet / partner credit line).
+  partnerModel: z.nativeEnum(PartnerModel).optional(),
+  partnerMarginEnabled: z.boolean().optional(),
 });
 
 const updateSchema = z.object({
@@ -49,6 +54,10 @@ const updateSchema = z.object({
   contactLimit: z.number().int().positive().optional(),
   agentLimit: z.number().int().positive().optional(),
   aiCreditsPerMonth: z.number().int().nonnegative().optional(),
+  // Corrected Billing §4 — SuperAdmin may change a partner's model /
+  // margin flag after creation (e.g. upgrade RESELLER → HYBRID).
+  partnerModel: z.nativeEnum(PartnerModel).optional(),
+  partnerMarginEnabled: z.boolean().optional(),
 });
 
 router.use(requireAuth, requireRole(UserRole.SUPER_ADMIN));
@@ -119,10 +128,10 @@ router.post("/", async (req: RequestWithAuth, res: Response, next: NextFunction)
     }
 
     const passwordHash = await authService.hashPassword(body.adminPassword);
-    const adminRole =
-      body.type === TenantType.WHITE_LABEL
-        ? UserRole.WHITE_LABEL_ADMIN
-        : UserRole.BUSINESS_ADMIN;
+    const isPartner = body.type === TenantType.WHITE_LABEL;
+    const adminRole = isPartner
+      ? UserRole.WHITE_LABEL_ADMIN
+      : UserRole.BUSINESS_ADMIN;
 
     const created = await prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
@@ -136,6 +145,15 @@ router.post("/", async (req: RequestWithAuth, res: Response, next: NextFunction)
           contactLimit: body.contactLimit ?? 1_000,
           agentLimit: body.agentLimit ?? 5,
           aiCreditsPerMonth: body.aiCreditsPerMonth ?? 1_000,
+          // Partner model is meaningful only on a WHITE_LABEL partner;
+          // direct/business tenants leave it null. Default a partner with
+          // no explicit model to RESELLER (NexaFlow-owned provider + rates).
+          partnerModel: isPartner
+            ? body.partnerModel ?? PartnerModel.RESELLER
+            : null,
+          partnerMarginEnabled: isPartner
+            ? body.partnerMarginEnabled ?? false
+            : false,
         },
       });
       const admin = await tx.user.create({
@@ -158,7 +176,12 @@ router.post("/", async (req: RequestWithAuth, res: Response, next: NextFunction)
       action: "CREATE",
       resource: "Tenant",
       resourceId: created.tenant.id,
-      newValues: { name: created.tenant.name, type: created.tenant.type },
+      newValues: {
+        name: created.tenant.name,
+        type: created.tenant.type,
+        partnerModel: created.tenant.partnerModel,
+        partnerMarginEnabled: created.tenant.partnerMarginEnabled,
+      },
       ...extractRequestMeta(req),
     });
 

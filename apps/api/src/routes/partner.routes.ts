@@ -28,7 +28,14 @@ import { suggestTicketReply } from "../services/aiSupportResolver.service";
 import {
   SupportTicketPriority,
   SupportTicketStatus,
+  CreditSource,
+  PartnerModel,
+  ProviderOwnership,
 } from "@nexaflow/db";
+import {
+  assertValidPartnerModelConfig,
+  defaultCustomerConfigFor,
+} from "../services/partnerModel.service";
 import {
   listPartnerCustomerHealth,
   runPartnerAssistantSummary,
@@ -58,7 +65,12 @@ router.use(
 async function assertPartnerTenant(tenantId: string) {
   const tenant = await prisma.tenant.findFirst({
     where: { id: tenantId, type: TenantType.WHITE_LABEL, status: TenantStatus.ACTIVE },
-    select: { id: true, name: true },
+    select: {
+      id: true,
+      name: true,
+      partnerModel: true,
+      partnerMarginEnabled: true,
+    },
   });
   if (!tenant) {
     throw new ApiError(
@@ -383,6 +395,12 @@ const createCustomerSchema = z.object({
   // When false, partner explicitly opts out of the seeded content
   // (useful for partners migrating customers from another system).
   seedStarterPack: z.boolean().default(true),
+  // Corrected Billing §4 — per-customer provider ownership + credit source.
+  // Optional: when omitted we fall back to the safe default for the
+  // partner's model (defaultCustomerConfigFor). When supplied they're
+  // validated against the partner's model via assertValidPartnerModelConfig.
+  providerOwnership: z.nativeEnum(ProviderOwnership).optional(),
+  creditSource: z.nativeEnum(CreditSource).optional(),
 });
 
 // POST /api/v1/partner/customers
@@ -403,6 +421,22 @@ router.post(
 
       const passwordHash = await authService.hashPassword(body.adminPassword);
       const industry: CustomerIndustry = resolveIndustryPack(body.industry);
+
+      // Corrected Billing §4: resolve the customer's provider ownership +
+      // credit source against the partner's model. The model lives on the
+      // partner tenant; if a legacy partner has none recorded, treat it as
+      // a RESELLER (NexaFlow-owned provider) — the most conservative model.
+      const partnerModel: PartnerModel = partner.partnerModel ?? PartnerModel.RESELLER;
+      const fallback = defaultCustomerConfigFor(partnerModel);
+      const providerOwnership = body.providerOwnership ?? fallback.providerOwnership;
+      const creditSource = body.creditSource ?? fallback.creditSource;
+      assertValidPartnerModelConfig({
+        partnerModel,
+        providerOwnership,
+        creditSource,
+        partnerMarginEnabled: partner.partnerMarginEnabled,
+      });
+
       const created = await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.create({
           data: {
@@ -414,6 +448,8 @@ router.post(
             contactLimit: body.contactLimit ?? 1_000,
             agentLimit: body.agentLimit ?? 5,
             aiCreditsPerMonth: 500,
+            providerOwnership,
+            creditSource,
           },
         });
         const admin = await tx.user.create({
@@ -464,6 +500,9 @@ router.post(
           name: created.tenant.name,
           parentTenantId: partner.id,
           industry,
+          partnerModel,
+          providerOwnership,
+          creditSource,
           seededTemplates: created.starter?.templateIds.length ?? 0,
           seededCampaignId: created.starter?.campaignId ?? null,
           seededChatbotFlowId: created.starter?.chatbotFlowId ?? null,
