@@ -2362,6 +2362,7 @@ enum PlatformActionCode {
   ONBOARDING_STALLED
   DOMAIN_HEALTH_DEGRADED
   CREDIT_LINE_OVERDUE
+  WABA_QUALITY_DEGRADED
 }
 
 // ============================================================================

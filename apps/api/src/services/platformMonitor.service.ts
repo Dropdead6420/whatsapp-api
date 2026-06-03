@@ -896,6 +896,126 @@ async function gatherCreditLineOverdueSignals(now: Date): Promise<number> {
 }
 
 // ----------------------------------------------------------------------------
+// WABA quality monitor (Claude FINAL §10 — "Quality monitor: WABA status,
+// phone status, quality rating, messaging limit, opt-out and error rate").
+//
+// syncWhatsAppBusinessStatus already pulls quality_rating +
+// messaging_limit_tier + account_status from Meta onto the Tenant; this
+// gatherer reads those columns and surfaces degradation to the
+// SuperAdmin queue. A RED rating or a flagged/restricted account means
+// the customer's deliverability is at risk — the platform owner wants
+// to reach out before the number gets disabled.
+//
+// Meta's quality_rating is GREEN / YELLOW / RED (sometimes UNKNOWN);
+// account status is CONNECTED / FLAGGED / RESTRICTED / DISABLED /
+// PENDING. We map the worst of the two signals to a severity.
+// ----------------------------------------------------------------------------
+
+export interface WabaQualityClassification {
+  severity: PlatformActionSeverity | null;
+  reason: string | null;
+}
+
+/**
+ * Pure quality+status → severity mapping, exported for tests.
+ *
+ *   DISABLED / RESTRICTED account → URGENT (sending is or will be cut)
+ *   RED rating / FLAGGED account  → HIGH   (one step from restriction)
+ *   YELLOW rating                 → MEDIUM (watch; recoverable)
+ *   GREEN / CONNECTED / unknown    → null   (no item)
+ *
+ * Case-insensitive; tolerates null/garbage by treating it as "no
+ * signal" rather than flagging.
+ */
+export function classifyWabaQuality(args: {
+  qualityRating?: string | null;
+  accountStatus?: string | null;
+}): WabaQualityClassification {
+  const rating = (args.qualityRating ?? "").trim().toUpperCase();
+  const status = (args.accountStatus ?? "").trim().toUpperCase();
+
+  if (status === "DISABLED" || status === "RESTRICTED") {
+    return {
+      severity: PlatformActionSeverity.URGENT,
+      reason: `WhatsApp account ${status.toLowerCase()} — sending is blocked or throttled.`,
+    };
+  }
+  if (rating === "RED" || status === "FLAGGED") {
+    return {
+      severity: PlatformActionSeverity.HIGH,
+      reason:
+        rating === "RED"
+          ? "Quality rating dropped to RED — one step from a messaging restriction."
+          : "WhatsApp account flagged by Meta — review messaging content + opt-in quality.",
+    };
+  }
+  if (rating === "YELLOW") {
+    return {
+      severity: PlatformActionSeverity.MEDIUM,
+      reason: "Quality rating slipped to YELLOW — monitor send content + report rates.",
+    };
+  }
+  return { severity: null, reason: null };
+}
+
+async function gatherWabaQualitySignals(now: Date): Promise<number> {
+  // Only tenants that have actually connected a WABA can have quality
+  // signals; skip the rest.
+  const rows = await prisma.tenant.findMany({
+    where: {
+      wabaId: { not: null },
+      OR: [
+        { wabaQualityRating: { in: ["RED", "YELLOW", "red", "yellow"] } },
+        { wabaAccountStatus: { in: ["FLAGGED", "RESTRICTED", "DISABLED"] } },
+      ],
+    },
+    select: {
+      id: true,
+      name: true,
+      wabaQualityRating: true,
+      wabaMessagingLimitTier: true,
+      wabaAccountStatus: true,
+      wabaDisplayPhoneNumber: true,
+    },
+    take: 500,
+  });
+
+  let written = 0;
+  const today = dayKey(now);
+  for (const row of rows) {
+    const { severity, reason } = classifyWabaQuality({
+      qualityRating: row.wabaQualityRating,
+      accountStatus: row.wabaAccountStatus,
+    });
+    if (!severity || !reason) continue;
+
+    await upsertItem({
+      code: PlatformActionCode.WABA_QUALITY_DEGRADED,
+      severity,
+      title: `${row.name}: WhatsApp quality ${row.wabaQualityRating ?? row.wabaAccountStatus ?? "degraded"}`,
+      body:
+        `${reason}` +
+        (row.wabaDisplayPhoneNumber
+          ? ` (number ${row.wabaDisplayPhoneNumber})`
+          : "") +
+        (row.wabaMessagingLimitTier
+          ? ` Current messaging tier: ${row.wabaMessagingLimitTier}.`
+          : ""),
+      targetTenantId: row.id,
+      context: {
+        qualityRating: row.wabaQualityRating,
+        accountStatus: row.wabaAccountStatus,
+        messagingLimitTier: row.wabaMessagingLimitTier,
+        displayPhoneNumber: row.wabaDisplayPhoneNumber,
+      },
+      dedupeKey: `${PlatformActionCode.WABA_QUALITY_DEGRADED}:${row.id}:${today}`,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+// ----------------------------------------------------------------------------
 // Orchestration
 // ----------------------------------------------------------------------------
 
@@ -908,6 +1028,7 @@ export interface ScanResult {
   churnRiskItems: number;
   onboardingStalledItems: number;
   creditLineOverdueItems: number;
+  wabaQualityItems: number;
   total: number;
 }
 
@@ -924,6 +1045,7 @@ export async function runDailyScan(): Promise<ScanResult> {
   let churnRiskItems = 0;
   let onboardingStalledItems = 0;
   let creditLineOverdueItems = 0;
+  let wabaQualityItems = 0;
   try {
     walletItems = await gatherWalletRiskSignals(now);
   } catch (err) {
@@ -985,6 +1107,14 @@ export async function runDailyScan(): Promise<ScanResult> {
       (err as Error).message,
     );
   }
+  try {
+    wabaQualityItems = await gatherWabaQualitySignals(now);
+  } catch (err) {
+    console.warn(
+      "[platform-monitor] WABA quality scan failed:",
+      (err as Error).message,
+    );
+  }
   return {
     walletItems,
     complianceItems,
@@ -994,6 +1124,7 @@ export async function runDailyScan(): Promise<ScanResult> {
     churnRiskItems,
     onboardingStalledItems,
     creditLineOverdueItems,
+    wabaQualityItems,
     total:
       walletItems +
       complianceItems +
@@ -1002,7 +1133,8 @@ export async function runDailyScan(): Promise<ScanResult> {
       aiUsageItems +
       churnRiskItems +
       onboardingStalledItems +
-      creditLineOverdueItems,
+      creditLineOverdueItems +
+      wabaQualityItems,
   };
 }
 
