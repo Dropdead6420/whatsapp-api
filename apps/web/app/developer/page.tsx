@@ -1,9 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { Download, ExternalLink } from "lucide-react";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { useAuth } from "../../src/hooks/useAuth";
-import { api, ApiClientError } from "../../src/lib/api";
+import { API_BASE, api, ApiClientError, tokenStore } from "../../src/lib/api";
 
 interface ApiKeyItem {
   id: string;
@@ -101,6 +102,7 @@ export default function DeveloperPage() {
   const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
   const [logs, setLogs] = useState<ApiRequestLog[]>([]);
   const [usage, setUsage] = useState<ApiUsageSummary | null>(null);
+  const [specBusy, setSpecBusy] = useState<"download" | "open" | null>(null);
 
   async function refresh() {
     try {
@@ -169,6 +171,42 @@ export default function DeveloperPage() {
     }
   }
 
+  async function fetchOpenApiSpec(): Promise<Blob> {
+    const token = tokenStore.getAccess();
+    const response = await fetch(`${API_BASE}/api/v1/api-keys/openapi.json`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) {
+      throw new Error(`OpenAPI download failed (${response.status})`);
+    }
+    return response.blob();
+  }
+
+  async function handleOpenApi(action: "download" | "open") {
+    setErr(null);
+    setSpecBusy(action);
+    try {
+      const blob = await fetchOpenApiSpec();
+      const href = URL.createObjectURL(blob);
+      if (action === "open") {
+        window.open(href, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => URL.revokeObjectURL(href), 30_000);
+        return;
+      }
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = "nexaflow-openapi.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Unable to load OpenAPI spec.");
+    } finally {
+      setSpecBusy(null);
+    }
+  }
+
   if (loading || !user) {
     return <div className="p-8 text-sm text-slate-500">Loading...</div>;
   }
@@ -214,10 +252,34 @@ export default function DeveloperPage() {
 
       <div className="mb-5 grid gap-5 lg:grid-cols-[1fr,360px]">
         <section className="rounded-md border border-slate-200 bg-white p-4 text-sm shadow-sm">
-          <div className="font-semibold text-slate-950">Public API v1</div>
-          <p className="mt-1 text-xs text-slate-500">
-            Tenant-scoped REST access for contacts, leads, conversations, and CRM syncs.
-          </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="font-semibold text-slate-950">Public API v1</div>
+              <p className="mt-1 text-xs text-slate-500">
+                Tenant-scoped REST access for contacts, leads, conversations, and CRM syncs.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleOpenApi("download")}
+                disabled={Boolean(specBusy)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {specBusy === "download" ? "Preparing..." : "OpenAPI JSON"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleOpenApi("open")}
+                disabled={Boolean(specBusy)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                {specBusy === "open" ? "Opening..." : "View spec"}
+              </button>
+            </div>
+          </div>
           <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">

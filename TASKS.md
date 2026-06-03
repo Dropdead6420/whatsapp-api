@@ -83,7 +83,7 @@ _(none)_
 
 The FINAL PDF locks in four surfaces we hadn't tracked as explicit slices. None are blocking the current scale plan; they queue behind T-004 / T-005.
 
-- T-141 **Developer / API Portal** — SDK/docs, richer sandbox, usage metering chart (T-141A/B shipped).
+- T-141 **Developer / API Portal** — SDK/docs and richer sandbox polish remain; usage chart + OpenAPI JSON are shipped (T-141A/B/C).
 - T-143 **Android mobile app** — Phase 7 of the FINAL PDF. Inbox, notifications (FCM), replies, lead pipeline, quick campaigns, booking calendar, AI reply button. Read-only on the API side; no new backend surface beyond push token registration.
 
 ### Compliance + safety
@@ -194,6 +194,7 @@ Collapsed at the end of each calendar month.
 - ✅ **T-113 CDN cache headers**. `next.config.js` declares `Cache-Control` for `/_next/static` (immutable, 1y), `/_next/image` (1d + SWR 7d), the marketing root (s-maxage 5min + SWR 1d), and public image/text files (1h + SWR 1d). Dashboard pages stay uncached. The CDN itself (Cloudflare / Vercel) is operationally configured; this is the origin-side contract.
 - ✅ **Phase D storage plan**. Consolidated `docs/PHASE_D_STORAGE_PLAN.md` covering T-110 monthly partitioning (rollout order, SQL skeleton, partition-maintenance worker design), T-111 cold-storage archival, T-112 OpenSearch search, and T-114 wallet sharding. Implementation gated on a migration-mode swap from `db push` to `prisma migrate` (separate small task).
 - ✅ **Bug-fix pass on Phase A-C work**. realtime.ts cast-LHS → canonical assignment; conversations cursor pagination dropped a dead null branch and now treats a null cursor.lastMessageAt defensively as `now()`; apiKeyAuth.ts notes the missing per-key rate-limit enforcement so the next reader sees the gap.
+- ✅ **T-141C Developer/API Portal OpenAPI spec**. Added authenticated `/api/v1/api-keys/openapi.json` for the tenant-facing public API and `/developer` buttons to download/view the spec using the logged-in JWT.
 - ✅ **T-141B Developer/API Portal API usage logs + sandbox endpoint**. Added `ApiRequestLog`, API-key auth middleware using stored hashes, `/api/public/v1/status` key-authenticated sandbox endpoint, last-used updates, per-request logging, and recent-call viewer in `/developer`.
 - ✅ **T-141A Developer/API Portal API key management**. Added tenant-scoped `/api/v1/api-keys` create/list/update/revoke routes behind `developerPortal` + `api_keys:manage`, a `/developer` Business Admin UI, one-time plaintext secret reveal, SHA-256 stored hashes only, audit logs for create/update/delete, and unit tests for key generation/hash/list/revoke behavior.
 - ✅ **T-103 `useInbox` hook: WS subscribe + polling fallback**. New `apps/web/src/hooks/useInbox.ts` owns fetch + Socket.io subscription + 15s polling fallback when WS is offline. The inbox page exposes a "Live"/"Polling" pill so operators can see realtime state at a glance. Re-fetches on `message:received`, `message:sent`, `conversation:updated`, `conversation:assigned`.

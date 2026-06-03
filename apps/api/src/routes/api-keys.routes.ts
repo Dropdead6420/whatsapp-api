@@ -17,6 +17,7 @@ import {
   updateApiKey,
 } from "../services/apiKey.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
+import { buildPublicOpenApiSpec } from "../services/openApi.service";
 
 const router = Router();
 
@@ -48,6 +49,23 @@ router.get(
     } catch (err) {
       next(err);
     }
+  },
+);
+
+router.get(
+  "/openapi.json",
+  (req: RequestWithAuth, res: Response, _next: NextFunction) => {
+    const baseUrl =
+      process.env.API_URL ??
+      `${req.protocol}://${req.get("host") ?? "localhost:3001"}`;
+    res
+      .status(200)
+      .setHeader("Content-Type", "application/json; charset=utf-8")
+      .setHeader(
+        "Content-Disposition",
+        'attachment; filename="nexaflow-openapi.json"',
+      )
+      .json(buildPublicOpenApiSpec({ serverUrl: baseUrl }));
   },
 );
 
