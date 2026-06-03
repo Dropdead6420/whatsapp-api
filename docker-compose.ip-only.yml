@@ -1,0 +1,27 @@
+name: medscub-nexaflow
+
+services:
+  api:
+    environment:
+      WEB_URL: http://187.127.172.138
+      WEB_ORIGINS: http://187.127.172.138
+      API_URL: http://187.127.172.138
+
+  worker:
+    environment:
+      WEB_URL: http://187.127.172.138
+      WEB_ORIGINS: http://187.127.172.138
+      API_URL: http://187.127.172.138
+
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: ""
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+
+  caddy:
+    volumes:
+      - ./deploy/Caddyfile.ip-only:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
