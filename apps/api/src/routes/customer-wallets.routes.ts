@@ -34,6 +34,11 @@ import {
   loadInvoicePdfBytes,
 } from "../services/invoice.service";
 import { getWalletUsage } from "../services/walletUsage.service";
+import {
+  sanitizeCustomerWalletSettings,
+  type CustomerWalletSettingsPatch,
+} from "../services/customerWalletSettings.service";
+import { updateWalletSettings, ensureWallet } from "../services/wallet.service";
 import { prisma } from "@nexaflow/db";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 
@@ -208,6 +213,64 @@ router.get(
             : undefined,
       });
       res.json({ success: true, data: summary });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * PUT /api/v1/customer/wallets/settings
+ *
+ * Customer self-serve for low-balance threshold + auto-recharge
+ * config (PRD §4 / §5 POST /customer/wallets/auto-recharge). Tenant
+ * scope comes from the JWT (req.tenantId) — no tenantId in the path —
+ * so a customer can only touch their own wallet. The sanitizer
+ * whitelists the editable fields; status / billingMode / creditLimit
+ * stay admin-only.
+ */
+router.put(
+  "/settings",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const patch: CustomerWalletSettingsPatch = sanitizeCustomerWalletSettings(
+        req.body ?? {},
+      );
+
+      // Merged-state guard: enabling auto-recharge requires a complete,
+      // chargeable config. We check the effective state (incoming patch
+      // overlaid on the current wallet) so a caller can't enable it in
+      // one request and leave amount/provider/token unset from a prior
+      // state.
+      const current = await ensureWallet(req.tenantId!);
+      const willBeEnabled =
+        patch.autoRechargeEnabled ?? current.autoRechargeEnabled;
+      if (willBeEnabled) {
+        const amount =
+          patch.autoRechargeAmountCredits ?? current.autoRechargeAmountCredits;
+        const provider =
+          patch.autoRechargePaymentProvider !== undefined
+            ? patch.autoRechargePaymentProvider
+            : current.autoRechargePaymentProvider;
+        const token =
+          patch.autoRechargePaymentMethodToken !== undefined
+            ? patch.autoRechargePaymentMethodToken
+            : current.autoRechargePaymentMethodToken;
+        if (!amount || amount <= 0 || !provider || !token) {
+          throw new ApiError(
+            ErrorCodes.BAD_REQUEST,
+            400,
+            "Enabling auto-recharge requires amount, payment provider, and a saved payment method.",
+          );
+        }
+      }
+
+      const wallet = await updateWalletSettings({
+        tenantId: req.tenantId!,
+        ...patch,
+      });
+      res.json({ success: true, data: wallet });
     } catch (err) {
       next(err);
     }
