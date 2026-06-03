@@ -24,6 +24,7 @@ import {
   partnerReplyToTicket,
   updatePartnerTicket,
 } from "../services/supportTicket.service";
+import { suggestTicketReply } from "../services/aiSupportResolver.service";
 import {
   SupportTicketPriority,
   SupportTicketStatus,
@@ -923,6 +924,26 @@ router.get(
       const partner = await assertPartnerTenant(req.tenantId!);
       const ticket = await getPartnerTicket(partner.id, req.params.id);
       res.json({ success: true, data: ticket });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// AI Support Ticket Resolver (Claude FINAL §9) — drafts a suggested
+// reply for the partner to review + edit. Never auto-sends; the
+// partner posts via /tickets/:id/replies once happy.
+router.post(
+  "/tickets/:id/ai-suggest-reply",
+  requirePermission(Permissions.SUPPORT_TICKET_MANAGE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const suggestion = await suggestTicketReply({
+        partnerTenantId: partner.id,
+        ticketId: req.params.id,
+      });
+      res.json({ success: true, data: suggestion });
     } catch (err) {
       next(err);
     }
