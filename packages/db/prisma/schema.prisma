@@ -175,6 +175,7 @@ model Tenant {
   paymentOrders            PaymentOrder[]
   rechargeRequests         RechargeRequest[]
   creditLines              CreditLine[]
+  numberMigrations         NumberMigration[]
   services                 Service[]
   appointments             Appointment[]
   flowRuns                 FlowRun[]
@@ -609,6 +610,66 @@ model FollowUpTask {
   @@index([assigneeId, status, dueAt])
   @@index([contactId])
   @@index([conversationId])
+}
+
+// ============================================================================
+// WhatsApp number migration (Claude FINAL §10)
+//
+// Moving an existing WhatsApp number onto our platform is a sequenced
+// Meta flow: confirm eligibility → request + verify an OTP Meta texts
+// to the number → release it from the old BSP → re-subscribe our
+// webhook on the new WABA → re-sync templates. Each step can fail or
+// be cancelled, so the migration is a small state machine with a row
+// per attempt (history is auditable; one ACTIVE attempt per tenant is
+// enforced at the service layer).
+//
+// This slice ships the model + the pure state machine; the Meta API
+// calls + routes + status UI land in subsequent slices.
+// ============================================================================
+
+enum NumberMigrationStatus {
+  PENDING_ELIGIBILITY // created; checking with Meta whether the number can migrate
+  ELIGIBLE // Meta confirmed it can migrate
+  NOT_ELIGIBLE // terminal — Meta refused (number on another BSP lock, etc.)
+  OTP_REQUESTED // Meta texted/called an OTP to the number
+  OTP_VERIFIED // OTP confirmed; ready to cut over
+  MIGRATING // releasing old provider + webhook re-subscribe + template sync
+  COMPLETED // terminal success — number live on our WABA
+  FAILED // terminal failure (failureReason set)
+  CANCELLED // operator aborted before completion
+}
+
+model NumberMigration {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// E.164 number being migrated in.
+  phoneNumber  String
+  /// Target WABA the number is moving onto (our side).
+  targetWabaId String?
+
+  status NumberMigrationStatus @default(PENDING_ELIGIBILITY)
+
+  /// Why Meta said NOT_ELIGIBLE, or the gateway error on FAILED.
+  statusReason String?
+
+  /// Per-step audit timestamps — null until that step completes.
+  eligibilityCheckedAt DateTime?
+  otpRequestedAt       DateTime?
+  otpVerifiedAt        DateTime?
+  releasedAt           DateTime? // released from the old BSP
+  webhookUpdatedAt     DateTime? // our webhook re-subscribed on the new WABA
+  templatesSyncedAt    DateTime?
+  completedAt          DateTime?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([status, createdAt])
 }
 
 // ============================================================================
