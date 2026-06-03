@@ -33,6 +33,7 @@ import {
   listInvoicesForTenant,
   loadInvoicePdfBytes,
 } from "../services/invoice.service";
+import { getWalletUsage } from "../services/walletUsage.service";
 import { prisma } from "@nexaflow/db";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 
@@ -188,6 +189,25 @@ router.get(
         tenantId: req.tenantId!,
       });
       res.json({ success: true, data: items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/usage",
+  requirePermission(Permissions.WALLET_VIEW),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const summary = await getWalletUsage({
+        tenantId: req.tenantId!,
+        sinceDays:
+          typeof req.query.sinceDays === "string"
+            ? Number.parseInt(req.query.sinceDays, 10)
+            : undefined,
+      });
+      res.json({ success: true, data: summary });
     } catch (err) {
       next(err);
     }

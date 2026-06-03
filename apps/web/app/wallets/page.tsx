@@ -79,8 +79,36 @@ interface Invoice {
   createdAt: string;
 }
 
+type WalletUsageCategory = "messaging" | "ai" | "workflow" | "other";
+type UsageWindowDays = 7 | 30 | 90;
+
+interface WalletUsageDay {
+  day: string;
+  messaging: number;
+  ai: number;
+  workflow: number;
+  other: number;
+  total: number;
+}
+
+interface WalletUsageSummary {
+  windowDays: number;
+  windowStartIso: string;
+  totalDebited: number;
+  byCategory: Record<WalletUsageCategory, number>;
+  days: WalletUsageDay[];
+}
+
 function formatCredits(value: number) {
   return new Intl.NumberFormat("en-IN").format(value);
+}
+
+function formatDayLabel(day: string) {
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
 }
 
 const RAZORPAY_CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
@@ -133,6 +161,38 @@ function loadStripeJs(): Promise<void> {
 type Gateway = "RAZORPAY" | "STRIPE";
 
 const PRESET_RECHARGE_RUPEES = [500, 1000, 2000, 5000];
+const USAGE_WINDOWS: UsageWindowDays[] = [7, 30, 90];
+const USAGE_CATEGORIES: Array<{
+  key: WalletUsageCategory;
+  label: string;
+  barClass: string;
+  badgeClass: string;
+}> = [
+  {
+    key: "messaging",
+    label: "Messaging",
+    barClass: "bg-emerald-500",
+    badgeClass: "bg-emerald-50 text-emerald-700",
+  },
+  {
+    key: "ai",
+    label: "AI",
+    barClass: "bg-violet-500",
+    badgeClass: "bg-violet-50 text-violet-700",
+  },
+  {
+    key: "workflow",
+    label: "Workflow",
+    barClass: "bg-sky-500",
+    badgeClass: "bg-sky-50 text-sky-700",
+  },
+  {
+    key: "other",
+    label: "Other",
+    barClass: "bg-slate-400",
+    badgeClass: "bg-slate-100 text-slate-700",
+  },
+];
 
 function statusClass(status: string) {
   return status === "ACTIVE"
@@ -191,6 +251,9 @@ export default function WalletsPage() {
   // every successful recharge — PDF URL is null until the PDF
   // generation worker fills it in.
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [usageWindow, setUsageWindow] = useState<UsageWindowDays>(30);
+  const [usage, setUsage] = useState<WalletUsageSummary | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
 
   const canManage = user?.role === "SUPER_ADMIN" || user?.role === "WHITE_LABEL_ADMIN";
   const canSelfRecharge = user?.role === "BUSINESS_ADMIN";
@@ -245,6 +308,27 @@ export default function WalletsPage() {
     }
   }
 
+  /**
+   * Loads the current tenant's debit-only usage graph. This intentionally
+   * uses the customer endpoint, so only BUSINESS_ADMIN users call it.
+   * Platform admins still have the full ledger through the selected
+   * tenant management routes.
+   */
+  async function loadUsage(days: UsageWindowDays = usageWindow) {
+    if (!canSelfRecharge) return;
+    setUsageLoading(true);
+    try {
+      const data = await api.get<WalletUsageSummary>(
+        `/api/v1/customer/wallets/usage?sinceDays=${days}`,
+      );
+      setUsage(data);
+    } catch {
+      setUsage(null);
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
   function syncSettings(wallet: Wallet) {
     setBillingMode(wallet.billingMode);
     setStatus(wallet.status);
@@ -268,8 +352,16 @@ export default function WalletsPage() {
     setSelectedTenantId(selected.tenant.id);
     syncSettings(selected.wallet);
     void loadTransactions(selected.tenant.id);
-    void loadInvoices();
-  }, [selected?.tenant.id]);
+    if (canSelfRecharge) void loadInvoices();
+  }, [selected?.tenant.id, canSelfRecharge]);
+
+  useEffect(() => {
+    if (!user || !canSelfRecharge) {
+      setUsage(null);
+      return;
+    }
+    void loadUsage(usageWindow);
+  }, [user?.id, canSelfRecharge, usageWindow]);
 
   async function adjust(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -476,6 +568,7 @@ export default function WalletsPage() {
             void loadWallets();
             if (selected) void loadTransactions(selected.tenant.id);
             void loadInvoices();
+            void loadUsage(usageWindow);
           }, 4000);
         },
         modal: {
@@ -547,6 +640,7 @@ export default function WalletsPage() {
       void loadWallets();
       if (selected) void loadTransactions(selected.tenant.id);
       void loadInvoices();
+      void loadUsage(usageWindow);
     }, 4000);
   }
 
@@ -839,6 +933,15 @@ export default function WalletsPage() {
                     </p>
                   </div>
                 </section>
+              )}
+
+              {canSelfRecharge && (
+                <WalletUsageCard
+                  usage={usage}
+                  loading={usageLoading}
+                  windowDays={usageWindow}
+                  onWindowChange={setUsageWindow}
+                />
               )}
 
               {canManage && (
@@ -1180,6 +1283,152 @@ export default function WalletsPage() {
         </main>
       </div>
     </DashboardShell>
+  );
+}
+
+function WalletUsageCard({
+  usage,
+  loading,
+  windowDays,
+  onWindowChange,
+}: {
+  usage: WalletUsageSummary | null;
+  loading: boolean;
+  windowDays: UsageWindowDays;
+  onWindowChange: (days: UsageWindowDays) => void;
+}) {
+  const days = usage?.days ?? [];
+  const maxTotal = Math.max(1, ...days.map((day) => day.total));
+  const totalDebited = usage?.totalDebited ?? 0;
+  const labelEvery = windowDays > 45 ? 14 : windowDays > 14 ? 7 : 1;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5">
+      <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-950">
+            Credit usage
+          </h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Daily debit breakdown across messaging, AI, workflow, and other
+            wallet spend.
+          </p>
+        </div>
+        <div className="flex rounded-full bg-slate-100 p-1">
+          {USAGE_WINDOWS.map((daysOption) => (
+            <button
+              key={daysOption}
+              type="button"
+              onClick={() => onWindowChange(daysOption)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                windowDays === daysOption
+                  ? "bg-white text-slate-950 shadow-sm"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              {daysOption}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[220px_1fr]">
+        <div className="rounded-lg bg-slate-50 p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Debited in window
+          </div>
+          <div className="mt-2 text-3xl font-semibold text-slate-950">
+            {loading ? "..." : formatCredits(totalDebited)}
+          </div>
+          <div className="mt-3 grid gap-2">
+            {USAGE_CATEGORIES.map((cat) => {
+              const value = usage?.byCategory[cat.key] ?? 0;
+              const percent =
+                totalDebited > 0 ? Math.round((value / totalDebited) * 100) : 0;
+              return (
+                <div
+                  key={cat.key}
+                  className="flex items-center justify-between gap-3 text-xs"
+                >
+                  <span
+                    className={`rounded-full px-2 py-0.5 font-medium ${cat.badgeClass}`}
+                  >
+                    {cat.label}
+                  </span>
+                  <span className="font-semibold text-slate-700">
+                    {formatCredits(value)} · {percent}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-lg border border-slate-100 p-4">
+          {loading && !usage ? (
+            <div className="flex h-36 items-center justify-center text-sm text-slate-500">
+              Loading usage...
+            </div>
+          ) : days.length === 0 ? (
+            <div className="flex h-36 items-center justify-center rounded-md border border-dashed border-slate-200 text-sm text-slate-500">
+              No usage yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="flex min-w-[520px] items-end gap-1.5 pb-1">
+                {days.map((day, index) => {
+                  const height = day.total
+                    ? Math.max(8, Math.round((day.total / maxTotal) * 100))
+                    : 2;
+                  const showLabel =
+                    index === 0 ||
+                    index === days.length - 1 ||
+                    index % labelEvery === 0;
+
+                  return (
+                    <div
+                      key={day.day}
+                      className="flex min-w-0 flex-1 flex-col items-center gap-2"
+                      title={`${formatDayLabel(day.day)}: ${formatCredits(
+                        day.total,
+                      )} credits`}
+                    >
+                      <div className="flex h-36 w-full max-w-5 items-end rounded-full bg-slate-100">
+                        <div
+                          className="flex w-full flex-col-reverse overflow-hidden rounded-full"
+                          style={{ height: `${height}%` }}
+                        >
+                          {USAGE_CATEGORIES.map((cat) => {
+                            const value = day[cat.key];
+                            if (!value || !day.total) return null;
+                            return (
+                              <span
+                                key={cat.key}
+                                className={cat.barClass}
+                                style={{
+                                  height: `${(value / day.total) * 100}%`,
+                                }}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <span
+                        className={`h-4 whitespace-nowrap text-[10px] text-slate-400 ${
+                          showLabel ? "" : "opacity-0"
+                        }`}
+                      >
+                        {formatDayLabel(day.day)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

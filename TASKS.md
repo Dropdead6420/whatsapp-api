@@ -163,6 +163,9 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 
 Collapsed at the end of each calendar month.
 
+### June 2026
+- ✅ **Customer wallet usage graph** — `GET /api/v1/customer/wallets/usage` returns a dense 7/30/90-day debit series grouped into messaging, AI, workflow, and other; `/wallets` now renders a business-admin usage card with stacked daily bars and category totals. Pure aggregation tests cover category mapping, date-window clamping, dense buckets, credit-row exclusion, and total consistency.
+
 ### May 2026
 - ✅ **T-052 AI Agent Builder slice 4** — `AiAgent.isDefault` flag (one-per-tenant invariant via transactional demote-others-then-promote-self), `Tenant.aiAgentAutoReply` master switch, `aiAgentInbound.service.maybeRunDefaultAgentReply` reuses the MESSAGE-node send gauntlet (throttle + wallet + WABA + opt-out + token decrypt), 10-variant `reason` union for observability, last-resort routing (keyword flow → message_received flow → AI auto-reply), tool dispatch is fire-and-forget during inbound to keep reply latency low, new `/api/v1/ai-agents/settings`, `/:id/set-default`, `/:id/clear-default` endpoints. 22 new tests; 20/20 files, 156/156 tests green. See ADR-028.
 - ✅ **T-052 AI Agent Builder slice 3** — `AI_AGENT` flow node (writes reply to var, dispatches tool calls, routes on `result.reason` with single `escalated` branch synonym `fallback`), `aiAgentTool.service.ts` dispatcher for 7 tools (CREATE_LEAD/ADD_TAG/BOOK_APPOINTMENT/TRANSFER_TO_HUMAN/SEND_TEMPLATE/LOOKUP_CONTACT/LOOKUP_ORDER) with defense-in-depth allowlist enforcement, schema-field name forgiveness (`description||notes`, `scheduledAt||startAt`), and controlled not-implemented for unmapped surfaces. 27 new tests; 19/19 files, 134/134 tests green. See ADR-027.
