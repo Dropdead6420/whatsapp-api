@@ -23,14 +23,27 @@
 // out of the graph so duplicate events are detectable).
 // ============================================================================
 
-import type { NumberMigrationStatus } from "@nexaflow/db";
+import {
+  prisma,
+  prismaRead,
+  type NumberMigration,
+  type NumberMigrationStatus,
+} from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 
-const TERMINAL: readonly NumberMigrationStatus[] = [
+export const NUMBER_MIGRATION_TERMINAL_STATUSES: readonly NumberMigrationStatus[] = [
   "NOT_ELIGIBLE",
   "COMPLETED",
   "FAILED",
   "CANCELLED",
+];
+
+export const NUMBER_MIGRATION_LIVE_STATUSES: readonly NumberMigrationStatus[] = [
+  "PENDING_ELIGIBILITY",
+  "ELIGIBLE",
+  "OTP_REQUESTED",
+  "OTP_VERIFIED",
+  "MIGRATING",
 ];
 
 // FAILED + CANCELLED are reachable from every non-terminal state, so
@@ -49,7 +62,7 @@ const FORWARD: Record<NumberMigrationStatus, ReadonlyArray<NumberMigrationStatus
 
 /** True iff status is terminal (no further transitions). */
 export function isTerminal(status: NumberMigrationStatus): boolean {
-  return TERMINAL.includes(status);
+  return NUMBER_MIGRATION_TERMINAL_STATUSES.includes(status);
 }
 
 /**
@@ -138,4 +151,163 @@ export function timestampFieldForStatus(
 /** Statuses an operator may still cancel from. Pure. */
 export function isCancellable(status: NumberMigrationStatus): boolean {
   return !isTerminal(status);
+}
+
+export interface NumberMigrationListFilters {
+  tenantId?: string;
+  status?: NumberMigrationStatus;
+  page?: number;
+  limit?: number;
+}
+
+export interface NumberMigrationListResult {
+  items: Array<NumberMigration & { tenant: { id: string; name: string } }>;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export async function listNumberMigrations(
+  filters: NumberMigrationListFilters = {},
+): Promise<NumberMigrationListResult> {
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
+  const where = {
+    ...(filters.tenantId ? { tenantId: filters.tenantId } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+  };
+  const [items, total] = await Promise.all([
+    prismaRead.numberMigration.findMany({
+      where,
+      include: { tenant: { select: { id: true, name: true } } },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prismaRead.numberMigration.count({ where }),
+  ]);
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    },
+  };
+}
+
+export async function createNumberMigration(args: {
+  tenantId: string;
+  phoneNumber: string;
+  targetWabaId?: string | null;
+  createdByUserId?: string | null;
+}): Promise<NumberMigration & { tenant: { id: string; name: string } }> {
+  const tenant = await prismaRead.tenant.findUnique({
+    where: { id: args.tenantId },
+    select: { id: true },
+  });
+  if (!tenant) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Tenant not found.");
+  }
+
+  const active = await prismaRead.numberMigration.findFirst({
+    where: {
+      tenantId: args.tenantId,
+      status: { in: [...NUMBER_MIGRATION_LIVE_STATUSES] },
+    },
+    select: { id: true, phoneNumber: true, status: true },
+  });
+  if (active) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      `Tenant already has an active migration for ${active.phoneNumber} (${active.status}).`,
+    );
+  }
+
+  return prisma.numberMigration.create({
+    data: {
+      tenantId: args.tenantId,
+      phoneNumber: args.phoneNumber,
+      targetWabaId: args.targetWabaId?.trim() || null,
+      createdByUserId: args.createdByUserId ?? null,
+    },
+    include: { tenant: { select: { id: true, name: true } } },
+  });
+}
+
+function transitionData(
+  status: NumberMigrationStatus,
+  reason: string | null,
+): Record<string, unknown> {
+  const now = new Date();
+  const data: Record<string, unknown> = {
+    status,
+    statusReason: reason,
+  };
+  const stamp = timestampFieldForStatus(status);
+  if (stamp) data[stamp] = now;
+
+  // Completing the migration means the operational cutover is done. When
+  // future Meta adapters provide exact timestamps they can set these
+  // earlier; for manual completion we stamp any missing cutover steps.
+  if (status === "COMPLETED") {
+    data.releasedAt = now;
+    data.webhookUpdatedAt = now;
+    data.templatesSyncedAt = now;
+  }
+  return data;
+}
+
+export async function transitionNumberMigration(args: {
+  id: string;
+  toStatus: NumberMigrationStatus;
+  reason?: string | null;
+}): Promise<NumberMigration & { tenant: { id: string; name: string } }> {
+  const current = await prisma.numberMigration.findUnique({
+    where: { id: args.id },
+    include: { tenant: { select: { id: true, name: true } } },
+  });
+  if (!current) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Number migration not found.");
+  }
+  assertCanTransition(current.status, args.toStatus);
+
+  return prisma.numberMigration.update({
+    where: { id: args.id },
+    data: transitionData(args.toStatus, args.reason?.trim() || null),
+    include: { tenant: { select: { id: true, name: true } } },
+  });
+}
+
+export async function resendNumberMigrationOtp(args: {
+  id: string;
+  reason?: string | null;
+}): Promise<NumberMigration & { tenant: { id: string; name: string } }> {
+  const current = await prisma.numberMigration.findUnique({
+    where: { id: args.id },
+    include: { tenant: { select: { id: true, name: true } } },
+  });
+  if (!current) {
+    throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Number migration not found.");
+  }
+  if (current.status !== "OTP_REQUESTED") {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "OTP can only be resent after the migration is in OTP_REQUESTED.",
+    );
+  }
+  return prisma.numberMigration.update({
+    where: { id: args.id },
+    data: {
+      otpRequestedAt: new Date(),
+      statusReason: args.reason?.trim() || current.statusReason,
+    },
+    include: { tenant: { select: { id: true, name: true } } },
+  });
 }

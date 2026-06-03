@@ -69,6 +69,7 @@ import stripeWebhookRoutes from "./routes/stripe-webhook.routes";
 import adminRechargeRequestsRoutes from "./routes/admin-recharge-requests.routes";
 import creditLinesRoutes from "./routes/credit-lines.routes";
 import adminPaymentsRoutes from "./routes/admin-payments.routes";
+import numberMigrationsRoutes from "./routes/number-migrations.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -305,6 +306,7 @@ app.use("/api/v1/webhooks/stripe", stripeWebhookRoutes);
 app.use("/api/v1/admin/recharge-requests", adminRechargeRequestsRoutes);
 app.use("/api/v1/admin/credit-lines", creditLinesRoutes);
 app.use("/api/v1/admin/payments", adminPaymentsRoutes);
+app.use("/api/v1/admin/number-migrations", numberMigrationsRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);
 app.use("/api/v1/domains", domainsRoutes);
 app.use("/api/v1/wallets", walletsRoutes);
