@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import {
   prisma,
+  CreditLineStatus,
   CustomerHealthTier,
   PlatformActionCode,
   PlatformActionSeverity,
@@ -802,6 +803,99 @@ async function gatherProviderHealthSignals(now: Date): Promise<number> {
 }
 
 // ----------------------------------------------------------------------------
+// Overdue credit-line signals (Claude FINAL §5 "overdue suspension" worker).
+//
+// CreditLine carries a dueDate but nothing acts on it — the schema
+// comment flags this as a future worker. We do NOT auto-suspend: cutting
+// off an enterprise customer's send capability is high-blast-radius and
+// belongs to a human decision (same alert-not-auto-throttle discipline as
+// the AI usage spike monitor). Instead each overdue ACTIVE line becomes a
+// PlatformActionItem so the SuperAdmin can suspend from the credit-line
+// panel after reviewing.
+//
+// Severity escalates with how far past due the line is:
+//   < 7 days   → MEDIUM (gentle nudge; payment may be in flight)
+//   7–30 days  → HIGH   (chase the customer)
+//   > 30 days  → URGENT (write-off / suspend territory)
+// ----------------------------------------------------------------------------
+
+export interface CreditLineOverdueClassification {
+  severity: PlatformActionSeverity | null;
+}
+
+/**
+ * Pure days-overdue → severity mapping — exported for tests.
+ * A non-positive daysOverdue (line not yet due) returns null so the
+ * caller skips it.
+ */
+export function classifyCreditLineOverdue(
+  daysOverdue: number,
+): CreditLineOverdueClassification {
+  if (!Number.isFinite(daysOverdue) || daysOverdue <= 0) {
+    return { severity: null };
+  }
+  if (daysOverdue > 30) return { severity: PlatformActionSeverity.URGENT };
+  if (daysOverdue >= 7) return { severity: PlatformActionSeverity.HIGH };
+  return { severity: PlatformActionSeverity.MEDIUM };
+}
+
+/**
+ * Whole days between dueDate and now (floor). Negative when the line
+ * isn't due yet. Pure — exported for tests.
+ */
+export function daysOverdue(dueDate: Date, now: Date): number {
+  const ms = now.getTime() - dueDate.getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+async function gatherCreditLineOverdueSignals(now: Date): Promise<number> {
+  const rows = await prisma.creditLine.findMany({
+    where: {
+      status: CreditLineStatus.ACTIVE,
+      dueDate: { not: null, lt: now },
+    },
+    select: {
+      id: true,
+      tenantId: true,
+      limitCredits: true,
+      dueDate: true,
+      tenant: { select: { name: true } },
+    },
+    orderBy: { dueDate: "asc" },
+    take: 500,
+  });
+
+  let written = 0;
+  const today = dayKey(now);
+  for (const row of rows) {
+    if (!row.dueDate) continue;
+    const overdue = daysOverdue(row.dueDate, now);
+    const { severity } = classifyCreditLineOverdue(overdue);
+    if (!severity) continue;
+
+    await upsertItem({
+      code: PlatformActionCode.CREDIT_LINE_OVERDUE,
+      severity,
+      title: `${row.tenant.name}: credit line ${overdue}d overdue`,
+      body:
+        `Postpaid credit line (${row.limitCredits.toLocaleString("en-IN")} credit limit) ` +
+        `passed its due date ${overdue} day${overdue === 1 ? "" : "s"} ago. ` +
+        `Review and suspend from the tenant's credit-line panel if payment isn't forthcoming.`,
+      targetTenantId: row.tenantId,
+      context: {
+        creditLineId: row.id,
+        limitCredits: row.limitCredits,
+        dueDate: row.dueDate,
+        daysOverdue: overdue,
+      },
+      dedupeKey: `${PlatformActionCode.CREDIT_LINE_OVERDUE}:${row.tenantId}:${today}`,
+    });
+    written += 1;
+  }
+  return written;
+}
+
+// ----------------------------------------------------------------------------
 // Orchestration
 // ----------------------------------------------------------------------------
 
@@ -813,6 +907,7 @@ export interface ScanResult {
   aiUsageItems: number;
   churnRiskItems: number;
   onboardingStalledItems: number;
+  creditLineOverdueItems: number;
   total: number;
 }
 
@@ -828,6 +923,7 @@ export async function runDailyScan(): Promise<ScanResult> {
   let aiUsageItems = 0;
   let churnRiskItems = 0;
   let onboardingStalledItems = 0;
+  let creditLineOverdueItems = 0;
   try {
     walletItems = await gatherWalletRiskSignals(now);
   } catch (err) {
@@ -881,6 +977,14 @@ export async function runDailyScan(): Promise<ScanResult> {
       (err as Error).message,
     );
   }
+  try {
+    creditLineOverdueItems = await gatherCreditLineOverdueSignals(now);
+  } catch (err) {
+    console.warn(
+      "[platform-monitor] credit-line overdue scan failed:",
+      (err as Error).message,
+    );
+  }
   return {
     walletItems,
     complianceItems,
@@ -889,6 +993,7 @@ export async function runDailyScan(): Promise<ScanResult> {
     aiUsageItems,
     churnRiskItems,
     onboardingStalledItems,
+    creditLineOverdueItems,
     total:
       walletItems +
       complianceItems +
@@ -896,7 +1001,8 @@ export async function runDailyScan(): Promise<ScanResult> {
       webhookItems +
       aiUsageItems +
       churnRiskItems +
-      onboardingStalledItems,
+      onboardingStalledItems +
+      creditLineOverdueItems,
   };
 }
 

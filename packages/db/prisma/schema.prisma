@@ -146,56 +146,56 @@ model Tenant {
   slaMinutes Int @default(30)
 
   // Relations
-  users                   User[]
-  teams                   Team[]
-  whatsappTemplates       WhatsAppTemplate[]
-  contacts                Contact[]
-  campaigns               Campaign[]
-  conversations           Conversation[]
-  leads                   Lead[]
-  chatbotFlows            ChatbotFlow[]
-  subscriptions           Subscription[]
-  apiKeys                 ApiKey[]
-  apiRequestLogs          ApiRequestLog[]
-  webhooks                Webhook[]
-  auditLogs               AuditLog[]
-  aiUsage                 AiUsage[]
-  knowledgeBaseEntries    KnowledgeBaseEntry[]
-  aiAgents                AiAgent[]
-  invoices                Invoice[]
-  wallet                  Wallet?
-  walletTransactions      WalletTransaction[]      @relation("TenantWalletTransactions")
-  domains                 Domain[]                 @relation("TenantDomains")
-  partnerDomains          Domain[]                 @relation("PartnerDomains")
-  passwordResetTokens     PasswordResetToken[]
-  emailVerificationTokens EmailVerificationToken[]
-  cannedReplies           CannedReply[]
-  conversationNotes       ConversationNote[]
-  followUpTasks           FollowUpTask[]
-  paymentOrders           PaymentOrder[]
-  rechargeRequests        RechargeRequest[]
-  creditLines             CreditLine[]
-  services                Service[]
-  appointments            Appointment[]
-  flowRuns                FlowRun[]
-  providerRoutes          ProviderRoute[]
-  branding                Branding?
-  demoTenant              DemoTenant?
-  createdDemos            DemoTenant[]             @relation("DemoCreatedBy")
-  supportTickets          SupportTicket[]
-  dripSequences           DripSequence[]
-  dripEnrollments         DripEnrollment[]
-  metaAdsConnection       MetaAdsConnection?
-  metaAdsLeadForms        MetaAdsLeadForm[]
-  metaAdsAudiences        MetaAdsAudience[]
-  googleAdsConnection     GoogleAdsConnection?
-  walletRiskAssessments   WalletRiskAssessment[]
-  providerHealthSamples   ProviderHealthSample[]
-  platformActionItems     PlatformActionItem[]
-  customerHealthScores    CustomerHealthScore[]
-  partnerProposals        Proposal[]               @relation("PartnerProposals")
-  contactRetentionScores  ContactRetentionScore[]
-  retentionConfig         RetentionConfig?
+  users                    User[]
+  teams                    Team[]
+  whatsappTemplates        WhatsAppTemplate[]
+  contacts                 Contact[]
+  campaigns                Campaign[]
+  conversations            Conversation[]
+  leads                    Lead[]
+  chatbotFlows             ChatbotFlow[]
+  subscriptions            Subscription[]
+  apiKeys                  ApiKey[]
+  apiRequestLogs           ApiRequestLog[]
+  webhooks                 Webhook[]
+  auditLogs                AuditLog[]
+  aiUsage                  AiUsage[]
+  knowledgeBaseEntries     KnowledgeBaseEntry[]
+  aiAgents                 AiAgent[]
+  invoices                 Invoice[]
+  wallet                   Wallet?
+  walletTransactions       WalletTransaction[]       @relation("TenantWalletTransactions")
+  domains                  Domain[]                  @relation("TenantDomains")
+  partnerDomains           Domain[]                  @relation("PartnerDomains")
+  passwordResetTokens      PasswordResetToken[]
+  emailVerificationTokens  EmailVerificationToken[]
+  cannedReplies            CannedReply[]
+  conversationNotes        ConversationNote[]
+  followUpTasks            FollowUpTask[]
+  paymentOrders            PaymentOrder[]
+  rechargeRequests         RechargeRequest[]
+  creditLines              CreditLine[]
+  services                 Service[]
+  appointments             Appointment[]
+  flowRuns                 FlowRun[]
+  providerRoutes           ProviderRoute[]
+  branding                 Branding?
+  demoTenant               DemoTenant?
+  createdDemos             DemoTenant[]              @relation("DemoCreatedBy")
+  supportTickets           SupportTicket[]
+  dripSequences            DripSequence[]
+  dripEnrollments          DripEnrollment[]
+  metaAdsConnection        MetaAdsConnection?
+  metaAdsLeadForms         MetaAdsLeadForm[]
+  metaAdsAudiences         MetaAdsAudience[]
+  googleAdsConnection      GoogleAdsConnection?
+  walletRiskAssessments    WalletRiskAssessment[]
+  providerHealthSamples    ProviderHealthSample[]
+  platformActionItems      PlatformActionItem[]
+  customerHealthScores     CustomerHealthScore[]
+  partnerProposals         Proposal[]                @relation("PartnerProposals")
+  contactRetentionScores   ContactRetentionScore[]
+  retentionConfig          RetentionConfig?
   analyticsReportSchedules AnalyticsReportSchedule[]
 
   createdAt DateTime @default(now())
@@ -1945,7 +1945,7 @@ enum AnalyticsReportStatus {
 
 model AnalyticsReportSchedule {
   id          String               @id @default(cuid())
-  scheduleKey String              @unique
+  scheduleKey String               @unique
   scope       AnalyticsReportScope
 
   tenantId String?
@@ -1956,8 +1956,8 @@ model AnalyticsReportSchedule {
   format         AnalyticsReportFormat    @default(PDF)
   enabled        Boolean                  @default(true)
 
-  nextRunAt DateTime
-  lastRunAt DateTime?
+  nextRunAt  DateTime
+  lastRunAt  DateTime?
   lastSentAt DateTime?
   lastStatus AnalyticsReportStatus @default(NEVER_RUN)
   lastError  String?
@@ -2361,6 +2361,7 @@ enum PlatformActionCode {
   CHURN_RISK
   ONBOARDING_STALLED
   DOMAIN_HEALTH_DEGRADED
+  CREDIT_LINE_OVERDUE
 }
 
 // ============================================================================
