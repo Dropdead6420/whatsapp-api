@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import type { AuthUserPublic } from "@nexaflow/shared";
+import { Menu, X } from "lucide-react";
 import { api } from "../lib/api";
 
 interface MenuItemOverride {
@@ -53,6 +54,7 @@ export function PartnerShell({
   const [brandLogo, setBrandLogo] = useState<string>("");
   const [brandName, setBrandName] = useState<string>("Partner Portal");
   const [primaryColor, setPrimaryColor] = useState<string>("#6366f1"); // Indigo
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const loadMenuConfig = useCallback(async () => {
     try {
@@ -148,6 +150,10 @@ export function PartnerShell({
     };
   });
 
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
   // Helper classes depending on theme
   const getThemeClasses = () => {
     switch (theme) {
@@ -205,8 +211,16 @@ export function PartnerShell({
     <div className={`flex min-h-screen flex-col font-sans transition-all duration-500 ${style.wrapper}`}>
       
       {/* Top Header Navigation */}
-      <header className={`sticky top-0 z-40 flex h-14 items-center justify-between border-b px-6 transition-all duration-300 ${style.header}`}>
-        <div className="flex items-center gap-4">
+      <header className={`sticky top-0 z-40 flex h-14 items-center justify-between border-b px-4 transition-all duration-300 sm:px-6 ${style.header}`}>
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 text-slate-200 transition hover:bg-slate-800 md:hidden"
+            aria-label="Open partner navigation"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
           <div className="flex items-center gap-2 font-semibold">
             {brandLogo ? (
               <img src={brandLogo} alt="Logo" className="h-6 w-auto rounded" />
@@ -215,7 +229,7 @@ export function PartnerShell({
                 ✦
               </span>
             )}
-            <span className="tracking-tight">{brandName}</span>
+            <span className="truncate tracking-tight">{brandName}</span>
           </div>
           <span className="hidden rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20 sm:inline-flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>
@@ -265,10 +279,79 @@ export function PartnerShell({
         </div>
       </header>
 
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+            aria-label="Close partner navigation"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside
+            className={`relative flex h-full w-[min(86vw,320px)] flex-col justify-between border-r shadow-2xl transition-colors duration-300 ${style.sidebar}`}
+          >
+            <div className={`flex h-14 items-center justify-between border-b px-4 ${style.sidebarHeader}`}>
+              <div className="flex min-w-0 items-center gap-2 font-semibold">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
+                  ✦
+                </span>
+                <span className="truncate">{brandName}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 text-slate-200"
+                aria-label="Close partner navigation"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-4">
+              <div className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Agency Controls
+              </div>
+              <nav className="space-y-1">
+                {navItems.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-300 ${
+                        active ? style.navActive : `text-slate-400 ${style.navHover}`
+                      }`}
+                    >
+                      <span className="text-base">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+
+            <div className={`border-t p-4 transition-colors duration-300 ${style.footer}`}>
+              <div className="truncate text-sm font-medium text-slate-300">{user.email}</div>
+              <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-400">
+                {user.role} Account
+              </div>
+              <button
+                type="button"
+                onClick={signOut}
+                className="mt-3 flex w-full items-center justify-center rounded-md border border-slate-700 bg-slate-800/40 py-1.5 text-center text-xs font-semibold text-slate-300 transition-all duration-300 hover:border-red-900/50 hover:bg-red-950/20 hover:text-red-400"
+              >
+                Sign Out Account
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {/* Sidebar + Main Body wrapper */}
-      <div className="flex flex-1">
+      <div className="flex min-w-0 flex-1">
         {/* Sidebar Nav */}
-        <aside className={`w-64 border-r flex flex-col justify-between shrink-0 transition-colors duration-300 ${style.sidebar}`}>
+        <aside className={`hidden w-64 shrink-0 flex-col justify-between border-r transition-colors duration-300 md:flex ${style.sidebar}`}>
           <div className="flex-1 overflow-y-auto py-4 px-3">
             <div className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
               Agency Controls
@@ -309,7 +392,7 @@ export function PartnerShell({
         </aside>
 
         {/* Content Portal */}
-        <main className={`flex-1 overflow-y-auto p-8 transition-colors duration-300 ${style.main}`}>
+        <main className={`min-w-0 flex-1 overflow-y-auto p-4 pb-8 transition-colors duration-300 sm:p-6 lg:p-8 ${style.main}`}>
           <div className="mx-auto max-w-7xl">
             {children}
           </div>
