@@ -1,10 +1,17 @@
 import nodemailer, { type Transporter } from "nodemailer";
 
+interface EmailAttachment {
+  filename: string;
+  content: Buffer | string;
+  contentType?: string;
+}
+
 interface EmailPayload {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  attachments?: EmailAttachment[];
   /**
    * T-041: optional tenant id. When set AND the tenant has a
    * verified custom email domain (within the 30-day TTL), the FROM
@@ -82,6 +89,12 @@ type EnrichedPayload = EmailPayload & {
   overrideFrom?: { address: string; name: string | null };
 };
 
+function attachmentToBase64(attachment: EmailAttachment): string {
+  return Buffer.isBuffer(attachment.content)
+    ? attachment.content.toString("base64")
+    : Buffer.from(attachment.content, "utf8").toString("base64");
+}
+
 async function sendViaResend(payload: EnrichedPayload): Promise<void> {
   const resendKey = process.env.RESEND_API_KEY;
   if (!resendKey) {
@@ -100,6 +113,11 @@ async function sendViaResend(payload: EnrichedPayload): Promise<void> {
       subject: payload.subject,
       text: payload.text,
       html: payload.html,
+      attachments: payload.attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content: attachmentToBase64(attachment),
+        ...(attachment.contentType ? { content_type: attachment.contentType } : {}),
+      })),
     }),
   });
   if (!res.ok) {
@@ -122,6 +140,11 @@ async function sendViaSmtp(payload: EnrichedPayload): Promise<void> {
     subject: payload.subject,
     text: payload.text,
     html: payload.html,
+    attachments: payload.attachments?.map((attachment) => ({
+      filename: attachment.filename,
+      content: attachment.content,
+      contentType: attachment.contentType,
+    })),
   });
 }
 
@@ -130,6 +153,13 @@ function sendViaConsole(payload: EnrichedPayload): void {
     from: getFormattedFrom(payload.overrideFrom),
     to: payload.to,
     subject: payload.subject,
+    attachments: payload.attachments?.map((attachment) => ({
+      filename: attachment.filename,
+      bytes: Buffer.isBuffer(attachment.content)
+        ? attachment.content.length
+        : Buffer.byteLength(attachment.content, "utf8"),
+      contentType: attachment.contentType,
+    })),
   });
   console.log(payload.text);
   console.log("---");

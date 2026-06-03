@@ -138,6 +138,10 @@ import {
   startDomainHealthWorker,
   stopDomainHealthWorker,
 } from "./services/domainHealth.service";
+import {
+  startAnalyticsReportWorker,
+  stopAnalyticsReportWorker,
+} from "./services/analyticsReportSchedule.service";
 
 // Sentry init must run before any other module imports that throw, so
 // keep this as the first stateful side-effect after env load.
@@ -362,6 +366,7 @@ async function startWorkers(): Promise<void> {
   startCustomerHealthWorker();
   startContactRetentionWorker();
   await startDomainHealthWorker();
+  await startAnalyticsReportWorker();
 }
 
 function stopWorkers(): void {
@@ -384,6 +389,7 @@ function stopWorkers(): void {
   stopCustomerHealthWorker();
   stopContactRetentionWorker();
   stopDomainHealthWorker();
+  stopAnalyticsReportWorker();
 }
 
 if (START_HTTP) {

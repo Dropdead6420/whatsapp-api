@@ -196,6 +196,7 @@ model Tenant {
   partnerProposals        Proposal[]               @relation("PartnerProposals")
   contactRetentionScores  ContactRetentionScore[]
   retentionConfig         RetentionConfig?
+  analyticsReportSchedules AnalyticsReportSchedule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1914,6 +1915,60 @@ model ComplianceCheck {
   @@index([tenantId, scope, createdAt])
   @@index([tenantId, verdict])
   @@index([tenantId, contentHash])
+}
+
+// ============================================================================
+// SCHEDULED ANALYTICS REPORTS (T-062)
+// ============================================================================
+
+enum AnalyticsReportScope {
+  PLATFORM
+  TENANT
+}
+
+enum AnalyticsReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum AnalyticsReportFormat {
+  CSV
+  PDF
+}
+
+enum AnalyticsReportStatus {
+  SENT
+  FAILED
+  NEVER_RUN
+}
+
+model AnalyticsReportSchedule {
+  id          String               @id @default(cuid())
+  scheduleKey String              @unique
+  scope       AnalyticsReportScope
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  recipientEmail String
+  frequency      AnalyticsReportFrequency @default(WEEKLY)
+  format         AnalyticsReportFormat    @default(PDF)
+  enabled        Boolean                  @default(true)
+
+  nextRunAt DateTime
+  lastRunAt DateTime?
+  lastSentAt DateTime?
+  lastStatus AnalyticsReportStatus @default(NEVER_RUN)
+  lastError  String?
+
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled, nextRunAt])
+  @@index([scope, tenantId])
 }
 
 // ============================================================================
