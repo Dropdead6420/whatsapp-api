@@ -175,6 +175,7 @@ model Tenant {
   paymentOrders            PaymentOrder[]
   rechargeRequests         RechargeRequest[]
   creditLines              CreditLine[]
+  usageEvents              UsageEvent[]
   numberMigrations         NumberMigration[]
   services                 Service[]
   appointments             Appointment[]
@@ -215,6 +216,26 @@ enum WhatsAppProviderKey {
   DIALOG_360
   TWILIO
   HAPTIK
+}
+
+enum WhatsAppUsageCategory {
+  MARKETING
+  UTILITY
+  AUTHENTICATION
+  SERVICE
+}
+
+enum UsageEventKind {
+  WHATSAPP_MESSAGE
+  AI_CALL
+}
+
+enum UsageEventStatus {
+  QUOTED
+  AUTHORIZED
+  DEBITED
+  BLOCKED
+  FAILED
 }
 
 // ============================================================================
@@ -285,6 +306,122 @@ model ProviderRoute {
   @@unique([tenantId, phoneNumberId])
   @@index([tenantId])
   @@index([isActive])
+}
+
+// ============================================================================
+// Corrected billing rate engine (NexaFlow_Codex_Final_Corrected_Billing)
+//
+// WhatsAppRateTable stores the real provider/category/country cost surface.
+// PartnerRateRule overlays partner markup without mutating the base table.
+// UsageEvent records every quoted/debited unit so wallet billing is traceable
+// and idempotent.
+//
+// Amounts ending in `Micros` use 1/1,000,000 of the row currency. This keeps
+// fractional WhatsApp rates exact without floating-point money math. The API
+// converts final totals to integer wallet credits at the boundary.
+// ============================================================================
+
+model WhatsAppRateTable {
+  id          String                @id @default(cuid())
+  countryCode String
+  category    WhatsAppUsageCategory
+  providerKey WhatsAppProviderKey
+
+  currency           String @default("INR")
+  baseCostMicros     BigInt
+  providerCostMicros BigInt @default(0)
+  taxBps             Int    @default(0)
+  gatewayFeeBps      Int    @default(0)
+
+  isActive      Boolean   @default(true)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  notes         String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([countryCode, category, providerKey, isActive, effectiveFrom])
+  @@index([providerKey, isActive])
+}
+
+model PartnerRateRule {
+  id               String  @id @default(cuid())
+  partnerTenantId  String
+  customerTenantId String?
+
+  countryCode String?
+  category    WhatsAppUsageCategory?
+  providerKey WhatsAppProviderKey?
+
+  markupBps         Int    @default(0)
+  fixedMarkupMicros BigInt @default(0)
+  priority          Int    @default(100)
+
+  isActive      Boolean   @default(true)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  notes         String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([partnerTenantId, isActive, priority])
+  @@index([customerTenantId, isActive])
+  @@index([countryCode, category, providerKey])
+}
+
+model UsageEvent {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  partnerTenantId String?
+
+  kind   UsageEventKind
+  status UsageEventStatus @default(QUOTED)
+
+  idempotencyKey String
+  providerKey    WhatsAppProviderKey?
+  countryCode    String?
+  category       WhatsAppUsageCategory?
+  units          Int                    @default(1)
+  source         String?
+  referenceType  String?
+  referenceId    String?
+  contentHash    String?
+
+  rateTableId String?
+
+  currency            String @default("INR")
+  baseCostMicros      BigInt @default(0)
+  providerCostMicros  BigInt @default(0)
+  partnerMarkupBps    Int    @default(0)
+  partnerMarkupMicros BigInt @default(0)
+  taxBps              Int    @default(0)
+  gatewayFeeBps       Int    @default(0)
+  subtotalMicros      BigInt @default(0)
+  taxMicros           BigInt @default(0)
+  gatewayFeeMicros    BigInt @default(0)
+  totalCostMicros     BigInt @default(0)
+  walletCurrency      String @default("INR")
+  currencyRateMicros  BigInt @default(1000000)
+  walletCostMicros    BigInt @default(0)
+  walletDebitCredits  Int    @default(0)
+
+  aiFeature String?
+  metadata  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, kind, createdAt])
+  @@index([status, createdAt])
+  @@index([referenceType, referenceId])
+  @@index([partnerTenantId, createdAt])
 }
 
 model Domain {

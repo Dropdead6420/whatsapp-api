@@ -163,6 +163,34 @@ export enum WalletTransactionDirection {
   DEBIT = "DEBIT",
 }
 
+export enum WhatsAppProviderKey {
+  META = "META",
+  GUPSHUP = "GUPSHUP",
+  DIALOG_360 = "DIALOG_360",
+  TWILIO = "TWILIO",
+  HAPTIK = "HAPTIK",
+}
+
+export enum WhatsAppUsageCategory {
+  MARKETING = "MARKETING",
+  UTILITY = "UTILITY",
+  AUTHENTICATION = "AUTHENTICATION",
+  SERVICE = "SERVICE",
+}
+
+export enum UsageEventKind {
+  WHATSAPP_MESSAGE = "WHATSAPP_MESSAGE",
+  AI_CALL = "AI_CALL",
+}
+
+export enum UsageEventStatus {
+  QUOTED = "QUOTED",
+  AUTHORIZED = "AUTHORIZED",
+  DEBITED = "DEBITED",
+  BLOCKED = "BLOCKED",
+  FAILED = "FAILED",
+}
+
 export interface Wallet {
   id: string;
   tenantId: string;
