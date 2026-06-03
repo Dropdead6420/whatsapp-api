@@ -262,6 +262,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: WalletCards,
         roles: ["SUPER_ADMIN"],
       },
+      {
+        href: "/payments",
+        label: "Payments",
+        icon: CreditCard,
+        roles: ["SUPER_ADMIN"],
+      },
     ],
   },
   {
