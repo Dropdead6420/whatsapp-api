@@ -270,6 +270,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         roles: ["SUPER_ADMIN"],
       },
       {
+        href: "/rates",
+        label: "WhatsApp rates",
+        icon: ClipboardList,
+        roles: ["SUPER_ADMIN"],
+      },
+      {
         href: "/number-migrations",
         label: "Number migrations",
         icon: ArrowRightLeft,
