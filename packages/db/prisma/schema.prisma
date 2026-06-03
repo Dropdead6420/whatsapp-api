@@ -459,6 +459,31 @@ model UsageEvent {
   @@index([partnerTenantId, createdAt])
 }
 
+// Platform FX rates (Claude Corrected Billing §3 — multi-currency).
+// 1 unit of baseCurrency = rateMicros / 1_000_000 units of quoteCurrency.
+// The rate engine resolves UsageEvent.currencyRateMicros from the active
+// row for (rate.currency → wallet.currency). Effective-dated like the
+// WhatsApp rate table; the newest active row wins for a given pair.
+model CurrencyRate {
+  id            String @id @default(cuid())
+  baseCurrency  String // ISO-4217, the priced-in currency (e.g. USD)
+  quoteCurrency String // ISO-4217, the wallet/settlement currency (e.g. INR)
+  rateMicros    BigInt // quote units per 1 base unit, ×1_000_000
+
+  source String? // "manual", "ecb", "openexchangerates", …
+  notes  String?
+
+  isActive      Boolean   @default(true)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([baseCurrency, quoteCurrency, isActive, effectiveFrom], map: "CurrencyRate_pair_active_from_idx")
+}
+
 model Domain {
   id       String @id @default(cuid())
   tenantId String

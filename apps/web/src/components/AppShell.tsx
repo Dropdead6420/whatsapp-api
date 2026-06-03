@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Coins,
   CreditCard,
   FileText,
   Headphones,
@@ -273,6 +274,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         href: "/rates",
         label: "WhatsApp rates",
         icon: ClipboardList,
+        roles: ["SUPER_ADMIN"],
+      },
+      {
+        href: "/currency-rates",
+        label: "Currency rates",
+        icon: Coins,
         roles: ["SUPER_ADMIN"],
       },
       {

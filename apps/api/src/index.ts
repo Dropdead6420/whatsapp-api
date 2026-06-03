@@ -70,6 +70,7 @@ import adminRechargeRequestsRoutes from "./routes/admin-recharge-requests.routes
 import creditLinesRoutes from "./routes/credit-lines.routes";
 import adminPaymentsRoutes from "./routes/admin-payments.routes";
 import adminRatesRoutes from "./routes/admin-rates.routes";
+import adminCurrencyRatesRoutes from "./routes/admin-currency-rates.routes";
 import numberMigrationsRoutes from "./routes/number-migrations.routes";
 import {
   startCampaignWorker,
@@ -308,6 +309,7 @@ app.use("/api/v1/admin/recharge-requests", adminRechargeRequestsRoutes);
 app.use("/api/v1/admin/credit-lines", creditLinesRoutes);
 app.use("/api/v1/admin/payments", adminPaymentsRoutes);
 app.use("/api/v1/admin/rates", adminRatesRoutes);
+app.use("/api/v1/admin/currency-rates", adminCurrencyRatesRoutes);
 app.use("/api/v1/admin/number-migrations", numberMigrationsRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);
 app.use("/api/v1/domains", domainsRoutes);
