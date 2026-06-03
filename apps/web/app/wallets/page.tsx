@@ -445,6 +445,52 @@ export default function WalletsPage() {
     }
   }
 
+  /**
+   * Customer (BUSINESS_ADMIN) self-serve settings save. Hits the
+   * tenant-scoped customer endpoint — which whitelists low-balance +
+   * auto-recharge and rejects admin-only fields server-side — instead
+   * of the SuperAdmin /wallets/:tenantId/settings PATCH.
+   */
+  async function saveCustomerSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSelfRecharge) return;
+    setErr(null);
+    setNotice(null);
+
+    if (autoRechargeEnabled) {
+      const amount = Number(autoRechargeAmount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setErr("Recharge amount must be greater than 0 when auto-recharge is on.");
+        return;
+      }
+      if (!autoRechargeProvider) {
+        setErr("Pick a payment provider before turning auto-recharge on.");
+        return;
+      }
+      if (!autoRechargeToken.trim()) {
+        setErr("Add a saved payment method token before turning auto-recharge on.");
+        return;
+      }
+    }
+
+    setSavingAutoRecharge(true);
+    try {
+      await api.put(`/api/v1/customer/wallets/settings`, {
+        lowBalanceThreshold: Number(lowBalanceThreshold),
+        autoRechargeEnabled,
+        autoRechargeAmountCredits: Number(autoRechargeAmount),
+        autoRechargePaymentProvider: autoRechargeProvider || null,
+        autoRechargePaymentMethodToken: autoRechargeToken.trim() || null,
+      });
+      setNotice("Wallet settings saved.");
+      await loadWallets();
+    } catch (error) {
+      setErr(error instanceof ApiClientError ? error.message : "Save failed");
+    } finally {
+      setSavingAutoRecharge(false);
+    }
+  }
+
   async function transfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected || !canManage) return;
@@ -942,6 +988,89 @@ export default function WalletsPage() {
                   windowDays={usageWindow}
                   onWindowChange={setUsageWindow}
                 />
+              )}
+
+              {canSelfRecharge && (
+                <section className="rounded-lg border border-slate-200 bg-white p-5">
+                  <h2 className="text-sm font-semibold">Wallet settings</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Set your low-balance alert and (optionally) auto-recharge so
+                    you never run out mid-campaign.
+                  </p>
+                  <form
+                    onSubmit={saveCustomerSettings}
+                    className="mt-4 grid gap-4 md:grid-cols-2"
+                  >
+                    <label className="block text-xs text-slate-600">
+                      Low-balance alert (credits)
+                      <input
+                        value={lowBalanceThreshold}
+                        onChange={(e) => setLowBalanceThreshold(e.target.value)}
+                        type="number"
+                        min={0}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <div className="flex items-end">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={autoRechargeEnabled}
+                          onChange={(e) => setAutoRechargeEnabled(e.target.checked)}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-xs font-medium text-slate-700">
+                          Auto-recharge {autoRechargeEnabled ? "on" : "off"}
+                        </span>
+                      </label>
+                    </div>
+                    <label className="block text-xs text-slate-600">
+                      Top-up amount (credits)
+                      <input
+                        value={autoRechargeAmount}
+                        onChange={(e) => setAutoRechargeAmount(e.target.value)}
+                        type="number"
+                        min={0}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="e.g. 5000"
+                      />
+                    </label>
+                    <label className="block text-xs text-slate-600">
+                      Payment provider
+                      <select
+                        value={autoRechargeProvider}
+                        onChange={(e) =>
+                          setAutoRechargeProvider(
+                            e.target.value as AutoRechargeProvider,
+                          )
+                        }
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      >
+                        <option value="">— Select —</option>
+                        <option value="razorpay">Razorpay</option>
+                        <option value="stripe">Stripe</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs text-slate-600 md:col-span-2">
+                      Saved payment method token
+                      <input
+                        value={autoRechargeToken}
+                        onChange={(e) => setAutoRechargeToken(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                        placeholder="Provider's saved-method reference"
+                      />
+                    </label>
+                    <div className="md:col-span-2">
+                      <button
+                        type="submit"
+                        disabled={savingAutoRecharge}
+                        className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        {savingAutoRecharge ? "Saving…" : "Save wallet settings"}
+                      </button>
+                    </div>
+                  </form>
+                </section>
               )}
 
               {canManage && (
