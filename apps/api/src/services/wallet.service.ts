@@ -21,6 +21,14 @@ export interface WalletEntryInput {
   referenceId?: string | null;
   counterpartyWalletId?: string | null;
   metadata?: Record<string, unknown> | null;
+  /**
+   * Bypass the negative-balance guards for this entry. Used only for
+   * gateway refund reversals: when a customer is refunded credits they
+   * already spent, the wallet must legitimately go negative to reflect
+   * the real debt — blocking it would silently swallow the clawback.
+   * Never set this for routine debits (message/AI/workflow usage).
+   */
+  allowNegativeBalance?: boolean;
 }
 
 function assertPositiveCredits(amountCredits: number): void {
@@ -73,24 +81,29 @@ async function applyWalletEntryTx(tx: Tx, input: WalletEntryInput) {
       : -input.amountCredits;
   const nextBalance = wallet.balanceCredits + signedAmount;
 
-  if (
-    input.direction === WalletTransactionDirection.DEBIT &&
-    wallet.billingMode === WalletBillingMode.PREPAID &&
-    nextBalance < 0
-  ) {
-    throw new ApiError(ErrorCodes.QUOTA_EXCEEDED, 402, "Insufficient wallet credits.");
-  }
+  // Refund reversals are allowed to drive the balance negative (the
+  // customer genuinely owes back credits they were refunded); every
+  // other debit is bounded by the prepaid floor / postpaid credit line.
+  if (!input.allowNegativeBalance) {
+    if (
+      input.direction === WalletTransactionDirection.DEBIT &&
+      wallet.billingMode === WalletBillingMode.PREPAID &&
+      nextBalance < 0
+    ) {
+      throw new ApiError(ErrorCodes.QUOTA_EXCEEDED, 402, "Insufficient wallet credits.");
+    }
 
-  if (
-    input.direction === WalletTransactionDirection.DEBIT &&
-    wallet.billingMode === WalletBillingMode.POSTPAID &&
-    nextBalance < -wallet.creditLimit
-  ) {
-    throw new ApiError(
-      ErrorCodes.QUOTA_EXCEEDED,
-      402,
-      "Wallet credit line limit exceeded.",
-    );
+    if (
+      input.direction === WalletTransactionDirection.DEBIT &&
+      wallet.billingMode === WalletBillingMode.POSTPAID &&
+      nextBalance < -wallet.creditLimit
+    ) {
+      throw new ApiError(
+        ErrorCodes.QUOTA_EXCEEDED,
+        402,
+        "Wallet credit line limit exceeded.",
+      );
+    }
   }
 
   const updated = await tx.wallet.update({

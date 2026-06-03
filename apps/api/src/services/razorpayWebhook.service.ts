@@ -38,6 +38,7 @@ import {
 import { adjustWalletIdempotent } from "./wallet.service";
 import { assertCanTransitionStatus } from "./paymentOrder.service";
 import { createInvoiceForPaymentOrder } from "./invoice.service";
+import { applyRefundReversal } from "./refund.service";
 
 export interface RazorpayWebhookContext {
   /** Raw HTTP body, byte-for-byte — needed for signature verification. */
@@ -69,6 +70,13 @@ export interface RazorpayEvent {
         status: string;
       };
     };
+    refund?: {
+      entity?: {
+        id: string;
+        payment_id: string;
+        amount: number;
+      };
+    };
   };
 }
 
@@ -78,6 +86,7 @@ export interface HandleRazorpayEventResult {
     | "duplicate_ignored"
     | "credited"
     | "marked_failed"
+    | "refund_reversed"
     | "no_matching_order"
     | "unknown_event"
     | "signature_invalid";
@@ -222,6 +231,29 @@ export async function handleRazorpayEvent(
         `Razorpay payment.failed (no description)`,
       webhookLogId,
     });
+  }
+
+  if (eventName === "refund.created" || eventName === "refund.processed") {
+    const refund = ctx.payload.payload.refund?.entity;
+    if (!refund) {
+      return { outcome: "unknown_event", webhookLogId };
+    }
+    // Only reverse against a SUCCEEDED order — a refund on anything
+    // else means we never credited, so there's nothing to claw back.
+    if (order.status !== "SUCCEEDED") {
+      return { outcome: "unknown_event", webhookLogId, paymentOrderId: order.id };
+    }
+    await applyRefundReversal({
+      order,
+      gateway: GATEWAY,
+      gatewayRefundId: refund.id,
+      refundedAmount: refund.amount,
+    });
+    return {
+      outcome: "refund_reversed",
+      webhookLogId,
+      paymentOrderId: order.id,
+    };
   }
 
   if (duplicate) {

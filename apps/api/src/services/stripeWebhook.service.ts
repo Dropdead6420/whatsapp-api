@@ -25,6 +25,7 @@ import {
 import { adjustWalletIdempotent } from "./wallet.service";
 import { assertCanTransitionStatus } from "./paymentOrder.service";
 import { createInvoiceForPaymentOrder } from "./invoice.service";
+import { applyRefundReversal } from "./refund.service";
 
 export interface StripeWebhookContext {
   rawBody: string;
@@ -42,6 +43,10 @@ export interface StripeEvent {
       currency?: string;
       status?: string;
       last_payment_error?: { message?: string } | null;
+      // charge.refunded fields — `id` here is the charge id (ch_*),
+      // payment_intent is our gatewayOrderId (pi_*).
+      payment_intent?: string;
+      amount_refunded?: number;
     };
   };
 }
@@ -51,6 +56,7 @@ export interface HandleStripeEventResult {
     | "duplicate_ignored"
     | "credited"
     | "marked_failed"
+    | "refund_reversed"
     | "no_matching_order"
     | "unknown_event"
     | "signature_invalid";
@@ -128,6 +134,45 @@ export async function handleStripeEvent(
   const intent = ctx.payload.data?.object;
   if (!intent?.id) {
     return { outcome: "unknown_event", webhookLogId };
+  }
+
+  // charge.refunded carries a Charge, not a PaymentIntent — the order
+  // is keyed by payment_intent (our gatewayOrderId), not the charge id.
+  // The charge id is the idempotency anchor for the reversal. Handled
+  // before the generic lookup because the lookup key differs.
+  if (ctx.payload.type === "charge.refunded") {
+    const piId = intent.payment_intent;
+    if (!piId) return { outcome: "unknown_event", webhookLogId };
+    const refundedOrder = await findPaymentOrder(piId);
+    if (!refundedOrder) {
+      return { outcome: "no_matching_order", webhookLogId };
+    }
+    await prisma.paymentWebhookLog.update({
+      where: { id: webhookLogId },
+      data: { paymentOrderId: refundedOrder.id },
+    });
+    if (refundedOrder.status !== "SUCCEEDED") {
+      return {
+        outcome: "unknown_event",
+        webhookLogId,
+        paymentOrderId: refundedOrder.id,
+      };
+    }
+    await applyRefundReversal({
+      order: refundedOrder,
+      gateway: GATEWAY,
+      // Charge id anchors the reversal — one reversal per charge.
+      // (Partial/incremental refunds against the same charge collapse
+      // to a single reversal of amount_refunded; full refunds are the
+      // common case and are exact.)
+      gatewayRefundId: intent.id,
+      refundedAmount: intent.amount_refunded ?? 0,
+    });
+    return {
+      outcome: "refund_reversed",
+      webhookLogId,
+      paymentOrderId: refundedOrder.id,
+    };
   }
 
   const order = await findPaymentOrder(intent.id);
