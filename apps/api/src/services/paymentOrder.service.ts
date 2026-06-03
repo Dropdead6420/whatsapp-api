@@ -27,7 +27,7 @@
 // ============================================================================
 
 import { prisma, type PaymentOrder, type PaymentOrderStatus } from "@nexaflow/db";
-import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { ApiError, ErrorCodes, WalletType } from "@nexaflow/shared";
 import {
   createRazorpayOrder,
   isRazorpayConfigured,
@@ -36,6 +36,7 @@ import {
   createStripePaymentIntent,
   isStripeConfigured,
 } from "../lib/stripe";
+import { ensureWallet } from "./wallet.service";
 
 /** Bounds for amount sanitization. Currency-agnostic — caller is
  *  responsible for unit conversion (paise vs cents) before invoking. */
@@ -229,6 +230,7 @@ export interface InitiateRazorpayRechargeResult {
  */
 export async function initiateRazorpayRecharge(args: {
   tenantId: string;
+  walletType?: WalletType;
   amount: number;
   currency?: string;
   idempotencyKey: string;
@@ -237,21 +239,12 @@ export async function initiateRazorpayRecharge(args: {
   const amount = sanitizeRechargeAmount(args.amount);
   const idempotencyKey = sanitizeIdempotencyKey(args.idempotencyKey);
   const currency = (args.currency ?? "INR").toUpperCase();
+  const walletType = args.walletType ?? WalletType.WHATSAPP_USAGE;
 
-  // The customer's wallet is the credit destination. Auto-created on
-  // tenant signup, so we expect it to exist; surface a clear 404 when
-  // it doesn't.
-  const wallet = await prisma.wallet.findUnique({
-    where: { tenantId: args.tenantId },
-    select: { id: true, status: true },
-  });
-  if (!wallet) {
-    throw new ApiError(
-      ErrorCodes.NOT_FOUND,
-      404,
-      "Wallet not initialized for this tenant.",
-    );
-  }
+  // The selected wallet is the credit destination. New typed wallets
+  // (AI_CREDIT) are auto-created so customers can recharge before any
+  // AI usage has occurred.
+  const wallet = await ensureWallet(args.tenantId, walletType);
   if (wallet.status !== "ACTIVE") {
     throw new ApiError(
       ErrorCodes.BAD_REQUEST,
@@ -284,6 +277,13 @@ export async function initiateRazorpayRecharge(args: {
         "Idempotency key reused with a different amount. Use a fresh key.",
       );
     }
+    if (existing.walletType !== walletType) {
+      throw new ApiError(
+        ErrorCodes.CONFLICT,
+        409,
+        "Idempotency key reused for a different wallet type. Use a fresh key.",
+      );
+    }
     return {
       paymentOrder: existing,
       init: {
@@ -311,6 +311,7 @@ export async function initiateRazorpayRecharge(args: {
     data: {
       tenantId: args.tenantId,
       walletId: wallet.id,
+      walletType,
       gateway: "RAZORPAY",
       amount,
       currency,
@@ -364,6 +365,7 @@ export interface InitiateStripeRechargeResult {
  */
 export async function initiateStripeRecharge(args: {
   tenantId: string;
+  walletType?: WalletType;
   amount: number;
   currency?: string;
   idempotencyKey: string;
@@ -372,18 +374,9 @@ export async function initiateStripeRecharge(args: {
   const amount = sanitizeRechargeAmount(args.amount);
   const idempotencyKey = sanitizeIdempotencyKey(args.idempotencyKey);
   const currency = (args.currency ?? "USD").toUpperCase();
+  const walletType = args.walletType ?? WalletType.WHATSAPP_USAGE;
 
-  const wallet = await prisma.wallet.findUnique({
-    where: { tenantId: args.tenantId },
-    select: { id: true, status: true },
-  });
-  if (!wallet) {
-    throw new ApiError(
-      ErrorCodes.NOT_FOUND,
-      404,
-      "Wallet not initialized for this tenant.",
-    );
-  }
+  const wallet = await ensureWallet(args.tenantId, walletType);
   if (wallet.status !== "ACTIVE") {
     throw new ApiError(
       ErrorCodes.BAD_REQUEST,
@@ -413,6 +406,13 @@ export async function initiateStripeRecharge(args: {
         ErrorCodes.CONFLICT,
         409,
         "Idempotency key reused with a different amount. Use a fresh key.",
+      );
+    }
+    if (existing.walletType !== walletType) {
+      throw new ApiError(
+        ErrorCodes.CONFLICT,
+        409,
+        "Idempotency key reused for a different wallet type. Use a fresh key.",
       );
     }
     if (existing.gateway !== "STRIPE") {
@@ -450,6 +450,7 @@ export async function initiateStripeRecharge(args: {
     data: {
       tenantId: args.tenantId,
       walletId: wallet.id,
+      walletType,
       gateway: "STRIPE",
       amount,
       currency,

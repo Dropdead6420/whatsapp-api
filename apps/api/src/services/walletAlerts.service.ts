@@ -59,6 +59,7 @@ export async function scanLowBalanceAlerts(): Promise<{
     FROM "Wallet"
     WHERE "balanceCredits" <= "lowBalanceThreshold"
       AND status = 'ACTIVE'
+      AND type = 'WHATSAPP_USAGE'
   `;
 
   const alerted: LowBalanceAlertResult[] = [];

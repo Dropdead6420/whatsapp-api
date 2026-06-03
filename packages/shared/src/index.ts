@@ -145,6 +145,12 @@ export enum WalletBillingMode {
   POSTPAID = "POSTPAID",
 }
 
+export enum WalletType {
+  WHATSAPP_USAGE = "WHATSAPP_USAGE",
+  AI_CREDIT = "AI_CREDIT",
+  PARTNER_CREDIT = "PARTNER_CREDIT",
+}
+
 export enum WalletTransactionType {
   CREDIT_ALLOCATION = "CREDIT_ALLOCATION",
   CREDIT_REVERSAL = "CREDIT_REVERSAL",
@@ -194,6 +200,7 @@ export enum UsageEventStatus {
 export interface Wallet {
   id: string;
   tenantId: string;
+  type: WalletType;
   status: WalletStatus;
   billingMode: WalletBillingMode;
   balanceCredits: number;

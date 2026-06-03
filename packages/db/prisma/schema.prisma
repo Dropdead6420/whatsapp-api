@@ -163,7 +163,7 @@ model Tenant {
   knowledgeBaseEntries     KnowledgeBaseEntry[]
   aiAgents                 AiAgent[]
   invoices                 Invoice[]
-  wallet                   Wallet?
+  wallets                  Wallet[]
   walletTransactions       WalletTransaction[]       @relation("TenantWalletTransactions")
   domains                  Domain[]                  @relation("TenantDomains")
   partnerDomains           Domain[]                  @relation("PartnerDomains")
@@ -1158,6 +1158,12 @@ enum WalletBillingMode {
   POSTPAID
 }
 
+enum WalletType {
+  WHATSAPP_USAGE
+  AI_CREDIT
+  PARTNER_CREDIT
+}
+
 enum WalletTransactionType {
   CREDIT_ALLOCATION
   CREDIT_REVERSAL
@@ -1177,9 +1183,10 @@ enum WalletTransactionDirection {
 }
 
 model Wallet {
-  id       String @id @default(cuid())
-  tenantId String @unique
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String     @id @default(cuid())
+  tenantId String
+  tenant   Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type     WalletType @default(WHATSAPP_USAGE)
 
   status              WalletStatus      @default(ACTIVE)
   billingMode         WalletBillingMode @default(PREPAID)
@@ -1211,6 +1218,9 @@ model Wallet {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([tenantId, type])
+  @@index([tenantId])
+  @@index([type])
   @@index([status])
   @@index([billingMode])
 }
@@ -1255,11 +1265,12 @@ enum PaymentWebhookSignatureStatus {
 }
 
 model PaymentOrder {
-  id       String @id @default(cuid())
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  walletId String
-  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  id         String     @id @default(cuid())
+  tenantId   String
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  walletId   String
+  wallet     Wallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletType WalletType @default(WHATSAPP_USAGE)
 
   gateway  PaymentGateway
   /// Smallest currency unit (paise / cents). Always store integers.
@@ -1405,9 +1416,10 @@ model RechargeRequest {
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   /// Smallest currency unit (paise / cents).
-  amount   Int
-  currency String                @default("INR")
-  status   RechargeRequestStatus @default(PENDING)
+  amount     Int
+  currency   String                @default("INR")
+  status     RechargeRequestStatus @default(PENDING)
+  walletType WalletType            @default(WHATSAPP_USAGE)
 
   /// URL to the bank-transfer proof (screenshot / PDF receipt).
   /// We don't host the file ourselves; the customer uploads to their

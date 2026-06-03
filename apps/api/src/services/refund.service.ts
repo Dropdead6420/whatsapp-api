@@ -25,6 +25,7 @@ import type { PaymentGateway, PaymentOrder } from "@nexaflow/db";
 import {
   WalletTransactionDirection,
   WalletTransactionType,
+  WalletType,
 } from "@nexaflow/shared";
 import { adjustWalletIdempotent } from "./wallet.service";
 
@@ -57,7 +58,10 @@ export interface RefundReversalResult {
  * on (tenantId, "payment_refund", gatewayRefundId).
  */
 export async function applyRefundReversal(args: {
-  order: Pick<PaymentOrder, "id" | "tenantId" | "amount" | "currency" | "createdByUserId">;
+  order: Pick<
+    PaymentOrder,
+    "id" | "tenantId" | "amount" | "currency" | "createdByUserId" | "walletType"
+  >;
   gateway: PaymentGateway;
   /** Gateway's refund id — the idempotency anchor for this reversal. */
   gatewayRefundId: string;
@@ -74,6 +78,7 @@ export async function applyRefundReversal(args: {
 
   const result = await adjustWalletIdempotent({
     tenantId: args.order.tenantId,
+    walletType: args.order.walletType as WalletType,
     actorUserId: args.order.createdByUserId,
     type: WalletTransactionType.CREDIT_REVERSAL,
     direction: WalletTransactionDirection.DEBIT,

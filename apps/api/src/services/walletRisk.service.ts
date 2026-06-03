@@ -6,6 +6,7 @@ import {
   type WalletRiskAssessment,
   type WalletTransactionDirection,
 } from "@nexaflow/db";
+import { WalletType } from "@nexaflow/shared";
 import {
   getQueueConnection,
   getWalletRiskQueue,
@@ -65,11 +66,13 @@ function percentile(sorted: number[], p: number): number {
 async function dailyBurnSeries(
   tenantId: string,
   now: Date,
+  walletId?: string,
 ): Promise<number[]> {
   const since = new Date(now.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const debits = await prisma.walletTransaction.findMany({
     where: {
       tenantId,
+      ...(walletId ? { walletId } : {}),
       direction: "DEBIT" as WalletTransactionDirection,
       createdAt: { gte: since, lte: now },
     },
@@ -144,11 +147,12 @@ function classifyTier(input: {
 
 async function computeDeterministic(args: {
   tenantId: string;
+  walletId?: string;
   balanceCredits: number;
   lowBalanceThreshold: number;
 }): Promise<DeterministicResult> {
   const now = new Date();
-  const series = await dailyBurnSeries(args.tenantId, now);
+  const series = await dailyBurnSeries(args.tenantId, now, args.walletId);
   const totalBurn = series.reduce((sum, v) => sum + v, 0);
   const dailyBurnAvg = totalBurn / WINDOW_DAYS;
   const sortedAsc = [...series].sort((a, b) => a - b);
@@ -371,15 +375,20 @@ export async function assessTenantWalletRisk(
       id: true,
       name: true,
       messageQuotaPerMonth: true,
-      wallet: true,
+      wallets: {
+        where: { type: WalletType.WHATSAPP_USAGE },
+        take: 1,
+      },
     },
   });
-  if (!tenant?.wallet) return null;
+  const wallet = tenant?.wallets[0];
+  if (!tenant || !wallet) return null;
 
   const deterministic = await computeDeterministic({
     tenantId: tenant.id,
-    balanceCredits: tenant.wallet.balanceCredits,
-    lowBalanceThreshold: tenant.wallet.lowBalanceThreshold,
+    walletId: wallet.id,
+    balanceCredits: wallet.balanceCredits,
+    lowBalanceThreshold: wallet.lowBalanceThreshold,
   });
 
   let llm: Awaited<ReturnType<typeof runLlmNarrative>> | null = null;
@@ -388,8 +397,8 @@ export async function assessTenantWalletRisk(
       tenantId: tenant.id,
       tenantName: tenant.name,
       deterministic,
-      autoRechargeEnabled: tenant.wallet.autoRechargeEnabled,
-      billingMode: String(tenant.wallet.billingMode),
+      autoRechargeEnabled: wallet.autoRechargeEnabled,
+      billingMode: String(wallet.billingMode),
       messageQuotaPerMonth: tenant.messageQuotaPerMonth,
     });
   }
@@ -397,7 +406,7 @@ export async function assessTenantWalletRisk(
   const dayKey = dayKeyUtc();
   const data = {
     tenantId: tenant.id,
-    walletId: tenant.wallet.id,
+    walletId: wallet.id,
     dayKey,
     balanceCredits: deterministic.balanceCredits,
     lowBalanceThreshold: deterministic.lowBalanceThreshold,
@@ -443,7 +452,7 @@ export async function getLatestAssessment(
 
 async function scanAllWallets(): Promise<{ assessed: number; skipped: number }> {
   const tenants = await prisma.tenant.findMany({
-    where: { wallet: { isNot: null } },
+    where: { wallets: { some: { type: WalletType.WHATSAPP_USAGE } } },
     select: { id: true },
     take: 1000,
   });

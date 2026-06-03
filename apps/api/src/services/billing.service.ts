@@ -6,8 +6,9 @@ import {
   WalletStatus,
   WalletTransactionDirection,
   WalletTransactionType,
+  WalletType,
 } from "@nexaflow/shared";
-import { adjustWalletIdempotent } from "./wallet.service";
+import { adjustWalletIdempotent, ensureWallet } from "./wallet.service";
 
 /**
  * Per-message + per-AI-call billing hooks.
@@ -65,7 +66,14 @@ export async function assertCanAffordMessage(tenantId: string): Promise<void> {
   if (!billingEnabled()) return;
 
   const cost = getMessageCostCredits();
-  const wallet = await prisma.wallet.findUnique({ where: { tenantId } });
+  const wallet = await prisma.wallet.findUnique({
+    where: {
+      tenantId_type: {
+        tenantId,
+        type: WalletType.WHATSAPP_USAGE,
+      },
+    },
+  });
 
   // A tenant with no wallet row is treated as PREPAID with balance 0.
   // Default behavior after billing-enable: refuse sends until funded.
@@ -118,6 +126,7 @@ export async function debitMessage(
       tenantId,
       actorUserId: opts.actorUserId ?? null,
       type: WalletTransactionType.MESSAGE_DEBIT,
+      walletType: WalletType.WHATSAPP_USAGE,
       direction: WalletTransactionDirection.DEBIT,
       amountCredits: getMessageCostCredits(),
       reason: opts.reason ?? "WhatsApp message sent",
@@ -141,12 +150,23 @@ export async function assertCanAffordAi(
   if (!billingEnabled()) return;
 
   const cost = getAiCostCredits(feature);
-  const wallet = await prisma.wallet.findUnique({ where: { tenantId } });
+  const wallet = await prisma.wallet.findUnique({
+    where: {
+      tenantId_type: {
+        tenantId,
+        type: WalletType.AI_CREDIT,
+      },
+    },
+  });
   if (!wallet) {
+    // Create a separate AI wallet row on first AI use, then fail with a
+    // clear "top up AI credits" message. This keeps WhatsApp credits
+    // isolated instead of silently spending them on model calls.
+    await ensureWallet(tenantId, WalletType.AI_CREDIT);
     throw new ApiError(
       ErrorCodes.QUOTA_EXCEEDED,
       402,
-      "No wallet allocated for this tenant. Top up before using AI features.",
+      "No AI credits available. Top up the AI Credit Wallet before using AI features.",
     );
   }
   if (wallet.status !== WalletStatus.ACTIVE) {
@@ -189,6 +209,7 @@ export async function debitAi(
     await adjustWalletIdempotent({
       tenantId,
       type: WalletTransactionType.AI_DEBIT,
+      walletType: WalletType.AI_CREDIT,
       direction: WalletTransactionDirection.DEBIT,
       amountCredits: getAiCostCredits(args.feature),
       reason: args.reason ?? `AI call (${args.feature ?? "generic"})`,

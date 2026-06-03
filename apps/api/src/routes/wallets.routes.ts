@@ -11,6 +11,7 @@ import {
   WalletStatus,
   WalletTransactionDirection,
   WalletTransactionType,
+  WalletType,
 } from "@nexaflow/shared";
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
@@ -27,16 +28,19 @@ const router = Router();
 
 const listSchema = z.object({
   tenantId: z.string().cuid().optional(),
+  walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
 const transactionQuerySchema = z.object({
+  walletType: z.nativeEnum(WalletType).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
 const settingsSchema = z.object({
+  walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
   status: z.nativeEnum(WalletStatus).optional(),
   billingMode: z.nativeEnum(WalletBillingMode).optional(),
   creditLimit: z.number().int().min(0).optional(),
@@ -49,6 +53,7 @@ const settingsSchema = z.object({
 });
 
 const adjustSchema = z.object({
+  walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
   direction: z.nativeEnum(WalletTransactionDirection),
   type: z.nativeEnum(WalletTransactionType).default(
     WalletTransactionType.MANUAL_ADJUSTMENT,
@@ -62,6 +67,7 @@ const adjustSchema = z.object({
 const transferSchema = z.object({
   fromTenantId: z.string().cuid(),
   toTenantId: z.string().cuid(),
+  walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
   amountCredits: z.number().int().positive(),
   reason: z.string().trim().min(3).max(500),
 });
@@ -153,21 +159,27 @@ router.get("/", async (req: RequestWithAuth, res: Response, next: NextFunction) 
         skip: (q.page - 1) * q.limit,
         take: q.limit,
         orderBy: { createdAt: "desc" },
-        include: { wallet: true },
+        include: { wallets: true },
       }),
     ]);
 
     const items = await Promise.all(
-      tenants.map(async (tenant) => ({
-        tenant: {
-          id: tenant.id,
-          name: tenant.name,
-          type: tenant.type,
-          status: tenant.status,
-          parentTenantId: tenant.parentTenantId,
-        },
-        wallet: tenant.wallet ?? (await ensureWallet(tenant.id)),
-      })),
+      tenants.map(async (tenant) => {
+        const selected =
+          tenant.wallets.find((w) => w.type === q.walletType) ??
+          (await ensureWallet(tenant.id, q.walletType));
+        return {
+          tenant: {
+            id: tenant.id,
+            name: tenant.name,
+            type: tenant.type,
+            status: tenant.status,
+            parentTenantId: tenant.parentTenantId,
+          },
+          wallet: selected,
+          wallets: tenant.wallets.length > 0 ? tenant.wallets : [selected],
+        };
+      }),
     );
 
     res.json({
@@ -191,8 +203,14 @@ router.get("/", async (req: RequestWithAuth, res: Response, next: NextFunction) 
 router.get("/:tenantId", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const tenant = await assertTenantAccess(req, req.params.tenantId);
-    const wallet = await ensureWallet(tenant.id);
-    res.json({ success: true, data: { tenant, wallet } });
+    const q = z
+      .object({
+        walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
+      })
+      .parse(req.query);
+    const wallet = await ensureWallet(tenant.id, q.walletType);
+    const wallets = await prisma.wallet.findMany({ where: { tenantId: tenant.id } });
+    res.json({ success: true, data: { tenant, wallet, wallets } });
   } catch (err) {
     next(err);
   }
@@ -205,12 +223,16 @@ router.get(
     try {
       await assertTenantAccess(req, req.params.tenantId);
       const q = transactionQuerySchema.parse(req.query);
+      const where = {
+        tenantId: req.params.tenantId,
+        ...(q.walletType ? { wallet: { type: q.walletType } } : {}),
+      };
       const [total, items] = await prisma.$transaction([
         prisma.walletTransaction.count({
-          where: { tenantId: req.params.tenantId },
+          where,
         }),
         prisma.walletTransaction.findMany({
-          where: { tenantId: req.params.tenantId },
+          where,
           skip: (q.page - 1) * q.limit,
           take: q.limit,
           orderBy: { createdAt: "desc" },
@@ -256,8 +278,8 @@ router.patch(
       await assertTenantAccess(req, req.params.tenantId);
       const body = settingsSchema.parse(req.body);
       const wallet = await updateWalletSettings({
-        tenantId: req.params.tenantId,
         ...body,
+        tenantId: req.params.tenantId,
       });
 
       await logAudit({
@@ -286,9 +308,9 @@ router.post(
       await assertTenantAccess(req, req.params.tenantId);
       const body = adjustSchema.parse(req.body);
       const result = await adjustWallet({
+        ...body,
         tenantId: req.params.tenantId,
         actorUserId: req.userId,
-        ...body,
       });
 
       await logAudit({
@@ -323,7 +345,11 @@ router.post(
       await assertTenantAccess(req, body.fromTenantId);
       await assertTenantAccess(req, body.toTenantId);
       const result = await transferWalletCredits({
-        ...body,
+        fromTenantId: body.fromTenantId,
+        toTenantId: body.toTenantId,
+        walletType: body.walletType,
+        amountCredits: body.amountCredits,
+        reason: body.reason,
         actorUserId: req.userId,
       });
 

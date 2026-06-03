@@ -29,7 +29,7 @@ import {
   type CreditLineStatus,
   type Wallet,
 } from "@nexaflow/db";
-import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { ApiError, ErrorCodes, WalletType } from "@nexaflow/shared";
 
 const ALLOWED_TRANSITIONS: Record<
   CreditLineStatus,
@@ -166,7 +166,12 @@ export async function openCreditLine(args: {
     }
 
     const wallet = await tx.wallet.findUnique({
-      where: { tenantId: args.tenantId },
+      where: {
+        tenantId_type: {
+          tenantId: args.tenantId,
+          type: WalletType.WHATSAPP_USAGE,
+        },
+      },
       select: { id: true },
     });
     if (!wallet) {
@@ -243,7 +248,12 @@ async function transitionInternal(args: {
     // the line's limit + POSTPAID.
     if (args.desired === "ACTIVE") {
       await tx.wallet.update({
-        where: { tenantId: existing.tenantId },
+        where: {
+          tenantId_type: {
+            tenantId: existing.tenantId,
+            type: WalletType.WHATSAPP_USAGE,
+          },
+        },
         data: {
           creditLimit: updated.limitCredits,
           billingMode: WalletBillingMode.POSTPAID,
@@ -254,7 +264,12 @@ async function transitionInternal(args: {
       // debits will be checked against balance only (no credit
       // headroom) — that's the point of suspending.
       await tx.wallet.update({
-        where: { tenantId: existing.tenantId },
+        where: {
+          tenantId_type: {
+            tenantId: existing.tenantId,
+            type: WalletType.WHATSAPP_USAGE,
+          },
+        },
         data: {
           creditLimit: 0,
           billingMode: WalletBillingMode.PREPAID,

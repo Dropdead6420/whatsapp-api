@@ -99,7 +99,7 @@ async function ensureTeam(tenantId: string) {
 
 async function ensureWallet(tenantId: string, balanceCredits: number, creditLimit: number) {
   return prisma.wallet.upsert({
-    where: { tenantId },
+    where: { tenantId_type: { tenantId, type: "WHATSAPP_USAGE" } },
     update: {
       balanceCredits,
       creditLimit,
@@ -108,6 +108,7 @@ async function ensureWallet(tenantId: string, balanceCredits: number, creditLimi
     },
     create: {
       tenantId,
+      type: "WHATSAPP_USAGE",
       balanceCredits,
       creditLimit,
       lowBalanceThreshold: 500,

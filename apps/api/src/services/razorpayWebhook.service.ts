@@ -34,6 +34,7 @@ import {
 import {
   WalletTransactionDirection,
   WalletTransactionType,
+  WalletType,
 } from "@nexaflow/shared";
 import { adjustWalletIdempotent } from "./wallet.service";
 import { assertCanTransitionStatus } from "./paymentOrder.service";
@@ -285,6 +286,7 @@ async function creditFromCapturedPayment(args: {
   // referenceId is a no-op so we don't double-credit on retry.
   const credit = await adjustWalletIdempotent({
     tenantId: order.tenantId,
+    walletType: order.walletType as WalletType,
     actorUserId: order.createdByUserId,
     type: WalletTransactionType.CREDIT_ALLOCATION,
     direction: WalletTransactionDirection.CREDIT,

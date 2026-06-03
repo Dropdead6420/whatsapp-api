@@ -6,12 +6,15 @@ import {
   WalletStatus,
   WalletTransactionDirection,
   WalletTransactionType,
+  WalletType,
 } from "@nexaflow/shared";
 
 type Tx = Prisma.TransactionClient;
+const DEFAULT_WALLET_TYPE = WalletType.WHATSAPP_USAGE;
 
 export interface WalletEntryInput {
   tenantId: string;
+  walletType?: WalletType;
   actorUserId?: string | null;
   type: WalletTransactionType;
   direction: WalletTransactionDirection;
@@ -41,26 +44,34 @@ function assertPositiveCredits(amountCredits: number): void {
   }
 }
 
-async function ensureWalletTx(tx: Tx, tenantId: string) {
+async function ensureWalletTx(
+  tx: Tx,
+  tenantId: string,
+  walletType: WalletType = DEFAULT_WALLET_TYPE,
+) {
   const tenant = await tx.tenant.findUnique({
     where: { id: tenantId },
-    select: { id: true, wallet: true },
+    select: { id: true },
   });
   if (!tenant) {
     throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Tenant not found.");
   }
-  if (tenant.wallet) {
-    return tenant.wallet;
-  }
+
+  const existing = await tx.wallet.findUnique({
+    where: { tenantId_type: { tenantId, type: walletType } },
+  });
+  if (existing) return existing;
 
   try {
-    return await tx.wallet.create({ data: { tenantId } });
+    return await tx.wallet.create({ data: { tenantId, type: walletType } });
   } catch (err) {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      const wallet = await tx.wallet.findUnique({ where: { tenantId } });
+      const wallet = await tx.wallet.findUnique({
+        where: { tenantId_type: { tenantId, type: walletType } },
+      });
       if (wallet) return wallet;
     }
     throw err;
@@ -69,7 +80,11 @@ async function ensureWalletTx(tx: Tx, tenantId: string) {
 
 async function applyWalletEntryTx(tx: Tx, input: WalletEntryInput) {
   assertPositiveCredits(input.amountCredits);
-  const wallet = await ensureWalletTx(tx, input.tenantId);
+  const wallet = await ensureWalletTx(
+    tx,
+    input.tenantId,
+    input.walletType ?? DEFAULT_WALLET_TYPE,
+  );
 
   if (wallet.status !== WalletStatus.ACTIVE) {
     throw new ApiError(ErrorCodes.FORBIDDEN, 403, "Wallet is suspended.");
@@ -131,13 +146,20 @@ async function applyWalletEntryTx(tx: Tx, input: WalletEntryInput) {
   return { wallet: updated, transaction };
 }
 
-export async function ensureWallet(tenantId: string) {
-  const existing = await prisma.wallet.findUnique({ where: { tenantId } });
+export async function ensureWallet(
+  tenantId: string,
+  walletType: WalletType = DEFAULT_WALLET_TYPE,
+) {
+  const existing = await prisma.wallet.findUnique({
+    where: { tenantId_type: { tenantId, type: walletType } },
+  });
   if (existing) return existing;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await prisma.$transaction((tx) => ensureWalletTx(tx, tenantId));
+      return await prisma.$transaction((tx) =>
+        ensureWalletTx(tx, tenantId, walletType),
+      );
     } catch (err) {
       const retryable =
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -171,20 +193,19 @@ export async function adjustWalletIdempotent(input: WalletEntryInput) {
   if (!input.referenceType || !input.referenceId) {
     return adjustWallet(input);
   }
+  const walletType = input.walletType ?? DEFAULT_WALLET_TYPE;
+  const wallet = await ensureWallet(input.tenantId, walletType);
 
   // Look up first to avoid wasting a serializable transaction on a replay.
   const existing = await prisma.walletTransaction.findFirst({
     where: {
-      walletId: undefined, // walletId is derived inside the tx; match by tenant + ref
+      walletId: wallet.id,
       tenantId: input.tenantId,
       referenceType: input.referenceType,
       referenceId: input.referenceId,
     },
   });
   if (existing) {
-    const wallet = await prisma.wallet.findUnique({
-      where: { tenantId: input.tenantId },
-    });
     return { wallet, transaction: existing, idempotent: true as const };
   }
 
@@ -203,13 +224,11 @@ export async function adjustWalletIdempotent(input: WalletEntryInput) {
     ) {
       const existing2 = await prisma.walletTransaction.findFirst({
         where: {
+          walletId: wallet.id,
           tenantId: input.tenantId,
           referenceType: input.referenceType!,
           referenceId: input.referenceId!,
         },
-      });
-      const wallet = await prisma.wallet.findUnique({
-        where: { tenantId: input.tenantId },
       });
       if (existing2) {
         return { wallet, transaction: existing2, idempotent: true as const };
@@ -222,6 +241,7 @@ export async function adjustWalletIdempotent(input: WalletEntryInput) {
 export async function transferWalletCredits(input: {
   fromTenantId: string;
   toTenantId: string;
+  walletType?: WalletType;
   amountCredits: number;
   reason: string;
   actorUserId?: string | null;
@@ -239,11 +259,13 @@ export async function transferWalletCredits(input: {
 
   return prisma.$transaction(
     async (tx) => {
-      const fromWallet = await ensureWalletTx(tx, input.fromTenantId);
-      const toWallet = await ensureWalletTx(tx, input.toTenantId);
+      const walletType = input.walletType ?? DEFAULT_WALLET_TYPE;
+      const fromWallet = await ensureWalletTx(tx, input.fromTenantId, walletType);
+      const toWallet = await ensureWalletTx(tx, input.toTenantId, walletType);
 
       const out = await applyWalletEntryTx(tx, {
         tenantId: input.fromTenantId,
+        walletType,
         actorUserId: input.actorUserId,
         type: WalletTransactionType.TRANSFER_OUT,
         direction: WalletTransactionDirection.DEBIT,
@@ -256,6 +278,7 @@ export async function transferWalletCredits(input: {
 
       const incoming = await applyWalletEntryTx(tx, {
         tenantId: input.toTenantId,
+        walletType,
         actorUserId: input.actorUserId,
         type: WalletTransactionType.TRANSFER_IN,
         direction: WalletTransactionDirection.CREDIT,
@@ -282,8 +305,11 @@ export interface WalletAlertStatus {
 
 export async function getWalletAlertStatus(
   tenantId: string,
+  walletType: WalletType = DEFAULT_WALLET_TYPE,
 ): Promise<WalletAlertStatus | null> {
-  const wallet = await prisma.wallet.findUnique({ where: { tenantId } });
+  const wallet = await prisma.wallet.findUnique({
+    where: { tenantId_type: { tenantId, type: walletType } },
+  });
   if (!wallet) return null;
   const isLow = wallet.balanceCredits <= wallet.lowBalanceThreshold;
   return {
@@ -297,6 +323,7 @@ export async function getWalletAlertStatus(
 
 export async function updateWalletSettings(input: {
   tenantId: string;
+  walletType?: WalletType;
   status?: WalletStatus;
   billingMode?: WalletBillingMode;
   creditLimit?: number;
@@ -309,7 +336,11 @@ export async function updateWalletSettings(input: {
 }) {
   return prisma.$transaction(
     async (tx) => {
-      const wallet = await ensureWalletTx(tx, input.tenantId);
+      const wallet = await ensureWalletTx(
+        tx,
+        input.tenantId,
+        input.walletType ?? DEFAULT_WALLET_TYPE,
+      );
       return tx.wallet.update({
         where: { id: wallet.id },
         data: {

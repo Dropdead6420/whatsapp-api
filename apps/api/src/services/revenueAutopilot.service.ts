@@ -20,6 +20,7 @@
 // ============================================================================
 
 import { prisma, CustomerHealthTier } from "@nexaflow/db";
+import { WalletType } from "@nexaflow/shared";
 
 export type RevenueActionKind =
   | "upgrade_plan" // tenant near or past plan quotas
@@ -176,7 +177,9 @@ async function collectSignals(partnerTenantId: string): Promise<TenantSignal[]> 
       contactLimit: true,
       campaignLimit: true,
       aiCreditsPerMonth: true,
-      wallet: {
+      wallets: {
+        where: { type: WalletType.WHATSAPP_USAGE },
+        take: 1,
         select: { balanceCredits: true, autoRechargeEnabled: true },
       },
     },
@@ -230,6 +233,7 @@ async function collectSignals(partnerTenantId: string): Promise<TenantSignal[]> 
 
   return tenants.map<TenantSignal>((t) => {
     const h = latestHealth.get(t.id);
+    const wallet = t.wallets[0];
     return {
       id: t.id,
       name: t.name,
@@ -238,8 +242,8 @@ async function collectSignals(partnerTenantId: string): Promise<TenantSignal[]> 
       aiCreditsPerMonth: t.aiCreditsPerMonth,
       contactCount: contactMap.get(t.id) ?? 0,
       campaignCount: campaignMap.get(t.id) ?? 0,
-      balanceCredits: t.wallet?.balanceCredits ?? null,
-      autoRechargeEnabled: t.wallet?.autoRechargeEnabled ?? false,
+      balanceCredits: wallet?.balanceCredits ?? null,
+      autoRechargeEnabled: wallet?.autoRechargeEnabled ?? false,
       healthTier: h?.tier ?? null,
       healthScore: h?.score ?? null,
       recommendation: h?.recommendation ?? null,

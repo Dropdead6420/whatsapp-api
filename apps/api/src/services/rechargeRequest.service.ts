@@ -28,8 +28,9 @@ import {
   ErrorCodes,
   WalletTransactionDirection,
   WalletTransactionType,
+  WalletType,
 } from "@nexaflow/shared";
-import { adjustWallet } from "./wallet.service";
+import { adjustWallet, ensureWallet } from "./wallet.service";
 import { createInvoiceForRechargeRequest } from "./invoice.service";
 
 const ALLOWED_TRANSITIONS: Record<
@@ -131,6 +132,7 @@ export async function createRechargeRequest(args: {
   tenantId: string;
   amount: number;
   currency?: string;
+  walletType?: WalletType;
   proofUrl?: string | null;
   reference?: string | null;
   customerNote?: string | null;
@@ -146,17 +148,8 @@ export async function createRechargeRequest(args: {
 
   // Verify the wallet exists + is active. Catches typo'd tenantIds
   // before we leave an orphan RechargeRequest.
-  const wallet = await prisma.wallet.findUnique({
-    where: { tenantId: args.tenantId },
-    select: { status: true },
-  });
-  if (!wallet) {
-    throw new ApiError(
-      ErrorCodes.NOT_FOUND,
-      404,
-      "Wallet not initialized for this tenant.",
-    );
-  }
+  const walletType = args.walletType ?? WalletType.WHATSAPP_USAGE;
+  const wallet = await ensureWallet(args.tenantId, walletType);
   if (wallet.status !== "ACTIVE") {
     throw new ApiError(
       ErrorCodes.BAD_REQUEST,
@@ -170,6 +163,7 @@ export async function createRechargeRequest(args: {
       tenantId: args.tenantId,
       amount: args.amount,
       currency: (args.currency ?? "INR").toUpperCase(),
+      walletType,
       proofUrl: sanitizeProofUrl(args.proofUrl ?? null),
       reference: sanitizeReference(args.reference ?? null),
       customerNote: sanitizeNote(args.customerNote ?? null, "customerNote"),
@@ -232,6 +226,7 @@ export async function approveRechargeRequest(args: {
     type: WalletTransactionType.CREDIT_ALLOCATION,
     direction: WalletTransactionDirection.CREDIT,
     amountCredits: existing.amount,
+    walletType: existing.walletType as WalletType,
     reason: `Manual recharge request ${existing.id} approved`,
     referenceType: "recharge_request",
     referenceId: existing.id,

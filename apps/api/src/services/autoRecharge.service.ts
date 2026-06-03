@@ -3,6 +3,7 @@ import { prisma } from "@nexaflow/db";
 import {
   WalletTransactionDirection,
   WalletTransactionType,
+  WalletType,
 } from "@nexaflow/shared";
 import {
   getQueueConnection,
@@ -136,6 +137,7 @@ export async function scanAutoRecharge(): Promise<AutoRechargeScanSummary> {
   const candidates = await prisma.wallet.findMany({
     where: {
       status: "ACTIVE",
+      type: WalletType.WHATSAPP_USAGE,
       autoRechargeEnabled: true,
       autoRechargeAmountCredits: { gt: 0 },
       // Two OR clauses: never recharged before, OR last attempt was outside cooldown.
@@ -210,6 +212,7 @@ export async function scanAutoRecharge(): Promise<AutoRechargeScanSummary> {
       try {
         await adjustWallet({
           tenantId: w.tenantId,
+          walletType: WalletType.WHATSAPP_USAGE,
           actorUserId: null,
           type: WalletTransactionType.AUTO_RECHARGE,
           direction: WalletTransactionDirection.CREDIT,

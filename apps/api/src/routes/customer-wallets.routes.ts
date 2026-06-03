@@ -14,7 +14,7 @@
 
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { ApiError, ErrorCodes, Permissions } from "@nexaflow/shared";
+import { ApiError, ErrorCodes, Permissions, WalletType } from "@nexaflow/shared";
 import {
   requireAuth,
   requireTenantScope,
@@ -56,6 +56,7 @@ const rechargeSchema = z.object({
     .optional(),
   idempotencyKey: z.string().min(8).max(80),
   gateway: z.enum(["RAZORPAY", "STRIPE"]).default("RAZORPAY"),
+  walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
 });
 
 router.post(
@@ -70,6 +71,7 @@ router.post(
           ? await initiateStripeRecharge({
               tenantId: req.tenantId!,
               amount: body.amount,
+              walletType: body.walletType,
               // Stripe defaults to USD when the body doesn't carry one
               // — keeps the non-INR market working without forcing
               // every UI to send a currency.
@@ -80,6 +82,7 @@ router.post(
           : await initiateRazorpayRecharge({
               tenantId: req.tenantId!,
               amount: body.amount,
+              walletType: body.walletType,
               currency: body.currency,
               idempotencyKey: body.idempotencyKey,
               createdByUserId: req.userId,
@@ -132,6 +135,7 @@ const rechargeRequestCreateSchema = z.object({
   proofUrl: z.string().trim().max(1024).optional().nullable(),
   reference: z.string().trim().max(80).optional().nullable(),
   customerNote: z.string().trim().max(1024).optional().nullable(),
+  walletType: z.nativeEnum(WalletType).default(WalletType.WHATSAPP_USAGE),
 });
 
 router.post(
@@ -143,6 +147,7 @@ router.post(
       const created = await createRechargeRequest({
         tenantId: req.tenantId!,
         amount: body.amount,
+        walletType: body.walletType,
         currency: body.currency,
         proofUrl: body.proofUrl ?? null,
         reference: body.reference ?? null,
