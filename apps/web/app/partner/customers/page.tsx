@@ -79,6 +79,9 @@ export default function PartnerCustomersPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(blankCustomerForm);
   const [busy, setBusy] = useState(false);
+  const [changingPlanCustomerId, setChangingPlanCustomerId] = useState<string | null>(
+    null,
+  );
 
   async function refresh() {
     try {
@@ -126,6 +129,25 @@ export default function PartnerCustomersPage() {
       setErr(ex instanceof ApiClientError ? ex.message : "Create failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function changeCustomerPlan(customerId: string, planId: string) {
+    if (!planId) return;
+    setChangingPlanCustomerId(customerId);
+    try {
+      const updated = await api.patch<CustomerTenant>(
+        `/api/v1/partner/customers/${customerId}/plan`,
+        { planId },
+      );
+      setCustomers((current) =>
+        current.map((customer) => (customer.id === customerId ? updated : customer)),
+      );
+      setErr(null);
+    } catch (ex) {
+      setErr(ex instanceof ApiClientError ? ex.message : "Plan change failed");
+    } finally {
+      setChangingPlanCustomerId(null);
     }
   }
 
@@ -331,23 +353,45 @@ export default function PartnerCustomersPage() {
                 <tr key={c.id} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium">{c.name}</td>
                   <td className="px-4 py-3">
-                    {activeSubscription ? (
-                      <div>
-                        <p className="font-medium text-slate-800">
-                          {activeSubscription.plan.displayName}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Renews{" "}
-                          {new Date(activeSubscription.currentPeriodEnd).toLocaleDateString(
-                            "en-IN",
-                          )}
-                        </p>
-                      </div>
-                    ) : (
-                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">
-                        No plan
-                      </span>
-                    )}
+                    <div className="space-y-2">
+                      {activeSubscription ? (
+                        <div>
+                          <p className="font-medium text-slate-800">
+                            {activeSubscription.plan.displayName}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Renews{" "}
+                            {new Date(activeSubscription.currentPeriodEnd).toLocaleDateString(
+                              "en-IN",
+                            )}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">
+                          No plan
+                        </span>
+                      )}
+                      <select
+                        className="w-full min-w-40 rounded border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                        value={activeSubscription?.plan.id ?? ""}
+                        disabled={plans.length === 0 || changingPlanCustomerId === c.id}
+                        onChange={(e) => void changeCustomerPlan(c.id, e.target.value)}
+                        aria-label={`Change plan for ${c.name}`}
+                      >
+                        <option value="" disabled>
+                          Select plan
+                        </option>
+                        {plans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.displayName} · {formatMoney(plan.priceInPaisa)}/
+                            {billingLabel(plan.billingCycle)}
+                          </option>
+                        ))}
+                      </select>
+                      {changingPlanCustomerId === c.id && (
+                        <p className="text-xs text-indigo-600">Applying plan…</p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">{c.status}</td>
                   <td className="px-4 py-3">{c._count.contacts}</td>

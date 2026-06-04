@@ -554,6 +554,10 @@ const createCustomerSchema = z.object({
   creditSource: z.nativeEnum(CreditSource).optional(),
 });
 
+const changeCustomerPlanSchema = z.object({
+  planId: z.string().cuid(),
+});
+
 // POST /api/v1/partner/customers
 router.post(
   "/customers",
@@ -692,6 +696,130 @@ router.post(
       });
 
       res.status(201).json({ success: true, data: { ...created, industry } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// PATCH /api/v1/partner/customers/:customerId/plan
+//
+// Lets a partner move one of their child business tenants onto a different
+// SuperAdmin-managed plan. Active subscriptions are mutually exclusive; the
+// new plan's limits are applied to the tenant immediately.
+router.patch(
+  "/customers/:customerId/plan",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const body = changeCustomerPlanSchema.parse(req.body);
+
+      const [customer, plan] = await Promise.all([
+        prisma.tenant.findFirst({
+          where: {
+            id: req.params.customerId,
+            ...childTenantWhere(partner.id),
+          },
+          include: {
+            subscriptions: {
+              where: { status: SubscriptionStatus.ACTIVE },
+              orderBy: { updatedAt: "desc" },
+              take: 1,
+              include: { plan: true },
+            },
+          },
+        }),
+        prisma.plan.findUnique({ where: { id: body.planId } }),
+      ]);
+
+      if (!customer) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Customer not found.");
+      }
+      if (!plan) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Plan not found.");
+      }
+
+      const start = new Date();
+      const activeSubscription = customer.subscriptions[0] ?? null;
+      const oldLimits = {
+        messageQuotaPerMonth: customer.messageQuotaPerMonth,
+        contactLimit: customer.contactLimit,
+        agentLimit: customer.agentLimit,
+        aiCreditsPerMonth: customer.aiCreditsPerMonth,
+        campaignLimit: customer.campaignLimit,
+      };
+      const newLimits = tenantLimitDataFromPlan(plan);
+
+      const updated = await prisma.$transaction(async (tx) => {
+        let subscription = activeSubscription;
+
+        if (activeSubscription?.planId !== plan.id) {
+          await tx.subscription.updateMany({
+            where: {
+              tenantId: customer.id,
+              status: SubscriptionStatus.ACTIVE,
+            },
+            data: {
+              status: SubscriptionStatus.CANCELLED,
+              cancelledAt: start,
+            },
+          });
+
+          subscription = await tx.subscription.create({
+            data: {
+              tenantId: customer.id,
+              planId: plan.id,
+              status: SubscriptionStatus.ACTIVE,
+              currentPeriodStart: start,
+              currentPeriodEnd: defaultSubscriptionEnd(start, plan.billingCycle),
+            },
+            include: { plan: true },
+          });
+        }
+
+        const tenant = await tx.tenant.update({
+          where: { id: customer.id },
+          data: newLimits,
+          include: {
+            subscriptions: {
+              where: { status: SubscriptionStatus.ACTIVE },
+              orderBy: { updatedAt: "desc" },
+              take: 1,
+              include: { plan: true },
+            },
+            _count: { select: { users: true, contacts: true, campaigns: true } },
+          },
+        });
+
+        return { tenant, subscription };
+      });
+
+      await logAudit({
+        tenantId: partner.id,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "PartnerCustomerPlan",
+        resourceId: customer.id,
+        oldValues: {
+          customerName: customer.name,
+          planId: activeSubscription?.planId ?? null,
+          planName: activeSubscription?.plan?.name ?? null,
+          planDisplayName: activeSubscription?.plan?.displayName ?? null,
+          limits: oldLimits,
+        },
+        newValues: {
+          customerName: customer.name,
+          planId: plan.id,
+          planName: plan.name,
+          planDisplayName: plan.displayName,
+          subscriptionId: updated.subscription?.id ?? null,
+          limits: newLimits,
+        },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({ success: true, data: updated.tenant });
     } catch (err) {
       next(err);
     }
