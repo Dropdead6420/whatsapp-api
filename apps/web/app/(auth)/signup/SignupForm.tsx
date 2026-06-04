@@ -7,8 +7,10 @@ import {
   billingIntentHref,
   type BillingIntent,
 } from "../../../src/lib/billingIntent";
+import { useI18n } from "../../../src/i18n/I18nProvider";
 
 export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
@@ -36,7 +38,7 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
       setDone(message);
     } catch (err) {
       const msg =
-        err instanceof ApiClientError ? err.message : "Signup failed. Try again.";
+        err instanceof ApiClientError ? err.message : t("auth.signup.failed");
       setError(msg);
     } finally {
       setBusy(false);
@@ -46,14 +48,14 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
   if (done) {
     return (
       <>
-        <h1 className="text-xl font-semibold">Check your email</h1>
+        <h1 className="text-xl font-semibold">{t("auth.signup.checkEmailTitle")}</h1>
         <p className="mt-2 text-sm text-slate-600">{done}</p>
         <p className="mt-6 text-sm">
           <Link
             href={billingIntentHref("/login", billingIntent)}
             className="font-medium text-emerald-700 hover:underline"
           >
-            Back to log in
+            {t("auth.signup.backToLogin")}
           </Link>
         </p>
       </>
@@ -62,25 +64,21 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
 
   return (
     <>
-      <h1 className="text-xl font-semibold">Create your account</h1>
-      <p className="mt-1 text-sm text-slate-500">
-        Get started with WhatsApp + AI automation in minutes.
-      </p>
+      <h1 className="text-xl font-semibold">{t("auth.signup.title")}</h1>
+      <p className="mt-1 text-sm text-slate-500">{t("auth.signup.subtitle")}</p>
       {billingIntent.billing && (
         <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          Selected plan
-          {billingIntent.plan ? (
-            <>
-              : <span className="font-semibold">{billingIntent.plan}</span>
-            </>
-          ) : null}
-          . Create your account to continue.
+          {billingIntent.plan
+            ? t("auth.signup.selectedPlanNamed", { plan: billingIntent.plan })
+            : t("auth.signup.selectedPlan")}
         </div>
       )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700">Your name</label>
+          <label className="block text-sm font-medium text-slate-700">
+            {t("auth.signup.name")}
+          </label>
           <input
             type="text"
             required
@@ -90,7 +88,9 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Company / business</label>
+          <label className="block text-sm font-medium text-slate-700">
+            {t("auth.signup.company")}
+          </label>
           <input
             type="text"
             required
@@ -100,7 +100,9 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Work email</label>
+          <label className="block text-sm font-medium text-slate-700">
+            {t("auth.signup.email")}
+          </label>
           <input
             type="email"
             required
@@ -110,7 +112,9 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Password</label>
+          <label className="block text-sm font-medium text-slate-700">
+            {t("auth.common.password")}
+          </label>
           <input
             type="password"
             required
@@ -119,7 +123,7 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
             onChange={(e) => setPassword(e.target.value)}
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
-          <p className="mt-1 text-xs text-slate-500">Minimum 8 characters.</p>
+          <p className="mt-1 text-xs text-slate-500">{t("auth.signup.passwordHint")}</p>
         </div>
 
         {error && (
@@ -133,17 +137,17 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
           disabled={busy}
           className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
         >
-          {busy ? "Creating..." : "Create account"}
+          {busy ? t("auth.signup.submitting") : t("auth.login.createAccount")}
         </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-slate-600">
-        Already have an account?{" "}
+        {t("auth.signup.haveAccount")}{" "}
         <Link
           href={billingIntentHref("/login", billingIntent)}
           className="font-medium text-emerald-700 hover:underline"
         >
-          Log in
+          {t("auth.login.title")}
         </Link>
       </p>
     </>

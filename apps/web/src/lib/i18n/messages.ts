@@ -3,9 +3,9 @@
 // English is the reference/fallback. Other locales need only cover the
 // keys they've translated — translate() falls back to English, then to
 // the key itself, so partial coverage never blanks the UI. This seed set
-// proves the system end-to-end (incl. RTL for ar/ur) across the app shell
-// and the login surface; the full catalogue + DB-backed PortalTranslation
-// overrides land in later slices.
+// covers the app shell + the auth surfaces (login + signup), proving the
+// system end-to-end incl. RTL for ar/ur; the full catalogue + DB-backed
+// PortalTranslation overrides land in later slices.
 
 import type { Dict } from "./translate";
 
@@ -25,6 +25,19 @@ const en: Dict = {
   "auth.login.resending": "Sending…",
   "auth.login.forgotPassword": "Forgot password?",
   "auth.login.createAccount": "Create account",
+  "auth.signup.title": "Create your account",
+  "auth.signup.subtitle": "Get started with WhatsApp + AI automation in minutes.",
+  "auth.signup.selectedPlan": "Selected plan. Create your account to continue.",
+  "auth.signup.selectedPlanNamed": "Selected plan: {plan}. Create your account to continue.",
+  "auth.signup.name": "Your name",
+  "auth.signup.company": "Company / business",
+  "auth.signup.email": "Work email",
+  "auth.signup.passwordHint": "Minimum 8 characters.",
+  "auth.signup.submitting": "Creating…",
+  "auth.signup.failed": "Signup failed. Try again.",
+  "auth.signup.haveAccount": "Already have an account?",
+  "auth.signup.checkEmailTitle": "Check your email",
+  "auth.signup.backToLogin": "Back to log in",
 };
 
 const hi: Dict = {
@@ -43,6 +56,19 @@ const hi: Dict = {
   "auth.login.resending": "भेजा जा रहा है…",
   "auth.login.forgotPassword": "पासवर्ड भूल गए?",
   "auth.login.createAccount": "खाता बनाएं",
+  "auth.signup.title": "अपना खाता बनाएं",
+  "auth.signup.subtitle": "मिनटों में WhatsApp + AI ऑटोमेशन शुरू करें।",
+  "auth.signup.selectedPlan": "चयनित प्लान। जारी रखने के लिए अपना खाता बनाएं।",
+  "auth.signup.selectedPlanNamed": "चयनित प्लान: {plan}। जारी रखने के लिए अपना खाता बनाएं।",
+  "auth.signup.name": "आपका नाम",
+  "auth.signup.company": "कंपनी / व्यवसाय",
+  "auth.signup.email": "कार्य ईमेल",
+  "auth.signup.passwordHint": "न्यूनतम 8 अक्षर।",
+  "auth.signup.submitting": "बनाया जा रहा है…",
+  "auth.signup.failed": "साइन अप विफल। पुनः प्रयास करें।",
+  "auth.signup.haveAccount": "पहले से खाता है?",
+  "auth.signup.checkEmailTitle": "अपना ईमेल देखें",
+  "auth.signup.backToLogin": "लॉग इन पर वापस जाएं",
 };
 
 const es: Dict = {
@@ -61,6 +87,19 @@ const es: Dict = {
   "auth.login.resending": "Enviando…",
   "auth.login.forgotPassword": "¿Olvidaste tu contraseña?",
   "auth.login.createAccount": "Crear cuenta",
+  "auth.signup.title": "Crea tu cuenta",
+  "auth.signup.subtitle": "Empieza con WhatsApp + automatización de IA en minutos.",
+  "auth.signup.selectedPlan": "Plan seleccionado. Crea tu cuenta para continuar.",
+  "auth.signup.selectedPlanNamed": "Plan seleccionado: {plan}. Crea tu cuenta para continuar.",
+  "auth.signup.name": "Tu nombre",
+  "auth.signup.company": "Empresa / negocio",
+  "auth.signup.email": "Correo de trabajo",
+  "auth.signup.passwordHint": "Mínimo 8 caracteres.",
+  "auth.signup.submitting": "Creando…",
+  "auth.signup.failed": "Error al registrarse. Inténtalo de nuevo.",
+  "auth.signup.haveAccount": "¿Ya tienes una cuenta?",
+  "auth.signup.checkEmailTitle": "Revisa tu correo",
+  "auth.signup.backToLogin": "Volver a iniciar sesión",
 };
 
 const fr: Dict = {
@@ -79,6 +118,19 @@ const fr: Dict = {
   "auth.login.resending": "Envoi…",
   "auth.login.forgotPassword": "Mot de passe oublié ?",
   "auth.login.createAccount": "Créer un compte",
+  "auth.signup.title": "Créez votre compte",
+  "auth.signup.subtitle": "Démarrez avec WhatsApp + l’automatisation IA en quelques minutes.",
+  "auth.signup.selectedPlan": "Forfait sélectionné. Créez votre compte pour continuer.",
+  "auth.signup.selectedPlanNamed": "Forfait sélectionné : {plan}. Créez votre compte pour continuer.",
+  "auth.signup.name": "Votre nom",
+  "auth.signup.company": "Entreprise / société",
+  "auth.signup.email": "E-mail professionnel",
+  "auth.signup.passwordHint": "Minimum 8 caractères.",
+  "auth.signup.submitting": "Création…",
+  "auth.signup.failed": "Échec de l’inscription. Réessayez.",
+  "auth.signup.haveAccount": "Vous avez déjà un compte ?",
+  "auth.signup.checkEmailTitle": "Vérifiez votre e-mail",
+  "auth.signup.backToLogin": "Retour à la connexion",
 };
 
 const de: Dict = {
@@ -97,6 +149,19 @@ const de: Dict = {
   "auth.login.resending": "Senden…",
   "auth.login.forgotPassword": "Passwort vergessen?",
   "auth.login.createAccount": "Konto erstellen",
+  "auth.signup.title": "Konto erstellen",
+  "auth.signup.subtitle": "Starten Sie in wenigen Minuten mit WhatsApp + KI-Automatisierung.",
+  "auth.signup.selectedPlan": "Ausgewählter Tarif. Erstellen Sie Ihr Konto, um fortzufahren.",
+  "auth.signup.selectedPlanNamed": "Ausgewählter Tarif: {plan}. Erstellen Sie Ihr Konto, um fortzufahren.",
+  "auth.signup.name": "Ihr Name",
+  "auth.signup.company": "Firma / Unternehmen",
+  "auth.signup.email": "Geschäftliche E-Mail",
+  "auth.signup.passwordHint": "Mindestens 8 Zeichen.",
+  "auth.signup.submitting": "Wird erstellt…",
+  "auth.signup.failed": "Registrierung fehlgeschlagen. Bitte erneut versuchen.",
+  "auth.signup.haveAccount": "Haben Sie bereits ein Konto?",
+  "auth.signup.checkEmailTitle": "Überprüfen Sie Ihre E-Mail",
+  "auth.signup.backToLogin": "Zurück zur Anmeldung",
 };
 
 const ar: Dict = {
@@ -115,6 +180,19 @@ const ar: Dict = {
   "auth.login.resending": "جارٍ الإرسال…",
   "auth.login.forgotPassword": "هل نسيت كلمة المرور؟",
   "auth.login.createAccount": "إنشاء حساب",
+  "auth.signup.title": "أنشئ حسابك",
+  "auth.signup.subtitle": "ابدأ مع واتساب + أتمتة الذكاء الاصطناعي في دقائق.",
+  "auth.signup.selectedPlan": "الخطة المحددة. أنشئ حسابك للمتابعة.",
+  "auth.signup.selectedPlanNamed": "الخطة المحددة: {plan}. أنشئ حسابك للمتابعة.",
+  "auth.signup.name": "اسمك",
+  "auth.signup.company": "الشركة / النشاط التجاري",
+  "auth.signup.email": "البريد الإلكتروني للعمل",
+  "auth.signup.passwordHint": "8 أحرف على الأقل.",
+  "auth.signup.submitting": "جارٍ الإنشاء…",
+  "auth.signup.failed": "فشل التسجيل. حاول مرة أخرى.",
+  "auth.signup.haveAccount": "هل لديك حساب بالفعل؟",
+  "auth.signup.checkEmailTitle": "تحقق من بريدك الإلكتروني",
+  "auth.signup.backToLogin": "العودة إلى تسجيل الدخول",
 };
 
 const ur: Dict = {
@@ -133,6 +211,19 @@ const ur: Dict = {
   "auth.login.resending": "بھیجا جا رہا ہے…",
   "auth.login.forgotPassword": "پاس ورڈ بھول گئے؟",
   "auth.login.createAccount": "اکاؤنٹ بنائیں",
+  "auth.signup.title": "اپنا اکاؤنٹ بنائیں",
+  "auth.signup.subtitle": "منٹوں میں WhatsApp + AI آٹومیشن کے ساتھ شروع کریں۔",
+  "auth.signup.selectedPlan": "منتخب پلان۔ جاری رکھنے کے لیے اپنا اکاؤنٹ بنائیں۔",
+  "auth.signup.selectedPlanNamed": "منتخب پلان: {plan}۔ جاری رکھنے کے لیے اپنا اکاؤنٹ بنائیں۔",
+  "auth.signup.name": "آپ کا نام",
+  "auth.signup.company": "کمپنی / کاروبار",
+  "auth.signup.email": "کام کی ای میل",
+  "auth.signup.passwordHint": "کم از کم 8 حروف۔",
+  "auth.signup.submitting": "بنایا جا رہا ہے…",
+  "auth.signup.failed": "سائن اپ ناکام۔ دوبارہ کوشش کریں۔",
+  "auth.signup.haveAccount": "پہلے سے اکاؤنٹ ہے؟",
+  "auth.signup.checkEmailTitle": "اپنی ای میل چیک کریں",
+  "auth.signup.backToLogin": "لاگ ان پر واپس جائیں",
 };
 
 export const MESSAGES: Record<string, Dict> = { en, hi, es, fr, de, ar, ur };
