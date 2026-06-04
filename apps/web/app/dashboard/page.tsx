@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
 import {
   billingIntentHref,
   readBillingIntentFromWindow,
@@ -56,6 +57,7 @@ interface OnboardingSummary {
 }
 
 export default function DashboardPage() {
+  const { t } = useI18n();
   const { user, features, loading, signOut } = useAuth({ required: true });
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [walletAlert, setWalletAlert] = useState<WalletAlert | null>(null);
@@ -90,19 +92,19 @@ export default function DashboardPage() {
   }, [user]);
 
   if (loading || !user) {
-    return <div className="p-10 text-sm text-slate-500">Loading…</div>;
+    return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
       <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Welcome back, {user.name.split(" ")[0]}
+          {t("dashboard.welcome", { name: user.name.split(" ")[0] })}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
           {user.role === "SUPER_ADMIN"
-            ? "Platform health across all tenants."
-            : "Today's snapshot of your campaigns and conversations."}
+            ? t("dashboard.subtitleSuperAdmin")
+            : t("dashboard.subtitleBusiness")}
         </p>
       </header>
 
@@ -110,16 +112,16 @@ export default function DashboardPage() {
         <div className="mb-6 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           <div className="font-medium">
             {billingIntent.plan
-              ? `${billingIntent.plan} plan selected`
-              : "Plan selection saved"}
+              ? t("dashboard.planSelected", { plan: billingIntent.plan })
+              : t("dashboard.planSaved")}
           </div>
           <div className="mt-1 text-emerald-800/80">
-            Review the plan details and send the activation request from{" "}
+            {t("dashboard.reviewPlanFrom")}{" "}
             <a
               href={billingIntentHref("/dashboard/billing", billingIntent)}
               className="font-semibold underline"
             >
-              Plan & Billing
+              {t("dashboard.planBillingLink")}
             </a>
             .
           </div>
@@ -128,12 +130,14 @@ export default function DashboardPage() {
 
       {walletAlert?.isLow && (
         <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Wallet balance is low ({walletAlert.balanceCredits} credits, threshold{" "}
-          {walletAlert.lowBalanceThreshold}).{" "}
+          {t("dashboard.walletLow", {
+            balance: walletAlert.balanceCredits,
+            threshold: walletAlert.lowBalanceThreshold,
+          })}{" "}
           <a href="/wallets" className="font-medium underline">
-            Recharge credits
+            {t("dashboard.rechargeCredits")}
           </a>
-          {walletAlert.isEmpty ? " — sending may be blocked." : "."}
+          {walletAlert.isEmpty ? t("dashboard.sendingBlockedSuffix") : "."}
         </div>
       )}
 
@@ -141,13 +145,16 @@ export default function DashboardPage() {
         <div className="mb-6 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
-              Get started — <strong>{onboarding.completedSteps} of {onboarding.totalSteps}</strong> setup steps complete.
+              {t("dashboard.onboardingProgress", {
+                done: onboarding.completedSteps,
+                total: onboarding.totalSteps,
+              })}
             </span>
             <a
               href="/onboarding"
               className="rounded-md bg-emerald-700 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-800"
             >
-              Continue setup →
+              {t("dashboard.continueSetup")}
             </a>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100">
@@ -167,7 +174,11 @@ export default function DashboardPage() {
       )}
       {user.role === "AGENT" && (
         <p className="text-sm text-slate-600">
-          Open your <a className="text-emerald-700 hover:underline" href="/inbox">Inbox</a> to start replying.
+          {t("dashboard.agentOpenYour")}{" "}
+          <a className="text-emerald-700 hover:underline" href="/inbox">
+            {t("dashboard.inbox")}
+          </a>{" "}
+          {t("dashboard.toStartReplying")}
         </p>
       )}
     </DashboardShell>
@@ -208,23 +219,24 @@ function formatCurrencyFromCents(value?: number) {
 }
 
 function SuperAdminCards({ summary }: { summary: DashboardSummary | null }) {
+  const { t } = useI18n();
   const totals = summary?.totals;
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <StatCard
-        label="Tenants"
+        label={t("dashboard.tenants")}
         value={totals?.tenants?.toString() ?? "—"}
-        hint={`${totals?.activeTenants ?? "—"} active`}
+        hint={t("dashboard.nActive", { n: totals?.activeTenants ?? "—" })}
       />
       <StatCard
-        label="Messages today"
+        label={t("dashboard.messagesToday")}
         value={totals?.messagesToday?.toString() ?? "—"}
-        hint={`${totals?.messagesMonth ?? "—"} this month`}
+        hint={t("dashboard.nThisMonth", { n: totals?.messagesMonth ?? "—" })}
       />
       <StatCard
-        label="MRR"
+        label={t("dashboard.mrr")}
         value={formatCurrencyFromPaisa(totals?.mrrInPaisa)}
-        hint="From active subscriptions"
+        hint={t("dashboard.fromActiveSubs")}
       />
     </div>
   );
@@ -239,13 +251,14 @@ function PlanQuotaBar({
   used: number;
   limit: number;
 }) {
+  const { t } = useI18n();
   // Treat 0 / negative limit as "unlimited on this plan" — show count only.
   if (!limit || limit <= 0) {
     return (
       <div>
         <div className="flex justify-between text-xs text-slate-600">
           <span className="font-medium">{label}</span>
-          <span>{used.toLocaleString()} · unlimited</span>
+          <span>{used.toLocaleString()} · {t("dashboard.unlimited")}</span>
         </div>
       </div>
     );
@@ -274,27 +287,28 @@ function PlanQuotaBar({
 }
 
 function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
+  const { t } = useI18n();
   const totals = summary?.totals;
   const quota = summary?.sendQuota;
   const plan = summary?.planQuotas;
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Contacts" value={totals?.contacts?.toString() ?? "—"} />
+        <StatCard label={t("dashboard.contacts")} value={totals?.contacts?.toString() ?? "—"} />
         <StatCard
-          label="Campaigns"
+          label={t("dashboard.campaigns")}
           value={totals?.campaigns?.toString() ?? "—"}
-          hint={`${totals?.messagesMonth ?? "—"} messages this month`}
+          hint={t("dashboard.nMessagesThisMonth", { n: totals?.messagesMonth ?? "—" })}
         />
         <StatCard
-          label="Open conversations"
+          label={t("dashboard.openConversations")}
           value={totals?.activeConversations?.toString() ?? "—"}
-          hint={`${totals?.leads ?? "—"} leads in pipeline`}
+          hint={t("dashboard.nLeadsPipeline", { n: totals?.leads ?? "—" })}
         />
         <StatCard
-          label="AI spend"
+          label={t("dashboard.aiSpend")}
           value={formatCurrencyFromCents(totals?.aiCostInCentsThisMonth)}
-          hint="USD, this month"
+          hint={t("dashboard.usdThisMonth")}
         />
       </div>
 
@@ -303,11 +317,11 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
           <div className="flex items-center justify-between text-sm">
             <div>
               <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                WhatsApp send quota
+                {t("dashboard.sendQuotaTitle")}
               </div>
               <div className="mt-1 font-medium">
                 {quota.monthlyUsed.toLocaleString()} / {quota.monthlyQuota.toLocaleString()}
-                <span className="ml-2 text-slate-500">this month</span>
+                <span className="ml-2 text-slate-500">{t("dashboard.thisMonth")}</span>
               </div>
             </div>
             <div
@@ -319,7 +333,7 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
                     : "bg-emerald-50 text-emerald-700"
               }`}
             >
-              {quota.percentUsed}% used
+              {t("dashboard.percentUsedBadge", { pct: quota.percentUsed })}
             </div>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
@@ -335,8 +349,7 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
             />
           </div>
           <p className="mt-2 text-[11px] text-slate-500">
-            Per-second smoothing capped at {quota.perSecondLimit} sends/sec to
-            protect your Meta quality rating.
+            {t("dashboard.perSecondNote", { limit: quota.perSecondLimit })}
           </p>
         </section>
       )}
@@ -344,29 +357,30 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
       {plan && (
         <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
           <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Plan usage
+            {t("dashboard.planUsage")}
           </div>
           <div className="mt-4 space-y-3">
             <PlanQuotaBar
-              label="Contacts"
+              label={t("dashboard.contacts")}
               used={plan.contacts.used}
               limit={plan.contacts.limit}
             />
             <PlanQuotaBar
-              label="Campaigns"
+              label={t("dashboard.campaigns")}
               used={plan.campaigns.used}
               limit={plan.campaigns.limit}
             />
             <PlanQuotaBar
-              label="Agent seats"
+              label={t("dashboard.agentSeats")}
               used={plan.agentSeats.used}
               limit={plan.agentSeats.limit}
             />
           </div>
           {plan.aiCreditsPerMonth > 0 && (
             <p className="mt-3 text-[11px] text-slate-500">
-              Monthly AI credit budget: {plan.aiCreditsPerMonth.toLocaleString()}.
-              Check the AI spend card above for this month's burn.
+              {t("dashboard.aiCreditBudget", {
+                credits: plan.aiCreditsPerMonth.toLocaleString(),
+              })}
             </p>
           )}
         </section>
