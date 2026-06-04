@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
 
 type LeadStatus =
   | "NEW"
@@ -32,17 +33,18 @@ interface Lead {
   assignee: { id: string; name: string } | null;
 }
 
-const COLUMNS: { status: LeadStatus; label: string }[] = [
-  { status: "NEW", label: "New" },
-  { status: "QUALIFIED", label: "Qualified" },
-  { status: "NEGOTIATION", label: "Negotiation" },
-  { status: "PROPOSAL_SENT", label: "Proposal sent" },
-  { status: "NEGOTIATION_FAILED", label: "Needs rescue" },
-  { status: "CLOSED_WON", label: "Closed-won" },
-  { status: "CLOSED_LOST", label: "Closed-lost" },
+const COLUMNS: { status: LeadStatus; labelKey: string }[] = [
+  { status: "NEW", labelKey: "leads.col.new" },
+  { status: "QUALIFIED", labelKey: "leads.col.qualified" },
+  { status: "NEGOTIATION", labelKey: "leads.col.negotiation" },
+  { status: "PROPOSAL_SENT", labelKey: "leads.col.proposalSent" },
+  { status: "NEGOTIATION_FAILED", labelKey: "leads.col.needsRescue" },
+  { status: "CLOSED_WON", labelKey: "leads.col.closedWon" },
+  { status: "CLOSED_LOST", labelKey: "leads.col.closedLost" },
 ];
 
 export default function LeadsPage() {
+  const { t } = useI18n();
   const { user, features, loading, signOut } = useAuth({
     required: true,
     roles: ["BUSINESS_ADMIN", "TEAM_LEAD"],
@@ -66,7 +68,7 @@ export default function LeadsPage() {
       const data = await api.get<Record<LeadStatus, Lead[]>>("/api/v1/leads");
       setBoard(data);
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to load");
+      setErr(e instanceof ApiClientError ? e.message : t("leads.loadFailed"));
     }
   }
 
@@ -82,10 +84,10 @@ export default function LeadsPage() {
       await api.post(`/api/v1/leads/${leadId}/follow-up/recommend`, {
         goal: "Move this lead to the next best sales step.",
       });
-      setNotice("Follow-up recommendation generated.");
+      setNotice(t("leads.recGenerated"));
       await loadBoard();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to recommend follow-up");
+      setErr(e instanceof ApiClientError ? e.message : t("leads.recFailed"));
     } finally {
       setBusyLeadId(null);
     }
@@ -104,10 +106,10 @@ export default function LeadsPage() {
     setNotice(null);
     try {
       await api.patch(`/api/v1/leads/${lead.id}/follow-up`, body);
-      setNotice("Follow-up updated.");
+      setNotice(t("leads.updated"));
       await loadBoard();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to update follow-up");
+      setErr(e instanceof ApiClientError ? e.message : t("leads.updateFailed"));
     } finally {
       setBusyLeadId(null);
     }
@@ -117,7 +119,7 @@ export default function LeadsPage() {
     const current = lead.followUpDueAt
       ? new Date(lead.followUpDueAt).toISOString().slice(0, 16)
       : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
-    const input = window.prompt("Schedule follow-up at local date/time", current);
+    const input = window.prompt(t("leads.schedulePrompt"), current);
     if (!input) return;
     const dueAt = new Date(input).toISOString();
     await updateFollowUp(lead, {
@@ -128,11 +130,7 @@ export default function LeadsPage() {
   }
 
   async function sendFollowUpNow(lead: Lead) {
-    if (
-      !window.confirm(
-        "Send this WhatsApp follow-up now? Only send if the contact has opted in.",
-      )
-    ) {
+    if (!window.confirm(t("leads.sendConfirm"))) {
       return;
     }
     setBusyLeadId(lead.id);
@@ -140,24 +138,22 @@ export default function LeadsPage() {
     setNotice(null);
     try {
       await api.post(`/api/v1/leads/${lead.id}/follow-up/send`);
-      setNotice("Follow-up sent.");
+      setNotice(t("leads.sent"));
       await loadBoard();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to send follow-up");
+      setErr(e instanceof ApiClientError ? e.message : t("leads.sendFailed"));
     } finally {
       setBusyLeadId(null);
     }
   }
 
-  if (loading || !user) return <div className="p-10 text-sm text-slate-500">Loading…</div>;
+  if (loading || !user) return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
 
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Lead pipeline</h1>
-        <p className="text-sm text-slate-500">
-          Track deals from first contact to close, with AI next-step follow-ups.
-        </p>
+        <h1 className="text-2xl font-semibold">{t("leads.title")}</h1>
+        <p className="text-sm text-slate-500">{t("leads.subtitle")}</p>
       </header>
 
       {err && (
@@ -175,7 +171,7 @@ export default function LeadsPage() {
         {COLUMNS.map((col) => (
           <div key={col.status} className="rounded-lg border border-slate-200 bg-white p-3">
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-medium">{col.label}</span>
+              <span className="text-sm font-medium">{t(col.labelKey)}</span>
               <span className="rounded-full bg-slate-100 px-2 text-xs">
                 {board[col.status]?.length ?? 0}
               </span>
@@ -199,7 +195,7 @@ export default function LeadsPage() {
               ))}
               {(board[col.status] ?? []).length === 0 && (
                 <div className="rounded-md border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
-                  Empty
+                  {t("leads.empty")}
                 </div>
               )}
             </div>
@@ -227,6 +223,7 @@ function LeadCard({
   onDismiss: () => void;
   onSendNow: () => void;
 }) {
+  const { t } = useI18n();
   const hasRecommendation =
     lead.followUpStatus &&
     lead.followUpStatus !== "DISMISSED" &&
@@ -243,12 +240,12 @@ function LeadCard({
         )}
         {typeof lead.probability === "number" && (
           <span className="rounded-full bg-white px-2 py-0.5">
-            {Math.round(lead.probability * 100)}% close
+            {t("leads.closePct", { pct: Math.round(lead.probability * 100) })}
           </span>
         )}
         {lead.contact.optedOut && (
           <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-700">
-            opted out
+            {t("leads.optedOut")}
           </span>
         )}
       </div>
@@ -261,7 +258,13 @@ function LeadCard({
                 lead.followUpPriority,
               )}`}
             >
-              {lead.followUpPriority ?? "medium"} priority
+              {t(
+                lead.followUpPriority === "high"
+                  ? "leads.priorityHigh"
+                  : lead.followUpPriority === "low"
+                    ? "leads.priorityLow"
+                    : "leads.priorityMedium",
+              )}
             </span>
             <span className="text-[10px] uppercase tracking-wide text-slate-400">
               {lead.followUpStatus}
@@ -270,7 +273,7 @@ function LeadCard({
           <p className="mt-2 line-clamp-3 text-slate-700">{lead.followUpMessage}</p>
           {lead.followUpDueAt && (
             <p className="mt-2 text-[11px] text-slate-500">
-              Due {new Date(lead.followUpDueAt).toLocaleString()}
+              {t("leads.due", { date: new Date(lead.followUpDueAt).toLocaleString() })}
             </p>
           )}
           {lead.followUpReason && (
@@ -291,7 +294,7 @@ function LeadCard({
             disabled={busy}
             className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {hasRecommendation ? "Regenerate" : "AI follow-up"}
+            {hasRecommendation ? t("leads.regenerate") : t("leads.aiFollowUp")}
           </button>
           {hasRecommendation && lead.followUpStatus !== "SENT" && (
             <>
@@ -300,21 +303,21 @@ function LeadCard({
                 disabled={busy}
                 className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Schedule
+                {t("leads.schedule")}
               </button>
               <button
                 onClick={onSendNow}
                 disabled={busy || lead.contact.optedOut}
                 className="rounded-md border border-slate-900 bg-slate-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Send now
+                {t("leads.sendNow")}
               </button>
               <button
                 onClick={onDismiss}
                 disabled={busy}
                 className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Dismiss
+                {t("leads.dismiss")}
               </button>
             </>
           )}
@@ -322,7 +325,7 @@ function LeadCard({
       )}
       {lead.followUpStatus === "SENT" && lead.followUpSentAt && (
         <div className="mt-2 text-[11px] text-emerald-700">
-          Sent {new Date(lead.followUpSentAt).toLocaleString()}
+          {t("leads.sentAt", { date: new Date(lead.followUpSentAt).toLocaleString() })}
         </div>
       )}
     </div>
