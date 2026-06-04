@@ -38,6 +38,8 @@ import {
 } from "lucide-react";
 import { activeHrefFromPath, isActiveRoute } from "../lib/navActive";
 import { ImpersonationBanner } from "./ImpersonationBanner";
+import { LocaleSwitcher } from "./LocaleSwitcher";
+import { useI18n } from "../i18n/I18nProvider";
 
 type RoleName =
   | "SUPER_ADMIN"
@@ -640,6 +642,7 @@ export function Topbar({
   onOpenMenu: () => void;
   signOut: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/90 backdrop-blur">
       <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
@@ -663,7 +666,7 @@ export function Topbar({
 
         <div className="hidden min-w-[15rem] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 shadow-sm lg:flex">
           <Search className="h-4 w-4 text-slate-400" />
-          <span>Search contacts, campaigns...</span>
+          <span>{t("common.searchPlaceholder")}</span>
         </div>
 
         <Link
@@ -689,6 +692,8 @@ export function Topbar({
         >
           <Bell className="h-4 w-4" />
         </button>
+
+        <LocaleSwitcher className="hidden md:inline-flex" />
 
         <UserMenu user={user} signOut={signOut} />
       </div>
