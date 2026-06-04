@@ -144,20 +144,45 @@ async function createInvoiceWithRetry(args: BaseInvoiceInputs & {
       now,
     });
     try {
-      return await prisma.invoice.create({
-        data: {
-          tenantId: args.tenantId,
-          invoiceNumber,
-          amountInPaisa: args.amountInPaisa,
-          subtotalInPaisa: args.amountInPaisa,
-          taxInPaisa: 0,
-          currency: args.currency,
-          status: args.status,
-          paymentOrderId: args.paymentOrderId ?? null,
-          rechargeRequestId: args.rechargeRequestId ?? null,
-          dueAt: args.dueAt ?? now,
-          paidAt: args.paidAt ?? null,
-        },
+      return await prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.create({
+          data: {
+            tenantId: args.tenantId,
+            invoiceNumber,
+            amountInPaisa: args.amountInPaisa,
+            subtotalInPaisa: args.amountInPaisa,
+            taxInPaisa: 0,
+            currency: args.currency,
+            status: args.status,
+            paymentOrderId: args.paymentOrderId ?? null,
+            rechargeRequestId: args.rechargeRequestId ?? null,
+            dueAt: args.dueAt ?? now,
+            paidAt: args.paidAt ?? null,
+          },
+        });
+        await tx.invoiceCurrency.create({
+          data: {
+            invoiceId: invoice.id,
+            tenantId: args.tenantId,
+            invoiceCurrency: args.currency,
+            amountMinor: args.amountInPaisa,
+            subtotalMinor: args.amountInPaisa,
+            taxMinor: 0,
+            displayCurrency: args.currency,
+            exchangeRateMicros: 1_000_000n,
+            displayAmountMinor: args.amountInPaisa,
+            source: args.paymentOrderId
+              ? "payment_order"
+              : args.rechargeRequestId
+                ? "recharge_request"
+                : "invoice",
+            snapshotJson: {
+              paymentOrderId: args.paymentOrderId ?? null,
+              rechargeRequestId: args.rechargeRequestId ?? null,
+            },
+          },
+        });
+        return invoice;
       });
     } catch (err) {
       // Retry only on a unique-violation; bubble everything else.

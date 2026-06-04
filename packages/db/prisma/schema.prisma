@@ -209,6 +209,10 @@ model Tenant {
   followUpTasks            FollowUpTask[]
   paymentOrders            PaymentOrder[]
   rechargeRequests         RechargeRequest[]
+  customerCurrencySetting  CustomerCurrencySetting?  @relation("CustomerCurrencySettings")
+  partnerCurrencySetting   PartnerCurrencySetting?   @relation("PartnerCurrencySettings")
+  walletCurrencyLedgers    WalletCurrencyLedger[]
+  invoiceCurrencySnapshots InvoiceCurrency[]
   creditLines              CreditLine[]
   usageEvents              UsageEvent[]
   numberMigrations         NumberMigration[]
@@ -482,6 +486,64 @@ model CurrencyRate {
   updatedAt       DateTime @updatedAt
 
   @@index([baseCurrency, quoteCurrency, isActive, effectiveFrom], map: "CurrencyRate_pair_active_from_idx")
+}
+
+// ============================================================================
+// Currency foundation (Final Currency/Language PDF §7)
+//
+// Currency is the platform master list; CurrencyRate is the effective-dated
+// conversion table already used by the corrected billing rate engine. Customer
+// and partner settings define display/settlement defaults, while the snapshot
+// tables below freeze the exact currency context for every ledger/invoice row.
+// ============================================================================
+
+model Currency {
+  code             String  @id // ISO-4217, e.g. INR, USD, CAD
+  name             String
+  symbol           String
+  minorUnit        Int     @default(2)
+  isActive         Boolean @default(true)
+  isLaunchCurrency Boolean @default(false)
+  displayOrder     Int     @default(100)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, displayOrder])
+}
+
+model CustomerCurrencySetting {
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation("CustomerCurrencySettings", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  currencyCode         String  @default("INR")
+  locale               String  @default("en-IN")
+  showConvertedAmounts Boolean @default(true)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([currencyCode])
+}
+
+model PartnerCurrencySetting {
+  id              String @id @default(cuid())
+  partnerTenantId String @unique
+  partnerTenant   Tenant @relation("PartnerCurrencySettings", fields: [partnerTenantId], references: [id], onDelete: Cascade)
+
+  defaultCurrencyCode       String  @default("INR")
+  settlementCurrencyCode    String  @default("INR")
+  allowedCurrencies         Json?
+  passThroughCustomerCurrency Boolean @default(true)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([defaultCurrencyCode])
+  @@index([settlementCurrencyCode])
 }
 
 model Domain {
@@ -1274,6 +1336,7 @@ model Wallet {
   counterpartyTransactions WalletTransaction[]    @relation("CounterpartyWallet")
   riskAssessments          WalletRiskAssessment[]
   paymentOrders            PaymentOrder[]
+  currencyLedgers          WalletCurrencyLedger[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1597,6 +1660,7 @@ model WalletTransaction {
   counterpartyWalletId String?
   counterpartyWallet   Wallet?                    @relation("CounterpartyWallet", fields: [counterpartyWalletId], references: [id], onDelete: SetNull)
   metadata             String?
+  currencySnapshot     WalletCurrencyLedger?
 
   createdAt DateTime @default(now())
 
@@ -1609,6 +1673,47 @@ model WalletTransaction {
   @@index([actorUserId])
   @@index([type])
   @@index([referenceType, referenceId])
+}
+
+model WalletCurrencyLedger {
+  id                  String            @id @default(cuid())
+  walletTransactionId String            @unique
+  walletTransaction   WalletTransaction @relation(fields: [walletTransactionId], references: [id], onDelete: Cascade)
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  walletType          WalletType
+  ledgerCurrency      String @default("INR")
+  amountCredits       Int
+  balanceAfterCredits Int
+
+  // Credit-to-money snapshot. Today one wallet credit maps to one
+  // smallest currency unit for recharge flows (paise/cents). Usage debits
+  // may pass an explicit creditUnitMinor / source amount later.
+  creditUnitMinor Int    @default(1)
+  amountMinor     Int    @default(0)
+  displayCurrency String @default("INR")
+
+  // 1 ledgerCurrency = displayRateMicros / 1_000_000 displayCurrency.
+  displayRateMicros BigInt @default(1000000)
+  displayAmountMinor Int    @default(0)
+
+  // Optional source amount before conversion into the ledger/display currency.
+  sourceCurrency           String?
+  sourceAmountMinor        Int?
+  sourceToLedgerRateMicros BigInt?
+  snapshotReason           String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([walletId, createdAt])
+  @@index([ledgerCurrency])
+  @@index([displayCurrency])
 }
 
 model Subscription {
@@ -1663,6 +1768,7 @@ model Invoice {
   /// CDN / R2 URL where the generated PDF lives. Null until the PDF
   /// generation worker fills this in (separate slice).
   pdfUrl            String?
+  currencySnapshot  InvoiceCurrency?
 
   dueAt  DateTime
   paidAt DateTime?
@@ -1674,6 +1780,33 @@ model Invoice {
   @@index([status])
   @@index([paymentOrderId])
   @@index([rechargeRequestId])
+}
+
+model InvoiceCurrency {
+  id        String  @id @default(cuid())
+  invoiceId String  @unique
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  invoiceCurrency String @default("INR")
+  amountMinor     Int
+  subtotalMinor   Int
+  taxMinor        Int
+
+  displayCurrency   String @default("INR")
+  exchangeRateMicros BigInt @default(1000000)
+  displayAmountMinor Int    @default(0)
+
+  source       String?
+  snapshotJson Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([invoiceCurrency])
+  @@index([displayCurrency])
 }
 
 // ============================================================================

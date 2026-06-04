@@ -75,6 +75,18 @@ _(none)_
   4. ~~Per-tenant config from `ProviderRoute.config` (decrypted + ctx-bound)~~ ✅ shipped (T-005d, ADR-019)
   5. ~~SuperAdmin CRUD for `ProviderRoute` (encrypt on write, redact on read)~~ ✅ shipped (T-005e, ADR-020)
 
+### T-090 — Currency foundation + ledger snapshots ✅ shipped (2026-06-04)
+- **Priority**: P0
+- **Blueprint**: Final Complete Currency/Language PDF §7
+- **Scope**: M — Currency master list, customer/partner currency defaults, and immutable currency snapshots for wallet ledger + invoices.
+- **Shipped**:
+  - `Currency`, `CustomerCurrencySetting`, `PartnerCurrencySetting`, `WalletCurrencyLedger`, and `InvoiceCurrency` Prisma models + migration.
+  - Launch currencies seeded: INR, USD, CAD, AED, GBP, EUR, AUD, SGD.
+  - SuperAdmin `/api/v1/admin/currencies` APIs for currency master and customer/partner settings with audit logging.
+  - Wallet credits/debits now write a `WalletCurrencyLedger` snapshot in the same serializable transaction as the balance update.
+  - Invoice creation now writes an `InvoiceCurrency` snapshot in the same transaction as the invoice row.
+- **Follow-ups**: customer currency switcher UI, exchange-rate sync worker, wallet/invoice display conversion, and language foundation (`Language`, `TranslationKey`, RTL).
+
 ---
 
 ## Backlog (planned but not Codex-ready)

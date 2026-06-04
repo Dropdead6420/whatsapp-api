@@ -11,6 +11,8 @@ import {
 
 type Tx = Prisma.TransactionClient;
 const DEFAULT_WALLET_TYPE = WalletType.WHATSAPP_USAGE;
+const DEFAULT_CURRENCY = "INR";
+const DEFAULT_RATE_MICROS = 1_000_000n;
 
 export interface WalletEntryInput {
   tenantId: string;
@@ -24,6 +26,18 @@ export interface WalletEntryInput {
   referenceId?: string | null;
   counterpartyWalletId?: string | null;
   metadata?: Record<string, unknown> | null;
+  currencySnapshot?: {
+    ledgerCurrency?: string;
+    displayCurrency?: string;
+    displayRateMicros?: bigint | number | string;
+    creditUnitMinor?: number;
+    amountMinor?: number;
+    displayAmountMinor?: number;
+    sourceCurrency?: string | null;
+    sourceAmountMinor?: number | null;
+    sourceToLedgerRateMicros?: bigint | number | string | null;
+    snapshotReason?: string | null;
+  };
   /**
    * Bypass the negative-balance guards for this entry. Used only for
    * gateway refund reversals: when a customer is refunded credits they
@@ -32,6 +46,112 @@ export interface WalletEntryInput {
    * Never set this for routine debits (message/AI/workflow usage).
    */
   allowNegativeBalance?: boolean;
+}
+
+function normalizeCurrencyCode(raw: unknown, fallback = DEFAULT_CURRENCY): string {
+  const value = typeof raw === "string" && raw.trim() ? raw.trim() : fallback;
+  const normalized = value.toUpperCase().replace(/[^A-Z]/g, "");
+  if (normalized.length < 3 || normalized.length > 8) return fallback;
+  return normalized;
+}
+
+function positiveInt(raw: unknown, fallback: number): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return fallback;
+  return n;
+}
+
+function positiveBigInt(raw: unknown, fallback: bigint): bigint {
+  if (raw === null || raw === undefined || raw === "") return fallback;
+  try {
+    const n = BigInt(raw as string | number | bigint);
+    return n > 0n ? n : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function optionalBigInt(raw: unknown): bigint | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  try {
+    const n = BigInt(raw as string | number | bigint);
+    return n > 0n ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function optionalInt(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+function buildCurrencySnapshotData(args: {
+  input: WalletEntryInput;
+  walletId: string;
+  walletType: WalletType;
+  transactionId: string;
+  balanceAfterCredits: number;
+}) {
+  const meta = args.input.metadata ?? {};
+  const explicit = args.input.currencySnapshot;
+  const ledgerCurrency = normalizeCurrencyCode(
+    explicit?.ledgerCurrency ??
+      meta.ledgerCurrency ??
+      meta.walletCurrency ??
+      meta.currency,
+  );
+  const displayCurrency = normalizeCurrencyCode(
+    explicit?.displayCurrency ?? meta.displayCurrency,
+    ledgerCurrency,
+  );
+  const creditUnitMinor = positiveInt(
+    explicit?.creditUnitMinor ?? meta.creditUnitMinor,
+    1,
+  );
+  const amountMinor = positiveInt(
+    explicit?.amountMinor ?? meta.amountMinor,
+    args.input.amountCredits * creditUnitMinor,
+  );
+  const displayRateMicros = positiveBigInt(
+    explicit?.displayRateMicros ??
+      meta.displayRateMicros ??
+      meta.currencyRateMicros,
+    DEFAULT_RATE_MICROS,
+  );
+  const displayAmountMinor = positiveInt(
+    explicit?.displayAmountMinor ?? meta.displayAmountMinor,
+    amountMinor,
+  );
+  const sourceCurrencyRaw = explicit?.sourceCurrency ?? meta.sourceCurrency;
+  return {
+    walletTransactionId: args.transactionId,
+    tenantId: args.input.tenantId,
+    walletId: args.walletId,
+    walletType: args.walletType,
+    ledgerCurrency,
+    amountCredits: args.input.amountCredits,
+    balanceAfterCredits: args.balanceAfterCredits,
+    creditUnitMinor,
+    amountMinor,
+    displayCurrency,
+    displayRateMicros,
+    displayAmountMinor,
+    sourceCurrency:
+      sourceCurrencyRaw === null || sourceCurrencyRaw === undefined
+        ? null
+        : normalizeCurrencyCode(sourceCurrencyRaw, ledgerCurrency),
+    sourceAmountMinor: optionalInt(
+      explicit?.sourceAmountMinor ?? meta.sourceAmountMinor,
+    ),
+    sourceToLedgerRateMicros: optionalBigInt(
+      explicit?.sourceToLedgerRateMicros ?? meta.sourceToLedgerRateMicros,
+    ),
+    snapshotReason:
+      explicit?.snapshotReason ??
+      (typeof meta.snapshotReason === "string" ? meta.snapshotReason : null),
+  };
 }
 
 function assertPositiveCredits(amountCredits: number): void {
@@ -141,6 +261,16 @@ async function applyWalletEntryTx(tx: Tx, input: WalletEntryInput) {
       counterpartyWalletId: input.counterpartyWalletId ?? null,
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
     },
+  });
+
+  await tx.walletCurrencyLedger.create({
+    data: buildCurrencySnapshotData({
+      input,
+      walletId: wallet.id,
+      walletType: input.walletType ?? DEFAULT_WALLET_TYPE,
+      transactionId: transaction.id,
+      balanceAfterCredits: nextBalance,
+    }),
   });
 
   return { wallet: updated, transaction };
