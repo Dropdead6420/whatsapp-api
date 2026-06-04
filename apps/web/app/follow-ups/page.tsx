@@ -17,6 +17,9 @@ import { AgentShell } from "../../src/components/AgentShell";
 import { FollowUpComposer } from "../../src/components/FollowUpComposer";
 import { useAuth } from "../../src/hooks/useAuth";
 import { api, ApiClientError } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
+
+type TFunc = (key: string, vars?: Record<string, string | number>) => string;
 
 type FollowUpStatus = "PENDING" | "DONE" | "CANCELLED";
 
@@ -55,21 +58,27 @@ const STATUS_META: Record<FollowUpStatus, { label: string; tone: string }> = {
   CANCELLED: { label: "Cancelled", tone: "bg-slate-50 text-slate-600 border-slate-200" },
 };
 
-function describeDue(dueAt: string): { label: string; tone: string } {
+function describeDue(dueAt: string, t: TFunc): { label: string; tone: string } {
   const due = new Date(dueAt);
   const diffMs = due.getTime() - Date.now();
   const absHours = Math.abs(diffMs) / (1000 * 60 * 60);
   if (diffMs < 0) {
     return {
-      label: absHours < 24 ? `Overdue ${Math.round(absHours)}h` : `Overdue ${Math.round(absHours / 24)}d`,
+      label:
+        absHours < 24
+          ? t("followups.overdueHours", { n: Math.round(absHours) })
+          : t("followups.overdueDays", { n: Math.round(absHours / 24) }),
       tone: "text-rose-700",
     };
   }
   if (absHours < 24) {
-    return { label: `Due in ${Math.round(absHours)}h`, tone: "text-amber-700" };
+    return {
+      label: t("followups.dueInHours", { n: Math.round(absHours) }),
+      tone: "text-amber-700",
+    };
   }
   return {
-    label: `Due in ${Math.round(absHours / 24)}d`,
+    label: t("followups.dueInDays", { n: Math.round(absHours / 24) }),
     tone: "text-slate-600",
   };
 }
@@ -81,8 +90,10 @@ export default function FollowUpsPage() {
     required: true,
     roles: ["AGENT", "TEAM_LEAD", "BUSINESS_ADMIN"],
   });
+  const { t } = useI18n();
   const Shell = agentPortal ? AgentShell : DashboardShell;
   const canSeeOtherAgents = user?.role !== "AGENT";
+  const statusLabel = (s: FollowUpStatus) => t("followups.status." + s.toLowerCase());
 
   const [statusFilter, setStatusFilter] = useState<FollowUpStatus>("PENDING");
   const [tasks, setTasks] = useState<FollowUpTask[]>([]);
@@ -103,7 +114,7 @@ export default function FollowUpsPage() {
       setTasks(data);
     } catch (e) {
       setErr(
-        e instanceof ApiClientError ? e.message : "Failed to load follow-ups",
+        e instanceof ApiClientError ? e.message : t("followups.loadFailed"),
       );
     } finally {
       setBusy(false);
@@ -133,9 +144,11 @@ export default function FollowUpsPage() {
       await api.post(`/api/v1/follow-up-tasks/${taskId}/${kind}`);
       await loadTasks();
     } catch (e) {
-      setErr(
-        e instanceof ApiClientError ? e.message : `Failed to ${kind} task`,
-      );
+      const fallback =
+        kind === "complete"
+          ? t("followups.completeFailed")
+          : t("followups.cancelFailed");
+      setErr(e instanceof ApiClientError ? e.message : fallback);
     }
   };
 
@@ -146,7 +159,7 @@ export default function FollowUpsPage() {
   }, [agents]);
 
   if (loading || !user) {
-    return <div className="p-10 text-sm text-slate-500">Loading…</div>;
+    return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   return (
@@ -154,15 +167,15 @@ export default function FollowUpsPage() {
       <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            Inbox · Follow-ups
+            {t("followups.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-            {canSeeOtherAgents ? "Team follow-up queue" : "My follow-ups"}
+            {canSeeOtherAgents ? t("followups.titleTeam") : t("followups.titleMine")}
           </h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
             {canSeeOtherAgents
-              ? "Reminders agents have created from inbox conversations. Pending tasks sort soonest-first."
-              : "Reminders you set while working through conversations. Pending tasks sort soonest-first."}
+              ? t("followups.subtitleTeam")
+              : t("followups.subtitleMine")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -176,14 +189,14 @@ export default function FollowUpsPage() {
                   : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
-              {STATUS_META[s].label}
+              {statusLabel(s)}
             </button>
           ))}
           <button
             onClick={() => setShowCreate(true)}
             className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
           >
-            + New follow-up
+            {t("followups.new")}
           </button>
         </div>
       </div>
@@ -196,61 +209,65 @@ export default function FollowUpsPage() {
 
       <section className="rounded-lg border border-slate-200 bg-white">
         <header className="border-b border-slate-200 px-5 py-3 text-xs font-medium uppercase tracking-wide text-slate-500">
-          {tasks.length} {STATUS_META[statusFilter].label.toLowerCase()} task
-          {tasks.length === 1 ? "" : "s"}
+          {t("followups.taskCountStatus", {
+            count: tasks.length,
+            status: statusLabel(statusFilter).toLowerCase(),
+          })}
         </header>
         {tasks.length === 0 ? (
           <div className="px-5 py-8 text-sm text-slate-500">
             {busy
-              ? "Loading…"
+              ? t("common.loading")
               : statusFilter === "PENDING"
-                ? "Nothing on your queue right now. Add a reminder from any inbox conversation."
-                : `No ${STATUS_META[statusFilter].label.toLowerCase()} tasks in this window.`}
+                ? t("followups.emptyPending")
+                : t("followups.emptyOther", {
+                    status: statusLabel(statusFilter).toLowerCase(),
+                  })}
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {tasks.map((t) => {
-              const due = describeDue(t.dueAt);
+            {tasks.map((task) => {
+              const due = describeDue(task.dueAt, t);
               return (
-                <li key={t.id} className="px-5 py-3">
+                <li key={task.id} className="px-5 py-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <p className="font-medium text-slate-950">{t.title}</p>
+                      <p className="font-medium text-slate-950">{task.title}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
                         <span
-                          className={`inline-flex items-center rounded-full border px-2 py-0.5 ${STATUS_META[t.status].tone}`}
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 ${STATUS_META[task.status].tone}`}
                         >
-                          {STATUS_META[t.status].label}
+                          {statusLabel(task.status)}
                         </span>
                         <span className={due.tone}>{due.label}</span>
                         <span className="text-slate-400">
-                          · {new Date(t.dueAt).toLocaleString()}
+                          · {new Date(task.dueAt).toLocaleString()}
                         </span>
                         {canSeeOtherAgents && (
                           <span className="text-slate-500">
-                            · {assigneeName(t.assigneeId)}
+                            · {assigneeName(task.assigneeId)}
                           </span>
                         )}
                       </div>
-                      {t.notes && (
+                      {task.notes && (
                         <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600">
-                          {t.notes}
+                          {task.notes}
                         </p>
                       )}
                     </div>
-                    {t.status === "PENDING" && (
+                    {task.status === "PENDING" && (
                       <div className="flex flex-shrink-0 items-center gap-1">
                         <button
-                          onClick={() => transition(t.id, "complete")}
+                          onClick={() => transition(task.id, "complete")}
                           className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
                         >
-                          Mark done
+                          {t("followups.markDone")}
                         </button>
                         <button
-                          onClick={() => transition(t.id, "cancel")}
+                          onClick={() => transition(task.id, "cancel")}
                           className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                         >
-                          Cancel
+                          {t("followups.cancel")}
                         </button>
                       </div>
                     )}

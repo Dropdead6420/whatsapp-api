@@ -145,6 +145,27 @@ const en: Dict = {
   "nav.partner_dashboard": "Partner Dashboard",
   "nav.customers": "Customers",
   "nav.domains": "Domains",
+  "followups.eyebrow": "Inbox · Follow-ups",
+  "followups.titleTeam": "Team follow-up queue",
+  "followups.titleMine": "My follow-ups",
+  "followups.subtitleTeam": "Reminders agents have created from inbox conversations. Pending tasks sort soonest-first.",
+  "followups.subtitleMine": "Reminders you set while working through conversations. Pending tasks sort soonest-first.",
+  "followups.new": "+ New follow-up",
+  "followups.loadFailed": "Failed to load follow-ups",
+  "followups.completeFailed": "Failed to complete task",
+  "followups.cancelFailed": "Failed to cancel task",
+  "followups.status.pending": "Pending",
+  "followups.status.done": "Done",
+  "followups.status.cancelled": "Cancelled",
+  "followups.taskCountStatus": "{count} {status} tasks",
+  "followups.emptyPending": "Nothing on your queue right now. Add a reminder from any inbox conversation.",
+  "followups.emptyOther": "No {status} tasks in this window.",
+  "followups.markDone": "Mark done",
+  "followups.cancel": "Cancel",
+  "followups.overdueHours": "Overdue {n}h",
+  "followups.overdueDays": "Overdue {n}d",
+  "followups.dueInHours": "Due in {n}h",
+  "followups.dueInDays": "Due in {n}d",
 };
 
 const hi: Dict = {
@@ -235,6 +256,18 @@ const hi: Dict = {
   "nav.analytics": "विश्लेषण",
   "nav.settings": "सेटिंग्स",
   "nav.support": "सहायता",
+  "followups.titleTeam": "टीम फ़ॉलो-अप कतार",
+  "followups.titleMine": "मेरे फ़ॉलो-अप",
+  "followups.new": "+ नया फ़ॉलो-अप",
+  "followups.status.pending": "लंबित",
+  "followups.status.done": "पूर्ण",
+  "followups.status.cancelled": "रद्द",
+  "followups.markDone": "पूर्ण चिह्नित करें",
+  "followups.cancel": "रद्द करें",
+  "followups.overdueHours": "{n}घं विलंबित",
+  "followups.overdueDays": "{n}दि विलंबित",
+  "followups.dueInHours": "{n}घं में देय",
+  "followups.dueInDays": "{n}दि में देय",
 };
 
 const es: Dict = {
@@ -325,6 +358,18 @@ const es: Dict = {
   "nav.analytics": "Analíticas",
   "nav.settings": "Configuración",
   "nav.support": "Soporte",
+  "followups.titleTeam": "Cola de seguimientos del equipo",
+  "followups.titleMine": "Mis seguimientos",
+  "followups.new": "+ Nuevo seguimiento",
+  "followups.status.pending": "Pendiente",
+  "followups.status.done": "Hecho",
+  "followups.status.cancelled": "Cancelado",
+  "followups.markDone": "Marcar como hecho",
+  "followups.cancel": "Cancelar",
+  "followups.overdueHours": "Vencido {n}h",
+  "followups.overdueDays": "Vencido {n}d",
+  "followups.dueInHours": "Vence en {n}h",
+  "followups.dueInDays": "Vence en {n}d",
 };
 
 const fr: Dict = {
@@ -415,6 +460,18 @@ const fr: Dict = {
   "nav.analytics": "Analytique",
   "nav.settings": "Paramètres",
   "nav.support": "Assistance",
+  "followups.titleTeam": "File de relances de l’équipe",
+  "followups.titleMine": "Mes relances",
+  "followups.new": "+ Nouvelle relance",
+  "followups.status.pending": "En attente",
+  "followups.status.done": "Terminé",
+  "followups.status.cancelled": "Annulé",
+  "followups.markDone": "Marquer terminé",
+  "followups.cancel": "Annuler",
+  "followups.overdueHours": "En retard {n}h",
+  "followups.overdueDays": "En retard {n}j",
+  "followups.dueInHours": "Échéance {n}h",
+  "followups.dueInDays": "Échéance {n}j",
 };
 
 const de: Dict = {
@@ -505,6 +562,18 @@ const de: Dict = {
   "nav.analytics": "Analysen",
   "nav.settings": "Einstellungen",
   "nav.support": "Support",
+  "followups.titleTeam": "Team-Nachfass-Warteschlange",
+  "followups.titleMine": "Meine Nachfassaktionen",
+  "followups.new": "+ Neue Nachfassaktion",
+  "followups.status.pending": "Ausstehend",
+  "followups.status.done": "Erledigt",
+  "followups.status.cancelled": "Abgebrochen",
+  "followups.markDone": "Als erledigt markieren",
+  "followups.cancel": "Abbrechen",
+  "followups.overdueHours": "Überfällig {n}h",
+  "followups.overdueDays": "Überfällig {n}T",
+  "followups.dueInHours": "Fällig in {n}h",
+  "followups.dueInDays": "Fällig in {n}T",
 };
 
 const ar: Dict = {
@@ -595,6 +664,18 @@ const ar: Dict = {
   "nav.analytics": "التحليلات",
   "nav.settings": "الإعدادات",
   "nav.support": "الدعم",
+  "followups.titleTeam": "قائمة متابعات الفريق",
+  "followups.titleMine": "متابعاتي",
+  "followups.new": "+ متابعة جديدة",
+  "followups.status.pending": "قيد الانتظار",
+  "followups.status.done": "تم",
+  "followups.status.cancelled": "ملغى",
+  "followups.markDone": "وضع علامة تم",
+  "followups.cancel": "إلغاء",
+  "followups.overdueHours": "متأخر {n}س",
+  "followups.overdueDays": "متأخر {n}ي",
+  "followups.dueInHours": "خلال {n}س",
+  "followups.dueInDays": "خلال {n}ي",
 };
 
 const ur: Dict = {
@@ -685,6 +766,18 @@ const ur: Dict = {
   "nav.analytics": "تجزیات",
   "nav.settings": "ترتیبات",
   "nav.support": "سپورٹ",
+  "followups.titleTeam": "ٹیم فالو اپ قطار",
+  "followups.titleMine": "میرے فالو اپس",
+  "followups.new": "+ نیا فالو اپ",
+  "followups.status.pending": "زیر التواء",
+  "followups.status.done": "مکمل",
+  "followups.status.cancelled": "منسوخ",
+  "followups.markDone": "مکمل نشان زد کریں",
+  "followups.cancel": "منسوخ کریں",
+  "followups.overdueHours": "{n} گھنٹے زائد",
+  "followups.overdueDays": "{n} دن زائد",
+  "followups.dueInHours": "{n} گھنٹے میں",
+  "followups.dueInDays": "{n} دن میں",
 };
 
 export const MESSAGES: Record<string, Dict> = { en, hi, es, fr, de, ar, ur };
