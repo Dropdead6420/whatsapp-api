@@ -92,6 +92,28 @@ const LAUNCH_CURRENCIES: Array<{
   { code: "SGD", name: "Singapore Dollar", symbol: "S$", minorUnit: 2, displayOrder: 80 },
 ];
 
+const LAUNCH_LANGUAGES: Array<{
+  code: string;
+  name: string;
+  nativeName: string;
+  direction: "LTR" | "RTL";
+  displayOrder: number;
+}> = [
+  { code: "en", name: "English", nativeName: "English", direction: "LTR", displayOrder: 10 },
+  { code: "hi", name: "Hindi", nativeName: "हिन्दी", direction: "LTR", displayOrder: 20 },
+  { code: "ur", name: "Urdu", nativeName: "اردو", direction: "RTL", displayOrder: 30 },
+  { code: "bn", name: "Bengali", nativeName: "বাংলা", direction: "LTR", displayOrder: 40 },
+  { code: "ar", name: "Arabic", nativeName: "العربية", direction: "RTL", displayOrder: 50 },
+  { code: "fr", name: "French", nativeName: "Français", direction: "LTR", displayOrder: 60 },
+  { code: "es", name: "Spanish", nativeName: "Español", direction: "LTR", displayOrder: 70 },
+  { code: "de", name: "German", nativeName: "Deutsch", direction: "LTR", displayOrder: 80 },
+  { code: "pa", name: "Punjabi", nativeName: "ਪੰਜਾਬੀ", direction: "LTR", displayOrder: 90 },
+  { code: "ta", name: "Tamil", nativeName: "தமிழ்", direction: "LTR", displayOrder: 100 },
+  { code: "te", name: "Telugu", nativeName: "తెలుగు", direction: "LTR", displayOrder: 110 },
+  { code: "mr", name: "Marathi", nativeName: "मराठी", direction: "LTR", displayOrder: 120 },
+  { code: "gu", name: "Gujarati", nativeName: "ગુજરાતી", direction: "LTR", displayOrder: 130 },
+];
+
 async function seedCurrencies() {
   for (const currency of LAUNCH_CURRENCIES) {
     await prisma.currency.upsert({
@@ -112,6 +134,28 @@ async function seedCurrencies() {
     });
   }
   console.log(`✓ Seeded ${LAUNCH_CURRENCIES.length} currencies`);
+}
+
+async function seedLanguages() {
+  for (const language of LAUNCH_LANGUAGES) {
+    await prisma.language.upsert({
+      where: { code: language.code },
+      update: {
+        name: language.name,
+        nativeName: language.nativeName,
+        direction: language.direction,
+        isActive: true,
+        isLaunchLanguage: true,
+        displayOrder: language.displayOrder,
+      },
+      create: {
+        ...language,
+        isActive: true,
+        isLaunchLanguage: true,
+      },
+    });
+  }
+  console.log(`✓ Seeded ${LAUNCH_LANGUAGES.length} languages`);
 }
 
 async function seedPlans() {
@@ -333,6 +377,7 @@ async function seedFlowTemplates() {
 
 async function main() {
   await seedCurrencies();
+  await seedLanguages();
   await seedPlans();
   await seedSuperAdmin();
   await seedFlowTemplates();

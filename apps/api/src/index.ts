@@ -72,6 +72,7 @@ import adminPaymentsRoutes from "./routes/admin-payments.routes";
 import adminRatesRoutes from "./routes/admin-rates.routes";
 import adminCurrencyRatesRoutes from "./routes/admin-currency-rates.routes";
 import adminCurrenciesRoutes from "./routes/admin-currencies.routes";
+import adminLanguagesRoutes from "./routes/admin-languages.routes";
 import numberMigrationsRoutes from "./routes/number-migrations.routes";
 import {
   startCampaignWorker,
@@ -312,6 +313,7 @@ app.use("/api/v1/admin/payments", adminPaymentsRoutes);
 app.use("/api/v1/admin/rates", adminRatesRoutes);
 app.use("/api/v1/admin/currencies", adminCurrenciesRoutes);
 app.use("/api/v1/admin/currency-rates", adminCurrencyRatesRoutes);
+app.use("/api/v1/admin/languages", adminLanguagesRoutes);
 app.use("/api/v1/admin/number-migrations", numberMigrationsRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);
 app.use("/api/v1/domains", domainsRoutes);

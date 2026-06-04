@@ -211,6 +211,9 @@ model Tenant {
   rechargeRequests         RechargeRequest[]
   customerCurrencySetting  CustomerCurrencySetting?  @relation("CustomerCurrencySettings")
   partnerCurrencySetting   PartnerCurrencySetting?   @relation("PartnerCurrencySettings")
+  customerLanguageSetting  CustomerLanguageSetting?  @relation("CustomerLanguageSettings")
+  partnerLanguageSetting   PartnerLanguageSetting?   @relation("PartnerLanguageSettings")
+  translationJobs          TranslationJob[]
   walletCurrencyLedgers    WalletCurrencyLedger[]
   invoiceCurrencySnapshots InvoiceCurrency[]
   creditLines              CreditLine[]
@@ -544,6 +547,151 @@ model PartnerCurrencySetting {
 
   @@index([defaultCurrencyCode])
   @@index([settlementCurrencyCode])
+}
+
+// ============================================================================
+// Language foundation (Final Currency/Language PDF §9)
+//
+// Language is the platform master list; TranslationKey + PortalTranslation
+// support UI copy localization, while customer/partner settings define default
+// locale behavior. TranslationJob is the durable queue/audit row for later
+// template, campaign, chatbot, and knowledge-base translation workers.
+// ============================================================================
+
+enum TextDirection {
+  LTR
+  RTL
+}
+
+enum TranslationJobStatus {
+  PENDING
+  RUNNING
+  PREVIEW_READY
+  APPROVED
+  PUBLISHED
+  FAILED
+}
+
+enum TranslationSourceType {
+  TEMPLATE
+  CAMPAIGN
+  CHATBOT_FLOW
+  LANDING_PAGE
+  INBOX_MESSAGE
+  KNOWLEDGE_BASE
+  PORTAL_KEY
+}
+
+model Language {
+  code             String        @id // ISO-639 / BCP-47 base code, e.g. en, hi, ar
+  name             String
+  nativeName       String
+  direction        TextDirection @default(LTR)
+  isActive         Boolean       @default(true)
+  isLaunchLanguage Boolean       @default(false)
+  displayOrder     Int           @default(100)
+
+  portalTranslations PortalTranslation[]
+  translationJobs    TranslationJob[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, displayOrder])
+}
+
+model TranslationKey {
+  id          String @id @default(cuid())
+  namespace   String @default("common")
+  key         String @unique
+  defaultText String
+  description String?
+
+  translations PortalTranslation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([namespace])
+}
+
+model PortalTranslation {
+  id               String @id @default(cuid())
+  translationKeyId String
+  translationKey   TranslationKey @relation(fields: [translationKeyId], references: [id], onDelete: Cascade)
+  languageCode     String
+  language         Language       @relation(fields: [languageCode], references: [code], onDelete: Cascade)
+
+  text             String
+  status           String   @default("published")
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([translationKeyId, languageCode])
+  @@index([languageCode])
+}
+
+model CustomerLanguageSetting {
+  id       String @id @default(cuid())
+  tenantId String @unique
+  tenant   Tenant @relation("CustomerLanguageSettings", fields: [tenantId], references: [id], onDelete: Cascade)
+
+  languageCode                String  @default("en")
+  locale                      String  @default("en-IN")
+  allowAutoTranslate          Boolean @default(true)
+  requireApprovalForSensitive Boolean @default(true)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([languageCode])
+}
+
+model PartnerLanguageSetting {
+  id              String @id @default(cuid())
+  partnerTenantId String @unique
+  partnerTenant   Tenant @relation("PartnerLanguageSettings", fields: [partnerTenantId], references: [id], onDelete: Cascade)
+
+  defaultLanguageCode   String  @default("en")
+  allowedLanguages      Json?
+  allowCustomerOverride Boolean @default(true)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([defaultLanguageCode])
+}
+
+model TranslationJob {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  sourceType         TranslationSourceType
+  sourceId           String
+  sourceLanguageCode String @default("en")
+  targetLanguageCode String
+  targetLanguage     Language @relation(fields: [targetLanguageCode], references: [code], onDelete: Restrict)
+
+  status        TranslationJobStatus @default(PENDING)
+  previewJson   Json?
+  error         String?
+  requestedByUserId String?
+  approvedByUserId  String?
+  approvedAt        DateTime?
+  publishedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status, createdAt])
+  @@index([sourceType, sourceId])
+  @@index([targetLanguageCode])
 }
 
 model Domain {

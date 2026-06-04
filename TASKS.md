@@ -87,6 +87,17 @@ _(none)_
   - Invoice creation now writes an `InvoiceCurrency` snapshot in the same transaction as the invoice row.
 - **Follow-ups**: customer currency switcher UI, exchange-rate sync worker, wallet/invoice display conversion, and language foundation (`Language`, `TranslationKey`, RTL).
 
+### T-092 — Language foundation + translation job ledger ✅ shipped (2026-06-04)
+- **Priority**: P0
+- **Blueprint**: Final Complete Currency/Language PDF §9
+- **Scope**: M — Language master list, customer/partner language defaults, portal translation keys, and durable translation job queue rows.
+- **Shipped**:
+  - `Language`, `TranslationKey`, `PortalTranslation`, `CustomerLanguageSetting`, `PartnerLanguageSetting`, and `TranslationJob` Prisma models + migration.
+  - Launch languages seeded: English, Hindi, Urdu, Bengali, Arabic, French, Spanish, German, Punjabi, Tamil, Telugu, Marathi, Gujarati.
+  - RTL metadata for Urdu and Arabic, with pure helper coverage for language code normalization and direction detection.
+  - SuperAdmin `/api/v1/admin/languages` APIs for language master, customer/partner defaults, portal translations, and translation-job creation with audit logging.
+- **Follow-ups**: customer language switcher UI, translation worker execution, per-template/campaign/chatbot translated artifact tables, and partner/customer portal localization.
+
 ---
 
 ## Backlog (planned but not Codex-ready)
