@@ -42,6 +42,7 @@ import {
   setTenantFeatures,
   type FeatureKey,
 } from "../services/features.service";
+import { summarizeAdminBillingSubscriptions } from "../services/adminBillingOverview.service";
 
 const router = Router();
 
@@ -746,7 +747,22 @@ router.get("/billing", async (_req: RequestWithAuth, res: Response, next: NextFu
         orderBy: { updatedAt: "desc" },
         include: {
           plan: true,
-          tenant: { select: { id: true, name: true, type: true, status: true } },
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              status: true,
+              parentTenantId: true,
+              parentTenant: {
+                select: {
+                  id: true,
+                  name: true,
+                  partnerMarginEnabled: true,
+                },
+              },
+            },
+          },
         },
       }),
       prisma.auditLog.findMany({
@@ -760,10 +776,27 @@ router.get("/billing", async (_req: RequestWithAuth, res: Response, next: NextFu
       }),
     ]);
 
-    const activeMrrInPaisa = subscriptions.reduce((sum, subscription) => {
-      if (subscription.status !== SubscriptionStatus.ACTIVE) return sum;
-      return sum + subscription.plan.priceInPaisa;
-    }, 0);
+    const billingOverview = summarizeAdminBillingSubscriptions(
+      subscriptions.map((subscription) => ({
+        status: subscription.status,
+        tenant: {
+          id: subscription.tenant.id,
+          parentTenant: subscription.tenant.parentTenant,
+        },
+        plan: {
+          id: subscription.plan.id,
+          name: subscription.plan.name,
+          displayName: subscription.plan.displayName,
+          priceInPaisa: subscription.plan.priceInPaisa,
+          billingCycle: subscription.plan.billingCycle,
+        },
+      })),
+      {
+        partnerMarginBps: process.env.PARTNER_MARGIN_BPS
+          ? Number(process.env.PARTNER_MARGIN_BPS)
+          : undefined,
+      },
+    );
 
     res.json({
       success: true,
@@ -771,12 +804,15 @@ router.get("/billing", async (_req: RequestWithAuth, res: Response, next: NextFu
         plans,
         subscriptions,
         metrics: {
-          activeSubscriptions: subscriptions.filter(
-            (subscription) => subscription.status === SubscriptionStatus.ACTIVE,
-          ).length,
-          activeMrrInPaisa,
+          activeSubscriptions: billingOverview.activeSubscriptions,
+          activeMrrInPaisa: billingOverview.activeMrrInPaisa,
+          directMrrInPaisa: billingOverview.directMrrInPaisa,
+          partnerMrrInPaisa: billingOverview.partnerMrrInPaisa,
+          partnerAgencyProfitInPaisa:
+            billingOverview.partnerAgencyProfitInPaisa,
           planCount: plans.length,
         },
+        partnerSummaries: billingOverview.partnerSummaries,
         planRequests: planRequests.map((request) => ({
           id: request.id,
           tenant: request.tenant,

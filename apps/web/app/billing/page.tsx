@@ -46,7 +46,18 @@ interface Subscription {
   currentPeriodStart: string;
   currentPeriodEnd: string;
   plan: Plan;
-  tenant: { id: string; name: string; type: string; status: string };
+  tenant: {
+    id: string;
+    name: string;
+    type: string;
+    status: string;
+    parentTenantId?: string | null;
+    parentTenant?: {
+      id: string;
+      name: string;
+      partnerMarginEnabled: boolean;
+    } | null;
+  };
 }
 
 interface PlanRequest {
@@ -77,8 +88,27 @@ interface BillingResponse {
   metrics: {
     activeSubscriptions: number;
     activeMrrInPaisa: number;
+    directMrrInPaisa: number;
+    partnerMrrInPaisa: number;
+    partnerAgencyProfitInPaisa: number;
     planCount: number;
   };
+  partnerSummaries: Array<{
+    partnerTenantId: string;
+    partnerName: string;
+    customerCount: number;
+    activeSubscriptions: number;
+    baseMrrInPaisa: number;
+    agencyProfitInPaisa: number;
+    partnerMarginEnabled: boolean;
+    partnerMarginBps: number;
+    planBreakdown: Array<{
+      planId: string;
+      name: string;
+      count: number;
+      mrrInPaisa: number;
+    }>;
+  }>;
   planRequests: PlanRequest[];
 }
 
@@ -316,12 +346,31 @@ export default function BillingPage() {
         </div>
       )}
 
-      <section className="mb-6 grid gap-4 md:grid-cols-3">
+      <section className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="text-xs font-medium uppercase tracking-wide text-slate-500">MRR</div>
           <div className="mt-2 text-2xl font-semibold">
             {billing ? formatCurrencyFromPaisa(billing.metrics.activeMrrInPaisa) : "-"}
           </div>
+          <p className="mt-1 text-xs text-slate-500">Monthly-normalized active subscriptions</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-5">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Direct MRR
+          </div>
+          <div className="mt-2 text-2xl font-semibold">
+            {billing ? formatCurrencyFromPaisa(billing.metrics.directMrrInPaisa) : "-"}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Customers not attached to a partner</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-5">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Partner MRR
+          </div>
+          <div className="mt-2 text-2xl font-semibold">
+            {billing ? formatCurrencyFromPaisa(billing.metrics.partnerMrrInPaisa) : "-"}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Revenue from reseller customers</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -333,11 +382,89 @@ export default function BillingPage() {
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Plan Catalog
+            Partner Profit
           </div>
           <div className="mt-2 text-2xl font-semibold">
-            {billing?.metrics.planCount ?? "-"}
+            {billing
+              ? formatCurrencyFromPaisa(billing.metrics.partnerAgencyProfitInPaisa)
+              : "-"}
           </div>
+          <p className="mt-1 text-xs text-slate-500">{billing?.metrics.planCount ?? "-"} catalog plans</p>
+        </div>
+      </section>
+
+      <section className="mb-6 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3">
+          <div className="text-sm font-semibold">Partner Plan Economics</div>
+          <p className="mt-1 text-xs text-slate-500">
+            Live reseller MRR and license distribution from active customer subscriptions.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[760px] w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Partner</th>
+                <th className="px-4 py-3">Customers</th>
+                <th className="px-4 py-3">MRR</th>
+                <th className="px-4 py-3">Agency Profit</th>
+                <th className="px-4 py-3">Plan Mix</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {billing?.partnerSummaries.map((partner) => (
+                <tr key={partner.partnerTenantId}>
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{partner.partnerName}</div>
+                    <div className="text-xs text-slate-500">
+                      {partner.partnerMarginEnabled
+                        ? `${(partner.partnerMarginBps / 100).toFixed(1)}% margin enabled`
+                        : "Margin disabled"}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    <div>{partner.customerCount} customers</div>
+                    <div className="text-xs text-slate-500">
+                      {partner.activeSubscriptions} active subscriptions
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 font-medium">
+                    {formatCurrencyFromPaisa(partner.baseMrrInPaisa)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        partner.partnerMarginEnabled
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {formatCurrencyFromPaisa(partner.agencyProfitInPaisa)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    <div className="flex flex-wrap gap-2">
+                      {partner.planBreakdown.map((plan) => (
+                        <span
+                          key={plan.planId}
+                          className="rounded-full border border-slate-200 px-2 py-0.5 text-xs"
+                        >
+                          {plan.name}: {plan.count}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {billing?.partnerSummaries.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                    No active partner-owned customer subscriptions yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -419,8 +546,8 @@ export default function BillingPage() {
                 <th className="px-4 py-3">Price</th>
                 <th className="px-4 py-3">Limits</th>
                 <th className="px-4 py-3">Features</th>
-              <th className="px-4 py-3">Subs</th>
-              <th className="px-4 py-3 text-right">Manage</th>
+                <th className="px-4 py-3">Subs</th>
+                <th className="px-4 py-3 text-right">Manage</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
