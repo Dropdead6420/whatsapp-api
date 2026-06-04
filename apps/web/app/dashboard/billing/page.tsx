@@ -5,6 +5,7 @@ import { CheckCircle2, CreditCard, Send, Sparkles } from "lucide-react";
 import { DashboardShell } from "../../../src/components/DashboardShell";
 import { useAuth } from "../../../src/hooks/useAuth";
 import { api, ApiClientError } from "../../../src/lib/api";
+import { useI18n } from "../../../src/i18n/I18nProvider";
 
 interface Plan {
   id: string;
@@ -84,6 +85,7 @@ function findPlanByRequest(plans: Plan[], requestedPlan: string | null) {
 }
 
 export default function DashboardBillingPage() {
+  const { t } = useI18n();
   const { user, features, loading, signOut } = useAuth({
     required: true,
     roles: ["BUSINESS_ADMIN", "WHITE_LABEL_ADMIN"],
@@ -108,7 +110,7 @@ export default function DashboardBillingPage() {
           "",
       );
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to load billing.");
+      setErr(e instanceof ApiClientError ? e.message : t("billing.loadFailed"));
     }
   }
 
@@ -124,7 +126,7 @@ export default function DashboardBillingPage() {
       setNotice(result.message);
       await loadBilling();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to request plan.");
+      setErr(e instanceof ApiClientError ? e.message : t("billing.requestFailed"));
     } finally {
       setBusyPlanId(null);
     }
@@ -144,7 +146,7 @@ export default function DashboardBillingPage() {
   const currentPlanId = billing?.currentSubscription?.plan.id ?? null;
 
   if (loading || !user) {
-    return <div className="p-10 text-sm text-slate-500">Loading...</div>;
+    return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   return (
@@ -152,18 +154,17 @@ export default function DashboardBillingPage() {
       <header className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
-            Plan & Billing
+            {t("billing.title")}
           </h1>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
-            Review your active subscription, compare live pricing, and request a
-            plan change from the platform admin.
+            {t("billing.subtitle")}
           </p>
         </div>
         <a
           href="/pricing"
           className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
         >
-          Public pricing
+          {t("billing.publicPricing")}
         </a>
       </header>
 
@@ -179,8 +180,7 @@ export default function DashboardBillingPage() {
       )}
       {requestedPlan && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          Selected from pricing: <span className="font-semibold">{requestedPlan}</span>.
-          Pick a plan below and send the activation request.
+          {t("billing.selectedFromPricing", { plan: requestedPlan })}
         </div>
       )}
 
@@ -192,17 +192,19 @@ export default function DashboardBillingPage() {
             </span>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                Active subscription
+                {t("billing.activeSubscription")}
               </div>
               <h2 className="mt-1 text-xl font-semibold text-slate-950">
-                {billing?.currentSubscription?.plan.displayName ?? "No active plan"}
+                {billing?.currentSubscription?.plan.displayName ?? t("billing.noActivePlan")}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
                 {billing?.currentSubscription
-                  ? `Renews ${new Date(
-                      billing.currentSubscription.currentPeriodEnd,
-                    ).toLocaleDateString()}`
-                  : "Choose a plan and ask the platform admin to activate billing."}
+                  ? t("billing.renews", {
+                      date: new Date(
+                        billing.currentSubscription.currentPeriodEnd,
+                      ).toLocaleDateString(),
+                    })
+                  : t("billing.noPlanHint")}
               </p>
             </div>
             {billing?.currentSubscription && (
@@ -214,19 +216,19 @@ export default function DashboardBillingPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <QuotaCard
-              label="Messages"
+              label={t("billing.quotaMessages")}
               value={formatCompact(billing?.tenant.messageQuotaPerMonth ?? 0)}
             />
             <QuotaCard
-              label="Contacts"
+              label={t("billing.quotaContacts")}
               value={formatCompact(billing?.tenant.contactLimit ?? 0)}
             />
             <QuotaCard
-              label="Agents"
+              label={t("billing.quotaAgents")}
               value={String(billing?.tenant.agentLimit ?? 0)}
             />
             <QuotaCard
-              label="Campaigns"
+              label={t("billing.quotaCampaigns")}
               value={formatCompact(billing?.tenant.campaignLimit ?? 0)}
             />
           </div>
@@ -239,10 +241,10 @@ export default function DashboardBillingPage() {
             </span>
             <div>
               <h2 className="text-base font-semibold text-slate-950">
-                Selected plan
+                {t("billing.selectedPlan")}
               </h2>
               <p className="text-sm text-slate-500">
-                This is what will be sent to SuperAdmin for activation.
+                {t("billing.selectedPlanHint")}
               </p>
             </div>
           </div>
@@ -263,14 +265,14 @@ export default function DashboardBillingPage() {
               >
                 <Send className="h-4 w-4" />
                 {busyPlanId === selectedPlan.id
-                  ? "Sending..."
+                  ? t("billing.sending")
                   : currentPlanId === selectedPlan.id
-                    ? "Confirm active plan"
-                    : "Request this plan"}
+                    ? t("billing.confirmActive")
+                    : t("billing.requestThis")}
               </button>
             </div>
           ) : (
-            <div className="mt-5 text-sm text-slate-500">Loading plans...</div>
+            <div className="mt-5 text-sm text-slate-500">{t("billing.loadingPlans")}</div>
           )}
         </div>
       </section>
@@ -297,7 +299,7 @@ export default function DashboardBillingPage() {
                 </div>
                 {isCurrent && (
                   <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                    Current
+                    {t("billing.current")}
                   </span>
                 )}
               </div>
