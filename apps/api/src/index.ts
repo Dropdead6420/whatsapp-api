@@ -73,6 +73,7 @@ import adminRatesRoutes from "./routes/admin-rates.routes";
 import adminCurrencyRatesRoutes from "./routes/admin-currency-rates.routes";
 import adminCurrenciesRoutes from "./routes/admin-currencies.routes";
 import adminLanguagesRoutes from "./routes/admin-languages.routes";
+import currencySettingsRoutes from "./routes/currency-settings.routes";
 import languageSettingsRoutes from "./routes/language-settings.routes";
 import numberMigrationsRoutes from "./routes/number-migrations.routes";
 import {
@@ -315,6 +316,7 @@ app.use("/api/v1/admin/rates", adminRatesRoutes);
 app.use("/api/v1/admin/currencies", adminCurrenciesRoutes);
 app.use("/api/v1/admin/currency-rates", adminCurrencyRatesRoutes);
 app.use("/api/v1/admin/languages", adminLanguagesRoutes);
+app.use("/api/v1/currency-settings", currencySettingsRoutes);
 app.use("/api/v1/language-settings", languageSettingsRoutes);
 app.use("/api/v1/admin/number-migrations", numberMigrationsRoutes);
 app.use("/api/v1/webhooks", webhooksRoutes);

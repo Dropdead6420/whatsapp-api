@@ -255,6 +255,48 @@ export async function updateLanguagePreference(
   });
 }
 
+export interface CurrencyOption {
+  code: string;
+  name: string;
+  symbol: string;
+  minorUnit: number;
+  isLaunchCurrency: boolean;
+}
+
+export interface TenantCurrencySettings {
+  setting: {
+    tenantId: string;
+    currencyCode: string;
+    locale: string;
+    symbol: string;
+    minorUnit: number;
+    showConvertedAmounts: boolean;
+    canUpdatePreference: boolean;
+  };
+  policy: {
+    source: "customer" | "partner" | "platform";
+    defaultCurrencyCode: string;
+    settlementCurrencyCode: string;
+    allowedCurrencies: string[];
+    passThroughCustomerCurrency: boolean;
+  };
+  currencies: CurrencyOption[];
+}
+
+export async function fetchCurrencySettings(): Promise<TenantCurrencySettings> {
+  return api.get<TenantCurrencySettings>("/api/v1/currency-settings");
+}
+
+export async function updateCurrencyPreference(
+  currencyCode: string,
+  locale?: string,
+): Promise<TenantCurrencySettings> {
+  return api.patch<TenantCurrencySettings>("/api/v1/currency-settings", {
+    currencyCode,
+    locale,
+  });
+}
+
 export async function requestPasswordReset(email: string): Promise<void> {
   await api.post(
     "/api/v1/auth/request-password-reset",

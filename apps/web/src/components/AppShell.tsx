@@ -6,8 +6,11 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AuthUserPublic } from "@nexaflow/shared";
 import {
+  fetchCurrencySettings,
   fetchLanguageSettings,
+  updateCurrencyPreference,
   updateLanguagePreference,
+  type TenantCurrencySettings,
   type TenantLanguageSettings,
 } from "../lib/api";
 import {
@@ -45,6 +48,7 @@ import {
 import { activeHrefFromPath, isActiveRoute } from "../lib/navActive";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { LocaleSwitcher } from "./LocaleSwitcher";
+import { CurrencySwitcher } from "./CurrencySwitcher";
 import { useI18n } from "../i18n/I18nProvider";
 
 type RoleName =
@@ -563,6 +567,9 @@ export function MobileDrawer({
   onClose,
   user,
   signOut,
+  currencySettings,
+  onCurrencyChange,
+  currencyLocked,
   onLocaleChange,
   languageLocked,
 }: {
@@ -572,6 +579,9 @@ export function MobileDrawer({
   onClose: () => void;
   user: AuthUserPublic;
   signOut: () => void;
+  currencySettings?: TenantCurrencySettings | null;
+  onCurrencyChange?: (currencyCode: string) => void;
+  currencyLocked?: boolean;
   onLocaleChange?: (locale: string) => void;
   languageLocked?: boolean;
 }) {
@@ -640,6 +650,16 @@ export function MobileDrawer({
 
         <div className="border-t border-slate-200 p-4">
           <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-xs font-semibold text-slate-600">Currency</span>
+            <CurrencySwitcher
+              value={currencySettings?.setting.currencyCode ?? "INR"}
+              currencies={currencySettings?.currencies ?? []}
+              onCurrencyChange={onCurrencyChange}
+              disabled={currencyLocked}
+              className="max-w-[9rem]"
+            />
+          </div>
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
             <span className="text-xs font-semibold text-slate-600">
               {t("common.language")}
             </span>
@@ -674,6 +694,9 @@ export function Topbar({
   user,
   onOpenMenu,
   signOut,
+  currencySettings,
+  onCurrencyChange,
+  currencyLocked,
   onLocaleChange,
   languageLocked,
 }: {
@@ -681,6 +704,9 @@ export function Topbar({
   user: AuthUserPublic;
   onOpenMenu: () => void;
   signOut: () => void;
+  currencySettings?: TenantCurrencySettings | null;
+  onCurrencyChange?: (currencyCode: string) => void;
+  currencyLocked?: boolean;
   onLocaleChange?: (locale: string) => void;
   languageLocked?: boolean;
 }) {
@@ -724,7 +750,7 @@ export function Topbar({
           className="inline-flex h-10 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:border-emerald-300 md:hidden"
         >
           <WalletCards className="h-4 w-4" />
-          Wallet
+          {currencySettings?.setting.currencyCode ?? "Wallet"}
         </Link>
 
         <button
@@ -739,6 +765,14 @@ export function Topbar({
           onLocaleChange={onLocaleChange}
           disabled={languageLocked}
           className="hidden md:inline-flex"
+        />
+
+        <CurrencySwitcher
+          value={currencySettings?.setting.currencyCode ?? "INR"}
+          currencies={currencySettings?.currencies ?? []}
+          onCurrencyChange={onCurrencyChange}
+          disabled={currencyLocked}
+          className="hidden w-[5.75rem] md:inline-flex"
         />
 
         <UserMenu user={user} signOut={signOut} />
@@ -847,6 +881,8 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [languageSettings, setLanguageSettings] =
     useState<TenantLanguageSettings | null>(null);
+  const [currencySettings, setCurrencySettings] =
+    useState<TenantCurrencySettings | null>(null);
   const sections = useMemo(() => filterSections(user, features), [features, user]);
   const flatItems = sections.flatMap((section) => section.items);
   const title = t(navKey(pageTitleFromPath(pathname, sections)));
@@ -856,6 +892,9 @@ export function AppShell({
   ).filter(Boolean) as AppNavItem[];
   const languageLocked = languageSettings
     ? !languageSettings.setting.canUpdatePreference
+    : false;
+  const currencyLocked = currencySettings
+    ? !currencySettings.setting.canUpdatePreference
     : false;
 
   useEffect(() => {
@@ -879,6 +918,22 @@ export function AppShell({
     };
   }, [configureLanguages, user.tenantId]);
 
+  useEffect(() => {
+    if (!user.tenantId) return;
+    let cancelled = false;
+    void fetchCurrencySettings()
+      .then((settings) => {
+        if (cancelled) return;
+        setCurrencySettings(settings);
+      })
+      .catch(() => {
+        // Currency controls can stay hidden when tenant settings are unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.tenantId]);
+
   const handleLocaleChange = useCallback(
     (locale: string) => {
       if (!languageSettings?.setting.canUpdatePreference) return;
@@ -899,6 +954,33 @@ export function AppShell({
     [configureLanguages, languageSettings?.setting.canUpdatePreference],
   );
 
+  const handleCurrencyChange = useCallback(
+    (currencyCode: string) => {
+      if (!currencySettings?.setting.canUpdatePreference) return;
+      const previousSettings = currencySettings;
+      const nextCurrency = currencySettings.currencies.find(
+        (currency) => currency.code === currencyCode,
+      );
+      if (nextCurrency) {
+        setCurrencySettings({
+          ...currencySettings,
+          setting: {
+            ...currencySettings.setting,
+            currencyCode: nextCurrency.code,
+            symbol: nextCurrency.symbol,
+            minorUnit: nextCurrency.minorUnit,
+          },
+        });
+      }
+      void updateCurrencyPreference(currencyCode)
+        .then((settings) => setCurrencySettings(settings))
+        .catch(() => {
+          setCurrencySettings(previousSettings);
+        });
+    },
+    [currencySettings],
+  );
+
   return (
     <div className="min-h-screen bg-slate-50" data-active-href={activeHref ?? ""}>
       <ImpersonationBanner />
@@ -917,6 +999,9 @@ export function AppShell({
         onClose={() => setDrawerOpen(false)}
         user={user}
         signOut={signOut}
+        currencySettings={currencySettings}
+        onCurrencyChange={handleCurrencyChange}
+        currencyLocked={currencyLocked}
         onLocaleChange={handleLocaleChange}
         languageLocked={languageLocked}
       />
@@ -927,6 +1012,9 @@ export function AppShell({
           user={user}
           onOpenMenu={() => setDrawerOpen(true)}
           signOut={signOut}
+          currencySettings={currencySettings}
+          onCurrencyChange={handleCurrencyChange}
+          currencyLocked={currencyLocked}
           onLocaleChange={handleLocaleChange}
           languageLocked={languageLocked}
         />

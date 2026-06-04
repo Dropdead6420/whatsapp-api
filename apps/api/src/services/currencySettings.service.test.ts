@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   LAUNCH_CURRENCIES,
+  defaultLocaleForCurrency,
   normalizeCurrencyCodes,
   normalizeCurrencyUpsertInput,
+  resolveAllowedCurrencyCodes,
+  resolveCurrencyPreference,
 } from "./currencySettings.service";
 
 describe("currency settings helpers", () => {
@@ -63,5 +66,57 @@ describe("currency settings helpers", () => {
       "AUD",
       "SGD",
     ]);
+  });
+
+  it("resolves allowed currencies against the active platform list", () => {
+    expect(
+      resolveAllowedCurrencyCodes({
+        allowedCurrencies: ["usd", "cad", "jpy"],
+        activeCurrencyCodes: ["INR", "USD", "CAD"],
+        defaultCurrencyCode: "INR",
+      }),
+    ).toEqual(["CAD", "USD"]);
+  });
+
+  it("falls back to the default or INR when partner allowed currencies are inactive", () => {
+    expect(
+      resolveAllowedCurrencyCodes({
+        allowedCurrencies: ["JPY"],
+        activeCurrencyCodes: ["INR", "USD"],
+        defaultCurrencyCode: "USD",
+      }),
+    ).toEqual(["USD"]);
+
+    expect(
+      resolveAllowedCurrencyCodes({
+        allowedCurrencies: ["JPY"],
+        activeCurrencyCodes: ["INR", "USD"],
+        defaultCurrencyCode: "CAD",
+      }),
+    ).toEqual(["INR"]);
+  });
+
+  it("chooses a saved preference only when the currency is allowed", () => {
+    expect(
+      resolveCurrencyPreference({
+        requestedCurrencyCode: "usd",
+        defaultCurrencyCode: "INR",
+        allowedCurrencies: ["INR", "USD"],
+      }),
+    ).toBe("USD");
+    expect(
+      resolveCurrencyPreference({
+        requestedCurrencyCode: "EUR",
+        defaultCurrencyCode: "INR",
+        allowedCurrencies: ["INR", "USD"],
+      }),
+    ).toBe("INR");
+  });
+
+  it("maps known launch currencies to stable display locales", () => {
+    expect(defaultLocaleForCurrency("inr")).toBe("en-IN");
+    expect(defaultLocaleForCurrency("USD")).toBe("en-US");
+    expect(defaultLocaleForCurrency("AED")).toBe("en-AE");
+    expect(defaultLocaleForCurrency("ZZZ")).toBe("en");
   });
 });

@@ -83,9 +83,10 @@ _(none)_
   - `Currency`, `CustomerCurrencySetting`, `PartnerCurrencySetting`, `WalletCurrencyLedger`, and `InvoiceCurrency` Prisma models + migration.
   - Launch currencies seeded: INR, USD, CAD, AED, GBP, EUR, AUD, SGD.
   - SuperAdmin `/api/v1/admin/currencies` APIs for currency master and customer/partner settings with audit logging.
+  - Tenant-scoped `/api/v1/currency-settings` preference API and dashboard shell currency switcher shipped 2026-06-04.
   - Wallet credits/debits now write a `WalletCurrencyLedger` snapshot in the same serializable transaction as the balance update.
   - Invoice creation now writes an `InvoiceCurrency` snapshot in the same transaction as the invoice row.
-- **Follow-ups**: customer currency switcher UI, exchange-rate sync worker, wallet/invoice display conversion, and language foundation (`Language`, `TranslationKey`, RTL).
+- **Follow-ups**: exchange-rate sync worker, wallet/invoice display conversion, and language foundation (`Language`, `TranslationKey`, RTL).
 
 ### T-092 — Language foundation + translation job ledger ✅ shipped (2026-06-04)
 - **Priority**: P0
