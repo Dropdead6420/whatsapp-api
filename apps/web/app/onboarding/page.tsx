@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
 
 type StepKey =
   | "connect_whatsapp"
@@ -38,6 +39,7 @@ interface OnboardingStatus {
 }
 
 export default function OnboardingPage() {
+  const { t } = useI18n();
   const { user, features, loading, signOut } = useAuth({ required: true });
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export default function OnboardingPage() {
       );
       setStatus(data);
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Status load failed.");
+      setErr(e instanceof ApiClientError ? e.message : t("onboarding.statusLoadFailed"));
     }
   }
 
@@ -58,7 +60,7 @@ export default function OnboardingPage() {
   }, [user]);
 
   if (loading || !user) {
-    return <div className="p-10 text-sm text-slate-500">Loading...</div>;
+    return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   const progressPct = status
@@ -69,13 +71,9 @@ export default function OnboardingPage() {
     <DashboardShell user={user} features={features} signOut={signOut}>
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Welcome to NexaFlow AI
+          {t("onboarding.title")}
         </h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Four steps to your first automated WhatsApp conversation. Each step
-          links to the page that owns the work — come back here to track
-          progress.
-        </p>
+        <p className="mt-1 text-sm text-slate-600">{t("onboarding.subtitle")}</p>
       </header>
 
       {err && (
@@ -90,7 +88,10 @@ export default function OnboardingPage() {
           <div className="mb-6 rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between text-sm font-medium text-slate-700">
               <span>
-                {status.completedSteps} of {status.totalSteps} steps complete
+                {t("onboarding.progress", {
+                  done: status.completedSteps,
+                  total: status.totalSteps,
+                })}
               </span>
               <span className="font-mono text-slate-500">
                 {progressPct}%
@@ -108,7 +109,7 @@ export default function OnboardingPage() {
                 onClick={() => void refresh()}
                 className="mt-3 text-xs font-medium text-emerald-700 hover:underline"
               >
-                Refresh status
+                {t("onboarding.refresh")}
               </button>
             )}
           </div>
@@ -193,44 +194,42 @@ function StepBubble({ done, index }: { done: boolean; index: number }) {
 }
 
 function CompletionCard() {
+  const { t } = useI18n();
   return (
     <div className="rounded-md border border-emerald-300 bg-emerald-50 p-6 text-center shadow-sm">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-2xl text-white">
         ✓
       </div>
       <h2 className="mt-3 text-lg font-semibold text-emerald-900">
-        You&apos;re all set up.
+        {t("onboarding.allSet")}
       </h2>
-      <p className="mt-1 text-sm text-emerald-800">
-        WhatsApp is connected, contacts are loaded, an AI agent is live, and
-        messages are flowing. Here&apos;s where to spend time next.
-      </p>
+      <p className="mt-1 text-sm text-emerald-800">{t("onboarding.allSetBody")}</p>
       <div className="mt-5 grid gap-3 text-left sm:grid-cols-3">
         <Link
           href="/dashboard"
           className="rounded-md border border-emerald-300 bg-white p-3 text-sm hover:border-emerald-500"
         >
-          <div className="font-semibold text-slate-900">Open the dashboard</div>
+          <div className="font-semibold text-slate-900">{t("onboarding.openDashboard")}</div>
           <div className="mt-1 text-xs text-slate-600">
-            Overview, recent activity, and platform health at a glance.
+            {t("onboarding.openDashboardDesc")}
           </div>
         </Link>
         <Link
           href="/inbox"
           className="rounded-md border border-emerald-300 bg-white p-3 text-sm hover:border-emerald-500"
         >
-          <div className="font-semibold text-slate-900">Watch the inbox</div>
+          <div className="font-semibold text-slate-900">{t("onboarding.watchInbox")}</div>
           <div className="mt-1 text-xs text-slate-600">
-            Live conversations with customers. AI replies show up here too.
+            {t("onboarding.watchInboxDesc")}
           </div>
         </Link>
         <Link
           href="/campaigns"
           className="rounded-md border border-emerald-300 bg-white p-3 text-sm hover:border-emerald-500"
         >
-          <div className="font-semibold text-slate-900">Send a campaign</div>
+          <div className="font-semibold text-slate-900">{t("onboarding.sendCampaign")}</div>
           <div className="mt-1 text-xs text-slate-600">
-            Now that contacts are in, schedule a broadcast or use Autopilot.
+            {t("onboarding.sendCampaignDesc")}
           </div>
         </Link>
       </div>

@@ -92,6 +92,19 @@ const en: Dict = {
   "dashboard.unlimited": "unlimited",
   "dashboard.agentSeats": "Agent seats",
   "dashboard.aiCreditBudget": "Monthly AI credit budget: {credits}. Check the AI spend card above for this month's burn.",
+  "onboarding.title": "Welcome to NexaFlow AI",
+  "onboarding.subtitle": "Four steps to your first automated WhatsApp conversation. Each step links to the page that owns the work — come back here to track progress.",
+  "onboarding.statusLoadFailed": "Status load failed.",
+  "onboarding.progress": "{done} of {total} steps complete",
+  "onboarding.refresh": "Refresh status",
+  "onboarding.allSet": "You're all set up.",
+  "onboarding.allSetBody": "WhatsApp is connected, contacts are loaded, an AI agent is live, and messages are flowing. Here's where to spend time next.",
+  "onboarding.openDashboard": "Open the dashboard",
+  "onboarding.openDashboardDesc": "Overview, recent activity, and platform health at a glance.",
+  "onboarding.watchInbox": "Watch the inbox",
+  "onboarding.watchInboxDesc": "Live conversations with customers. AI replies show up here too.",
+  "onboarding.sendCampaign": "Send a campaign",
+  "onboarding.sendCampaignDesc": "Now that contacts are in, schedule a broadcast or use Autopilot.",
 };
 
 const hi: Dict = {
@@ -153,6 +166,15 @@ const hi: Dict = {
   "dashboard.aiSpend": "AI खर्च",
   "dashboard.sendQuotaTitle": "WhatsApp भेजने का कोटा",
   "dashboard.planUsage": "प्लान उपयोग",
+  "onboarding.title": "NexaFlow AI में आपका स्वागत है",
+  "onboarding.subtitle": "आपकी पहली स्वचालित WhatsApp बातचीत तक चार चरण। प्रत्येक चरण उस पृष्ठ से जुड़ता है जहाँ काम होता है — प्रगति ट्रैक करने के लिए यहाँ लौटें।",
+  "onboarding.statusLoadFailed": "स्थिति लोड विफल।",
+  "onboarding.progress": "{total} में से {done} चरण पूर्ण",
+  "onboarding.refresh": "स्थिति ताज़ा करें",
+  "onboarding.allSet": "आप पूरी तरह तैयार हैं।",
+  "onboarding.openDashboard": "डैशबोर्ड खोलें",
+  "onboarding.watchInbox": "इनबॉक्स देखें",
+  "onboarding.sendCampaign": "अभियान भेजें",
 };
 
 const es: Dict = {
@@ -214,6 +236,15 @@ const es: Dict = {
   "dashboard.aiSpend": "Gasto en IA",
   "dashboard.sendQuotaTitle": "Cuota de envío de WhatsApp",
   "dashboard.planUsage": "Uso del plan",
+  "onboarding.title": "Bienvenido a NexaFlow AI",
+  "onboarding.subtitle": "Cuatro pasos hasta tu primera conversación automatizada de WhatsApp. Cada paso enlaza con la página correspondiente: vuelve aquí para seguir el progreso.",
+  "onboarding.statusLoadFailed": "Error al cargar el estado.",
+  "onboarding.progress": "{done} de {total} pasos completados",
+  "onboarding.refresh": "Actualizar estado",
+  "onboarding.allSet": "Todo está configurado.",
+  "onboarding.openDashboard": "Abrir el panel",
+  "onboarding.watchInbox": "Ver la bandeja de entrada",
+  "onboarding.sendCampaign": "Enviar una campaña",
 };
 
 const fr: Dict = {
@@ -275,6 +306,15 @@ const fr: Dict = {
   "dashboard.aiSpend": "Dépenses IA",
   "dashboard.sendQuotaTitle": "Quota d’envoi WhatsApp",
   "dashboard.planUsage": "Utilisation du forfait",
+  "onboarding.title": "Bienvenue sur NexaFlow AI",
+  "onboarding.subtitle": "Quatre étapes vers votre première conversation WhatsApp automatisée. Chaque étape renvoie à la page concernée — revenez ici pour suivre la progression.",
+  "onboarding.statusLoadFailed": "Échec du chargement du statut.",
+  "onboarding.progress": "{done} sur {total} étapes terminées",
+  "onboarding.refresh": "Actualiser le statut",
+  "onboarding.allSet": "Tout est prêt.",
+  "onboarding.openDashboard": "Ouvrir le tableau de bord",
+  "onboarding.watchInbox": "Surveiller la boîte de réception",
+  "onboarding.sendCampaign": "Envoyer une campagne",
 };
 
 const de: Dict = {
@@ -336,6 +376,15 @@ const de: Dict = {
   "dashboard.aiSpend": "KI-Ausgaben",
   "dashboard.sendQuotaTitle": "WhatsApp-Sendekontingent",
   "dashboard.planUsage": "Tarifnutzung",
+  "onboarding.title": "Willkommen bei NexaFlow AI",
+  "onboarding.subtitle": "Vier Schritte zu Ihrer ersten automatisierten WhatsApp-Konversation. Jeder Schritt verweist auf die zuständige Seite — kehren Sie hierher zurück, um den Fortschritt zu verfolgen.",
+  "onboarding.statusLoadFailed": "Status konnte nicht geladen werden.",
+  "onboarding.progress": "{done} von {total} Schritten abgeschlossen",
+  "onboarding.refresh": "Status aktualisieren",
+  "onboarding.allSet": "Alles ist eingerichtet.",
+  "onboarding.openDashboard": "Dashboard öffnen",
+  "onboarding.watchInbox": "Posteingang beobachten",
+  "onboarding.sendCampaign": "Kampagne senden",
 };
 
 const ar: Dict = {
@@ -397,6 +446,15 @@ const ar: Dict = {
   "dashboard.aiSpend": "إنفاق الذكاء الاصطناعي",
   "dashboard.sendQuotaTitle": "حصة إرسال واتساب",
   "dashboard.planUsage": "استخدام الخطة",
+  "onboarding.title": "مرحبًا بك في NexaFlow AI",
+  "onboarding.subtitle": "أربع خطوات نحو أول محادثة واتساب آلية لك. ترتبط كل خطوة بالصفحة المسؤولة عنها — عُد إلى هنا لتتبّع التقدّم.",
+  "onboarding.statusLoadFailed": "فشل تحميل الحالة.",
+  "onboarding.progress": "اكتمل {done} من {total} خطوات",
+  "onboarding.refresh": "تحديث الحالة",
+  "onboarding.allSet": "كل شيء جاهز.",
+  "onboarding.openDashboard": "فتح لوحة التحكم",
+  "onboarding.watchInbox": "مراقبة صندوق الوارد",
+  "onboarding.sendCampaign": "إرسال حملة",
 };
 
 const ur: Dict = {
@@ -458,6 +516,15 @@ const ur: Dict = {
   "dashboard.aiSpend": "AI اخراجات",
   "dashboard.sendQuotaTitle": "WhatsApp بھیجنے کا کوٹا",
   "dashboard.planUsage": "پلان کا استعمال",
+  "onboarding.title": "NexaFlow AI میں خوش آمدید",
+  "onboarding.subtitle": "آپ کی پہلی خودکار WhatsApp گفتگو تک چار مراحل۔ ہر مرحلہ متعلقہ صفحے سے منسلک ہے — پیش رفت دیکھنے کے لیے یہاں واپس آئیں۔",
+  "onboarding.statusLoadFailed": "اسٹیٹس لوڈ ناکام۔",
+  "onboarding.progress": "{total} میں سے {done} مراحل مکمل",
+  "onboarding.refresh": "اسٹیٹس تازہ کریں",
+  "onboarding.allSet": "آپ مکمل طور پر تیار ہیں۔",
+  "onboarding.openDashboard": "ڈیش بورڈ کھولیں",
+  "onboarding.watchInbox": "ان باکس دیکھیں",
+  "onboarding.sendCampaign": "مہم بھیجیں",
 };
 
 export const MESSAGES: Record<string, Dict> = { en, hi, es, fr, de, ar, ur };
