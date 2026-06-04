@@ -111,6 +111,102 @@ function countsByTenant<T extends { tenantId: string }>(
     .sort((a, b) => b.count - a.count);
 }
 
+function planFeatures(plan: {
+  messageQuota: number;
+  contactLimit: number;
+  agentLimit: number;
+  aiCreditsPerMonth: number;
+  campaignLimit: number;
+  chatbotEnabled: boolean;
+  adsIntegrationEnabled: boolean;
+  creativeStudioEnabled: boolean;
+  apiAccessEnabled: boolean;
+}): string[] {
+  const items = [
+    `${plan.messageQuota.toLocaleString("en-IN")} WhatsApp messages / month`,
+    `${plan.contactLimit.toLocaleString("en-IN")} contacts`,
+    `${plan.agentLimit.toLocaleString("en-IN")} team ${
+      plan.agentLimit === 1 ? "seat" : "seats"
+    }`,
+    `${plan.campaignLimit.toLocaleString("en-IN")} campaigns / month`,
+    `${plan.aiCreditsPerMonth.toLocaleString("en-IN")} AI credits / month`,
+  ];
+  if (plan.chatbotEnabled) items.push("Chatbot and workflow automation");
+  if (plan.creativeStudioEnabled) items.push("AI creative studio");
+  if (plan.adsIntegrationEnabled) items.push("Ads integrations");
+  if (plan.apiAccessEnabled) items.push("API and developer access");
+  return items;
+}
+
+function tenantLimitDataFromPlan(plan: {
+  messageQuota: number;
+  contactLimit: number;
+  agentLimit: number;
+  aiCreditsPerMonth: number;
+  campaignLimit: number;
+}) {
+  return {
+    messageQuotaPerMonth: plan.messageQuota,
+    contactLimit: plan.contactLimit,
+    agentLimit: plan.agentLimit,
+    aiCreditsPerMonth: plan.aiCreditsPerMonth,
+    campaignLimit: plan.campaignLimit,
+  };
+}
+
+function defaultSubscriptionEnd(start: Date, billingCycle: string): Date {
+  const normalized = billingCycle.trim().toLowerCase();
+  const end = new Date(start);
+  if (normalized === "annual" || normalized === "yearly") {
+    end.setFullYear(end.getFullYear() + 1);
+  } else {
+    end.setMonth(end.getMonth() + 1);
+  }
+  return end;
+}
+
+// GET /api/v1/partner/plans
+//
+// Partner onboarding uses the same SuperAdmin-managed plan catalog as the
+// public pricing page. This keeps reseller-created customers on the same
+// limits, campaign quotas, AI credits, and billing cycles shown elsewhere.
+router.get(
+  "/plans",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      await assertPartnerTenant(req.tenantId!);
+      const plans = await prisma.plan.findMany({
+        orderBy: [{ priceInPaisa: "asc" }, { name: "asc" }],
+      });
+
+      res.json({
+        success: true,
+        data: plans.map((plan) => ({
+          id: plan.id,
+          name: plan.name,
+          displayName: plan.displayName,
+          description: plan.description,
+          priceInPaisa: plan.priceInPaisa,
+          billingCycle: plan.billingCycle,
+          messageQuota: plan.messageQuota,
+          contactLimit: plan.contactLimit,
+          agentLimit: plan.agentLimit,
+          aiCreditsPerMonth: plan.aiCreditsPerMonth,
+          campaignLimit: plan.campaignLimit,
+          chatbotEnabled: plan.chatbotEnabled,
+          adsIntegrationEnabled: plan.adsIntegrationEnabled,
+          creativeStudioEnabled: plan.creativeStudioEnabled,
+          apiAccessEnabled: plan.apiAccessEnabled,
+          features: planFeatures(plan),
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // GET /api/v1/partner/dashboard
 router.get(
   "/dashboard",
@@ -260,6 +356,14 @@ router.get(
           orderBy: { createdAt: "desc" },
           include: {
             _count: { select: { users: true, contacts: true, campaigns: true } },
+            subscriptions: {
+              where: { status: SubscriptionStatus.ACTIVE },
+              orderBy: { updatedAt: "desc" },
+              take: 1,
+              include: {
+                plan: true,
+              },
+            },
           },
         }),
       ]);
@@ -431,6 +535,7 @@ const createCustomerSchema = z.object({
   adminEmail: z.string().email(),
   adminName: z.string().min(1).max(120),
   adminPassword: z.string().min(8),
+  planId: z.string().cuid().optional(),
   messageQuotaPerMonth: z.number().int().positive().optional(),
   contactLimit: z.number().int().positive().optional(),
   agentLimit: z.number().int().positive().optional(),
@@ -464,6 +569,12 @@ router.post(
       if (existing) {
         throw new ApiError(ErrorCodes.CONFLICT, 409, "Admin email already in use.");
       }
+      const selectedPlan = body.planId
+        ? await prisma.plan.findUnique({ where: { id: body.planId } })
+        : null;
+      if (body.planId && !selectedPlan) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Plan not found.");
+      }
 
       const passwordHash = await authService.hashPassword(body.adminPassword);
       const industry: CustomerIndustry = resolveIndustryPack(body.industry);
@@ -484,16 +595,21 @@ router.post(
       });
 
       const created = await prisma.$transaction(async (tx) => {
+        const subscriptionStart = new Date();
         const tenant = await tx.tenant.create({
           data: {
             name: body.name,
             type: TenantType.BUSINESS,
             status: TenantStatus.ACTIVE,
             parentTenantId: partner.id,
-            messageQuotaPerMonth: body.messageQuotaPerMonth ?? 10_000,
-            contactLimit: body.contactLimit ?? 1_000,
-            agentLimit: body.agentLimit ?? 5,
-            aiCreditsPerMonth: 500,
+            ...(selectedPlan
+              ? tenantLimitDataFromPlan(selectedPlan)
+              : {
+                  messageQuotaPerMonth: body.messageQuotaPerMonth ?? 10_000,
+                  contactLimit: body.contactLimit ?? 1_000,
+                  agentLimit: body.agentLimit ?? 5,
+                  aiCreditsPerMonth: 500,
+                }),
             providerOwnership,
             creditSource,
           },
@@ -520,7 +636,23 @@ router.post(
           starter = await seedStarterTemplatesAndCampaign(tx, tenant.id, industry);
         }
 
-        return { tenant, admin, starter };
+        const subscription = selectedPlan
+          ? await tx.subscription.create({
+              data: {
+                tenantId: tenant.id,
+                planId: selectedPlan.id,
+                status: SubscriptionStatus.ACTIVE,
+                currentPeriodStart: subscriptionStart,
+                currentPeriodEnd: defaultSubscriptionEnd(
+                  subscriptionStart,
+                  selectedPlan.billingCycle,
+                ),
+              },
+              include: { plan: true },
+            })
+          : null;
+
+        return { tenant, admin, starter, subscription };
       });
 
       // Invite email is fire-and-forget — runs outside the tx so a
@@ -546,6 +678,9 @@ router.post(
           name: created.tenant.name,
           parentTenantId: partner.id,
           industry,
+          selectedPlanId: selectedPlan?.id ?? null,
+          selectedPlanName: selectedPlan?.name ?? null,
+          selectedPlanDisplayName: selectedPlan?.displayName ?? null,
           partnerModel,
           providerOwnership,
           creditSource,
