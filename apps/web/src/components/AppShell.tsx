@@ -336,6 +336,14 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+// Maps a nav label to its i18n key (nav.<slug>). The data array keeps the
+// English label as the source of truth; the EN dictionary holds every
+// nav.<slug>, so any untranslated locale falls back to English. This keeps
+// the nav structure itself untouched (i18n lives only at the render sites).
+function navKey(label: string): string {
+  return "nav." + label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
 // Route-match scoring lives in src/lib/navActive.ts so it can be
 // unit-tested in isolation — see navActive.test.ts for the pinned
 // rules (exact > prefix, longest-wins, /dashboard blocklist).
@@ -375,11 +383,13 @@ export function NavItem({
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
+  const { t } = useI18n();
   const Icon = item.icon;
+  const label = t(navKey(item.label));
   return (
     <Link
       href={item.href}
-      title={collapsed ? item.label : undefined}
+      title={collapsed ? label : undefined}
       aria-current={active ? "page" : undefined}
       data-nav-href={item.href}
       data-nav-active={active ? "true" : "false"}
@@ -398,7 +408,7 @@ export function NavItem({
           active ? "text-emerald-300" : "text-slate-400 group-hover:text-slate-700",
         )}
       />
-      {!collapsed && <span className="truncate">{item.label}</span>}
+      {!collapsed && <span className="truncate">{label}</span>}
     </Link>
   );
 }
@@ -418,6 +428,7 @@ export function Sidebar({
   user: AuthUserPublic;
   signOut: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <aside
       className={cn(
@@ -469,7 +480,7 @@ export function Sidebar({
           <div key={section.label ?? sectionIndex}>
             {section.label && !collapsed && (
               <div className="px-3 pb-2 text-[11px] font-bold uppercase text-slate-400">
-                {section.label}
+                {t(navKey(section.label))}
               </div>
             )}
             <div className="space-y-1">
@@ -555,6 +566,7 @@ export function MobileDrawer({
   user: AuthUserPublic;
   signOut: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       className={cn(
@@ -600,7 +612,7 @@ export function MobileDrawer({
             <div key={section.label ?? sectionIndex}>
               {section.label && (
                 <div className="px-3 pb-2 text-[11px] font-bold uppercase text-slate-400">
-                  {section.label}
+                  {t(navKey(section.label))}
                 </div>
               )}
               <div className="space-y-1">
@@ -757,6 +769,7 @@ export function BottomNav({
   items: AppNavItem[];
   activeHref: string | null;
 }) {
+  const { t } = useI18n();
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
       <div className="mx-auto grid h-16 max-w-md grid-cols-5">
@@ -779,7 +792,9 @@ export function BottomNav({
                   active ? "text-emerald-600" : "text-slate-400",
                 )}
               />
-              <span className="max-w-full truncate">{item.label.split(" ")[0]}</span>
+              <span className="max-w-full truncate">
+                {t(navKey(item.label)).split(" ")[0]}
+              </span>
             </Link>
           );
         })}
@@ -799,12 +814,13 @@ export function AppShell({
   signOut: () => void;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   const pathname = usePathname() ?? "/";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const sections = useMemo(() => filterSections(user, features), [features, user]);
   const flatItems = sections.flatMap((section) => section.items);
-  const title = pageTitleFromPath(pathname, sections);
+  const title = t(navKey(pageTitleFromPath(pathname, sections)));
   const activeHref = activeHrefFromPath(pathname, sections);
   const bottomItems = BOTTOM_NAV_ITEMS.map((href) =>
     flatItems.find((item) => item.href === href),
