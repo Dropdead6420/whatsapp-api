@@ -18,6 +18,7 @@ import {
   FileText,
   Headphones,
   Inbox,
+  Languages,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
@@ -282,6 +283,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         href: "/currency-rates",
         label: "Currency rates",
         icon: Coins,
+        roles: ["SUPER_ADMIN"],
+      },
+      {
+        href: "/languages",
+        label: "Languages",
+        icon: Languages,
         roles: ["SUPER_ADMIN"],
       },
       {
