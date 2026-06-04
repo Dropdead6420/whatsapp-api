@@ -13,6 +13,8 @@ interface TenantDetail {
   name: string;
   type: string;
   status: string;
+  partnerModel: PartnerModel | null;
+  partnerMarginEnabled: boolean;
   domain: string | null;
   logoUrl: string | null;
   brandColors: string | null;
@@ -41,6 +43,8 @@ interface BrandColors {
   secondary?: string;
   accent?: string;
 }
+
+type PartnerModel = "RESELLER" | "BRING_YOUR_OWN_META" | "HYBRID";
 
 interface CreditLine {
   id: string;
@@ -102,6 +106,8 @@ export default function TenantDetailPage() {
     contactLimit: 1000,
     agentLimit: 5,
     aiCreditsPerMonth: 1000,
+    partnerModel: "RESELLER" as PartnerModel,
+    partnerMarginEnabled: false,
   });
 
   async function load() {
@@ -124,6 +130,8 @@ export default function TenantDetailPage() {
         contactLimit: data.contactLimit,
         agentLimit: data.agentLimit,
         aiCreditsPerMonth: data.aiCreditsPerMonth,
+        partnerModel: data.partnerModel ?? "RESELLER",
+        partnerMarginEnabled: data.partnerMarginEnabled,
       });
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Failed to load tenant");
@@ -262,7 +270,7 @@ export default function TenantDetailPage() {
     setInfo(null);
     setBusy(true);
     try {
-      await api.patch(`/api/v1/tenants/${id}`, {
+      const payload: Record<string, unknown> = {
         name: form.name,
         status: form.status,
         domain: form.domain || undefined,
@@ -277,7 +285,12 @@ export default function TenantDetailPage() {
         contactLimit: form.contactLimit,
         agentLimit: form.agentLimit,
         aiCreditsPerMonth: form.aiCreditsPerMonth,
-      });
+      };
+      if (tenant?.type === "WHITE_LABEL") {
+        payload.partnerModel = form.partnerModel;
+        payload.partnerMarginEnabled = form.partnerMarginEnabled;
+      }
+      await api.patch(`/api/v1/tenants/${id}`, payload);
       setInfo("Tenant updated.");
       await load();
     } catch (e) {
@@ -549,6 +562,61 @@ export default function TenantDetailPage() {
             </Field>
           </div>
         </section>
+
+        {tenant?.type === "WHITE_LABEL" && (
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
+            <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-slate-500">
+              Partner commercial model
+            </h2>
+            <p className="mb-4 text-xs text-slate-500">
+              Controls how this white-label partner funds customers and how partner
+              margin is shown in billing reports.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Partner model"
+                hint="Reseller uses platform-owned WABA, BYO Meta uses partner-owned provider credentials, Hybrid supports both."
+              >
+                <select
+                  value={form.partnerModel}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      partnerModel: e.target.value as PartnerModel,
+                    }))
+                  }
+                  className="input"
+                >
+                  <option value="RESELLER">Reseller</option>
+                  <option value="BRING_YOUR_OWN_META">Bring your own Meta</option>
+                  <option value="HYBRID">Hybrid</option>
+                </select>
+              </Field>
+              <label className="flex h-full cursor-pointer items-start justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm hover:bg-slate-100">
+                <div>
+                  <div className="font-medium text-slate-900">
+                    Enable partner margin
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Allows partner-funded wallets and includes agency profit in
+                    partner billing dashboards.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.partnerMarginEnabled}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      partnerMarginEnabled: e.target.checked,
+                    }))
+                  }
+                  className="mt-1 h-4 w-4"
+                />
+              </label>
+            </div>
+          </section>
+        )}
 
         {featureRegistry.length > 0 && (
           <section className="rounded-lg border border-slate-200 bg-white p-5">

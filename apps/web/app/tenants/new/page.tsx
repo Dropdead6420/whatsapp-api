@@ -8,6 +8,7 @@ import { DashboardShell } from "../../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../../src/lib/api";
 
 type TenantType = "DIRECT" | "WHITE_LABEL" | "BUSINESS";
+type PartnerModel = "RESELLER" | "BRING_YOUR_OWN_META" | "HYBRID";
 
 export default function NewTenantPage() {
   const router = useRouter();
@@ -26,6 +27,8 @@ export default function NewTenantPage() {
   const [contactLimit, setContactLimit] = useState(1000);
   const [agentLimit, setAgentLimit] = useState(5);
   const [aiCredits, setAiCredits] = useState(1000);
+  const [partnerModel, setPartnerModel] = useState<PartnerModel>("RESELLER");
+  const [partnerMarginEnabled, setPartnerMarginEnabled] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -36,20 +39,25 @@ export default function NewTenantPage() {
     setErr(null);
     setBusy(true);
     try {
+      const payload: Record<string, unknown> = {
+        name: name.trim(),
+        type,
+        domain: domain.trim() || undefined,
+        adminEmail: adminEmail.trim(),
+        adminName: adminName.trim(),
+        adminPassword,
+        messageQuotaPerMonth: messageQuota,
+        contactLimit,
+        agentLimit,
+        aiCreditsPerMonth: aiCredits,
+      };
+      if (type === "WHITE_LABEL") {
+        payload.partnerModel = partnerModel;
+        payload.partnerMarginEnabled = partnerMarginEnabled;
+      }
       const created = await api.post<{ tenant: { id: string }; admin: { id: string } }>(
         "/api/v1/tenants",
-        {
-          name: name.trim(),
-          type,
-          domain: domain.trim() || undefined,
-          adminEmail: adminEmail.trim(),
-          adminName: adminName.trim(),
-          adminPassword,
-          messageQuotaPerMonth: messageQuota,
-          contactLimit,
-          agentLimit,
-          aiCreditsPerMonth: aiCredits,
-        },
+        payload,
       );
       router.push(`/tenants/${created.tenant.id}`);
     } catch (e) {
@@ -110,6 +118,51 @@ export default function NewTenantPage() {
             </Field>
           </div>
         </section>
+
+        {type === "WHITE_LABEL" && (
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
+            <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-slate-500">
+              Partner commercial model
+            </h2>
+            <p className="mb-4 text-xs text-slate-500">
+              Configure how this reseller funds customers and whether margin is
+              tracked in partner billing dashboards.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Partner model"
+                hint="Reseller uses platform-owned WABA, BYO Meta uses partner credentials, Hybrid supports both."
+              >
+                <select
+                  value={partnerModel}
+                  onChange={(e) => setPartnerModel(e.target.value as PartnerModel)}
+                  className="input"
+                >
+                  <option value="RESELLER">Reseller</option>
+                  <option value="BRING_YOUR_OWN_META">Bring your own Meta</option>
+                  <option value="HYBRID">Hybrid</option>
+                </select>
+              </Field>
+              <label className="flex h-full cursor-pointer items-start justify-between gap-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm hover:bg-slate-100">
+                <div>
+                  <div className="font-medium text-slate-900">
+                    Enable partner margin
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Turns on partner-funded wallet economics and agency profit
+                    reporting for this reseller.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={partnerMarginEnabled}
+                  onChange={(e) => setPartnerMarginEnabled(e.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+              </label>
+            </div>
+          </section>
+        )}
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-slate-500">

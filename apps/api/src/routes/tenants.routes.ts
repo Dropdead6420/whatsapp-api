@@ -229,8 +229,22 @@ router.patch("/:id", async (req: RequestWithAuth, res: Response, next: NextFunct
     const updated = await prisma.tenant.update({
       where: { id: req.params.id },
       data: {
-        ...body,
+        name: body.name,
+        status: body.status,
+        domain: body.domain,
+        logoUrl: body.logoUrl,
         brandColors: body.brandColors ? JSON.stringify(body.brandColors) : undefined,
+        customCss: body.customCss,
+        messageQuotaPerMonth: body.messageQuotaPerMonth,
+        contactLimit: body.contactLimit,
+        agentLimit: body.agentLimit,
+        aiCreditsPerMonth: body.aiCreditsPerMonth,
+        ...(existing.type === TenantType.WHITE_LABEL
+          ? {
+              partnerModel: body.partnerModel,
+              partnerMarginEnabled: body.partnerMarginEnabled,
+            }
+          : {}),
       },
     });
 
