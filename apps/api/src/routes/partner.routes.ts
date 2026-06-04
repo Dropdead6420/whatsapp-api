@@ -31,6 +31,7 @@ import {
   CreditSource,
   PartnerModel,
   ProviderOwnership,
+  SubscriptionStatus,
 } from "@nexaflow/db";
 import {
   assertValidPartnerModelConfig,
@@ -53,6 +54,10 @@ import {
   explainDomainError,
   getLastDomainHealthScan,
 } from "../services/domainHealth.service";
+import {
+  DEFAULT_PARTNER_MARGIN_BPS,
+  summarizePartnerBilling,
+} from "../services/partnerDashboard.service";
 
 const router = Router();
 
@@ -131,6 +136,7 @@ router.get(
         aiCost,
         wallet,
         pendingTasks,
+        activeSubscriptions,
       ] = await Promise.all([
         prisma.tenant.count({ where: childTenantWhere(partner.id) }),
         prisma.tenant.count({
@@ -163,7 +169,46 @@ router.get(
             expiresAt: { lte: new Date(Date.now() + 7 * 86_400_000) },
           },
         }),
+        childIds.length
+          ? prisma.subscription.findMany({
+              where: {
+                tenantId: { in: childIds },
+                status: SubscriptionStatus.ACTIVE,
+              },
+              orderBy: { updatedAt: "desc" },
+              select: {
+                tenantId: true,
+                updatedAt: true,
+                plan: {
+                  select: {
+                    id: true,
+                    name: true,
+                    displayName: true,
+                    priceInPaisa: true,
+                    billingCycle: true,
+                  },
+                },
+              },
+            })
+          : [],
       ]);
+      const billing = summarizePartnerBilling(
+        activeSubscriptions.map((subscription) => ({
+          tenantId: subscription.tenantId,
+          planId: subscription.plan.id,
+          planName: subscription.plan.name,
+          displayName: subscription.plan.displayName,
+          priceInPaisa: subscription.plan.priceInPaisa,
+          billingCycle: subscription.plan.billingCycle,
+          updatedAt: subscription.updatedAt,
+        })),
+        {
+          partnerMarginEnabled: partner.partnerMarginEnabled,
+          partnerMarginBps: Number(
+            process.env.PARTNER_MARGIN_BPS ?? DEFAULT_PARTNER_MARGIN_BPS,
+          ),
+        },
+      );
 
       res.json({
         success: true,
@@ -177,6 +222,7 @@ router.get(
           walletBalanceCredits: wallet?.balanceCredits ?? 0,
           creditLimitCredits: wallet?.creditLimit ?? 0,
           demosExpiringSoon: pendingTasks,
+          ...billing,
         },
       });
     } catch (err) {

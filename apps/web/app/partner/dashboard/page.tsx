@@ -16,6 +16,19 @@ interface PartnerDashboard {
   walletBalanceCredits: number;
   creditLimitCredits: number;
   demosExpiringSoon: number;
+  billingCurrency: string;
+  activeSubscriptionCount: number;
+  baseMrrInPaisa: number;
+  agencyProfitInPaisa: number;
+  partnerMarginEnabled: boolean;
+  partnerMarginBps: number;
+  planDistribution: Array<{
+    planId: string;
+    name: string;
+    count: number;
+    percentage: number;
+    mrrInPaisa: number;
+  }>;
 }
 
 interface CustomerHealthRow {
@@ -66,24 +79,6 @@ export default function PartnerDashboardPage() {
     useState<PartnerAssistantSummary | null>(null);
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"7d" | "30d" | "all">("30d");
-  const [currency, setCurrency] = useState<string>("INR");
-
-  // Load state and dynamic pricing details from local storage if set
-  useEffect(() => {
-    const savedCurrency = localStorage.getItem("nexaflow_currency") || "INR";
-    setCurrency(savedCurrency);
-  }, []);
-
-  const getCurrencySymbol = (cur: string) => {
-    switch (cur) {
-      case "USD": return "$";
-      case "EUR": return "€";
-      case "AED": return "AED ";
-      case "INR":
-      default:
-        return "₹";
-    }
-  };
 
   function refreshAssistantSummary() {
     setAssistantLoading(true);
@@ -113,6 +108,13 @@ export default function PartnerDashboardPage() {
           walletBalanceCredits: 4520,
           creditLimitCredits: 10000,
           demosExpiringSoon: 2,
+          billingCurrency: "INR",
+          activeSubscriptionCount: 0,
+          baseMrrInPaisa: 0,
+          agencyProfitInPaisa: 0,
+          partnerMarginEnabled: false,
+          partnerMarginBps: 0,
+          planDistribution: [],
         };
         setData(mockDashboard);
       });
@@ -126,26 +128,23 @@ export default function PartnerDashboardPage() {
     return <div className="p-10 text-center text-sm text-slate-500">Loading Agency Dashboard…</div>;
   }
 
-  const currencySymbol = getCurrencySymbol(currency);
-  // Example MRR showing markup profit margin
-  const simulatedMRR = (data?.activeCustomers ?? 0) * 4500; // Simulated base ₹4500 per customer
-  const profitMargin = 0.15; // 15% reseller markup margin
-  const agencyProfits = simulatedMRR * profitMargin;
+  const billingCurrency = data?.billingCurrency ?? "INR";
+  const marginPct = ((data?.partnerMarginBps ?? 0) / 100).toFixed(1);
+  const baseMrrInPaisa = data?.baseMrrInPaisa ?? 0;
+  const agencyProfitInPaisa = data?.agencyProfitInPaisa ?? 0;
+  const planColors = ["bg-emerald-500", "bg-indigo-500", "bg-purple-500", "bg-cyan-500", "bg-amber-500"];
+  const plans = (data?.planDistribution ?? []).map((plan, index) => ({
+    ...plan,
+    percentageText: `${plan.percentage.toFixed(1)}%`,
+    color: planColors[index % planColors.length],
+  }));
 
-  // Plan distribution mock data
-  const plans = [
-    { name: "Starter Suite", count: 5, percentage: "41.6%", color: "bg-emerald-500" },
-    { name: "Growth Booster", count: 4, percentage: "33.3%", color: "bg-indigo-500" },
-    { name: "Enterprise Pro", count: 3, percentage: "25.0%", color: "bg-purple-500" },
-  ];
-
-  // Simulated chart months
   const chartData = [
-    { month: "Jan", profit: agencyProfits * 0.7, usage: 22000 },
-    { month: "Feb", profit: agencyProfits * 0.82, usage: 29000 },
-    { month: "Mar", profit: agencyProfits * 0.95, usage: 35000 },
-    { month: "Apr", profit: agencyProfits * 1.1, usage: 41000 },
-    { month: "May", profit: agencyProfits * 1.25, usage: 48900 },
+    {
+      month: "This month",
+      profitInPaisa: agencyProfitInPaisa,
+      usage: data?.messagesMonth ?? 0,
+    },
   ];
 
   const atRiskCount = healthRows.filter((row) =>
@@ -186,11 +185,15 @@ export default function PartnerDashboardPage() {
       {/* Stats Widgets Grid */}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         <StatCard
-          label="Agency Monthly Profits (15%)"
-          value={`${currencySymbol}${agencyProfits.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-          subtext={`From ${currencySymbol}${simulatedMRR.toLocaleString()} base platform MRR`}
-          badge="Growth +18%"
-          badgeColor="text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+          label="Agency Monthly Profit"
+          value={formatMoneyFromPaisa(agencyProfitInPaisa, billingCurrency)}
+          subtext={`From ${formatMoneyFromPaisa(baseMrrInPaisa, billingCurrency)} managed customer MRR`}
+          badge={data?.partnerMarginEnabled ? `${marginPct}% margin` : "Margin off"}
+          badgeColor={
+            data?.partnerMarginEnabled
+              ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+              : "text-slate-400 bg-slate-500/10 border-slate-500/20"
+          }
         />
         <StatCard
           label="Total Active Clients"
@@ -345,7 +348,7 @@ export default function PartnerDashboardPage() {
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-white">Agency Sales & Platform Volume</h2>
-              <p className="text-xs text-slate-400">Monthly profit markup (bars) vs Message broadcasts (line)</p>
+              <p className="text-xs text-slate-400">Live margin from active subscriptions vs this month's message volume</p>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="flex items-center gap-1.5 text-indigo-400">
@@ -360,16 +363,16 @@ export default function PartnerDashboardPage() {
           {/* Monthly Flex CSS charts */}
           <div className="flex h-56 items-end justify-between gap-4 border-b border-slate-800 pb-2 pt-6">
             {chartData.map((d) => {
-              const maxVal = agencyProfits * 1.5;
-              const profitPct = `${(d.profit / maxVal) * 100}%`;
-              const maxUsage = 60000;
+              const maxVal = Math.max(agencyProfitInPaisa, 1);
+              const profitPct = `${Math.max(8, (d.profitInPaisa / maxVal) * 100)}%`;
+              const maxUsage = Math.max(data?.messagesMonth ?? 0, 1);
               const usagePct = `${(d.usage / maxUsage) * 100}%`;
 
               return (
                 <div key={d.month} className="group relative flex flex-1 flex-col items-center h-full justify-end">
                   {/* Hover tooltip */}
                   <div className="absolute bottom-full mb-2 hidden flex-col items-center rounded bg-slate-950 p-2 text-[10px] text-white shadow-xl border border-slate-800 group-hover:flex z-10 w-28">
-                    <div className="font-semibold text-indigo-400">Profit: {currencySymbol}{d.profit.toFixed(0)}</div>
+                    <div className="font-semibold text-indigo-400">Profit: {formatMoneyFromPaisa(d.profitInPaisa, billingCurrency)}</div>
                     <div className="text-emerald-400">Sent: {d.usage.toLocaleString()}</div>
                   </div>
 
@@ -398,30 +401,38 @@ export default function PartnerDashboardPage() {
           <p className="text-xs text-slate-400 mb-6">Subscriptions mapped under your agency domain name.</p>
           
           <div className="space-y-4">
-            {plans.map((p) => (
+            {plans.length > 0 ? plans.map((p) => (
               <div key={p.name} className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium text-slate-200">{p.name}</span>
-                  <span className="text-slate-400">{p.count} accounts ({p.percentage})</span>
+                  <span className="text-slate-400">{p.count} accounts ({p.percentageText})</span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
                   <div
-                    style={{ width: p.percentage }}
+                    style={{ width: p.percentageText }}
                     className={`h-full rounded-full ${p.color} transition-all duration-1000`}
                   ></div>
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-4 text-xs leading-5 text-slate-400">
+                No active customer subscriptions yet. Once SuperAdmin assigns plans to your clients, this panel will show the live distribution.
+              </div>
+            )}
           </div>
 
           <div className="mt-6 border-t border-slate-800 pt-4 text-xs text-slate-400">
             <div className="flex justify-between py-1">
               <span>Commission margins</span>
-              <span className="font-semibold text-white">15.0% flat</span>
+              <span className="font-semibold text-white">
+                {data?.partnerMarginEnabled ? `${marginPct}% flat` : "Disabled"}
+              </span>
             </div>
             <div className="flex justify-between py-1">
               <span>Total value resold</span>
-              <span className="font-semibold text-indigo-400">{currencySymbol}{simulatedMRR.toLocaleString()} / mo</span>
+              <span className="font-semibold text-indigo-400">
+                {formatMoneyFromPaisa(baseMrrInPaisa, billingCurrency)} / mo
+              </span>
             </div>
           </div>
         </div>
@@ -533,4 +544,21 @@ function tierBarColor(tier: CustomerHealthRow["tier"]) {
   if (tier === "HEALTHY") return "bg-indigo-500";
   if (tier === "AT_RISK") return "bg-amber-500";
   return "bg-rose-500";
+}
+
+function formatMoneyFromPaisa(valueInPaisa: number, currency: string) {
+  const safeCurrency = currency && currency.length === 3 ? currency : "INR";
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: safeCurrency,
+      maximumFractionDigits: 0,
+    }).format(valueInPaisa / 100);
+  } catch {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(valueInPaisa / 100);
+  }
 }

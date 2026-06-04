@@ -188,6 +188,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### June 2026
+- ✅ **Partner dashboard live plan economics** — `/api/v1/partner/dashboard` now rolls up active child subscriptions from the SuperAdmin-managed `Plan` table, normalizes annual plans into monthly MRR, applies partner margin, and returns live plan distribution. `/partner/dashboard` no longer displays mock license allocation or simulated 15% profit when no subscription data exists.
 - ✅ **Customer wallet usage graph** — `GET /api/v1/customer/wallets/usage` returns a dense 7/30/90-day debit series grouped into messaging, AI, workflow, and other; `/wallets` now renders a business-admin usage card with stacked daily bars and category totals. Pure aggregation tests cover category mapping, date-window clamping, dense buckets, credit-row exclusion, and total consistency.
 
 ### May 2026
