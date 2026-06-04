@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { useAuth } from "../../src/hooks/useAuth";
 import { api, ApiClientError } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
 
 interface AgentRow {
   agentId: string;
@@ -69,6 +70,7 @@ function StatCard({
 }
 
 export default function TeamPerformancePage() {
+  const { t } = useI18n();
   const { user, features, loading, signOut } = useAuth({
     required: true,
     roles: ["BUSINESS_ADMIN", "TEAM_LEAD"],
@@ -89,9 +91,7 @@ export default function TeamPerformancePage() {
       setSummary(data);
     } catch (e) {
       setErr(
-        e instanceof ApiClientError
-          ? e.message
-          : "Failed to load agent performance",
+        e instanceof ApiClientError ? e.message : t("teamperf.loadFailed"),
       );
     } finally {
       setBusy(false);
@@ -110,7 +110,7 @@ export default function TeamPerformancePage() {
   }, [summary]);
 
   if (loading || !user) {
-    return <div className="p-10 text-sm text-slate-500">Loading...</div>;
+    return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   return (
@@ -118,19 +118,18 @@ export default function TeamPerformancePage() {
       <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            Inbox · Team metrics
+            {t("teamperf.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-            Team performance
+            {t("teamperf.title")}
           </h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-            Per-agent load, conversations handled, average first-response, and
-            SLA breaches over the selected window. Sorted by busiest first.
+            {t("teamperf.subtitle")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Window
+            {t("teamperf.window")}
           </label>
           <select
             value={windowDays}
@@ -142,7 +141,7 @@ export default function TeamPerformancePage() {
           >
             {WINDOW_OPTIONS.map((days) => (
               <option key={days} value={days}>
-                Last {days} days
+                {t("teamperf.lastDays", { n: days })}
               </option>
             ))}
           </select>
@@ -165,31 +164,33 @@ export default function TeamPerformancePage() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Active agents"
+          label={t("teamperf.activeAgents")}
           value={summary?.totalActiveAgents ?? "—"}
-          hint="Currently active AGENT-role users"
+          hint={t("teamperf.activeAgentsHint")}
         />
         <StatCard
-          label="Open conversations"
+          label={t("dashboard.openConversations")}
           value={summary?.totalOpenConversations ?? "—"}
-          hint="Right now, across all agents"
+          hint={t("teamperf.openHint")}
         />
         <StatCard
-          label="Handled in window"
+          label={t("teamperf.handledInWindow")}
           value={summary?.totalHandledInWindow ?? "—"}
           hint={
             summary
-              ? `Created after ${new Date(summary.windowStartIso).toLocaleDateString()}`
+              ? t("teamperf.handledHint", {
+                  date: new Date(summary.windowStartIso).toLocaleDateString(),
+                })
               : undefined
           }
         />
         <StatCard
-          label="SLA breaches"
+          label={t("teamperf.slaBreaches")}
           value={summary?.totalSlaBreaches ?? "—"}
           hint={
             slaRate === null
-              ? "No in-window conversations yet"
-              : `${slaRate.toFixed(1)}% of handled volume`
+              ? t("teamperf.slaNoData")
+              : t("teamperf.slaRate", { pct: slaRate.toFixed(1) })
           }
         />
       </div>
@@ -198,32 +199,30 @@ export default function TeamPerformancePage() {
         <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-950">
-              Per-agent breakdown
+              {t("teamperf.perAgent")}
             </h2>
-            <p className="text-xs text-slate-500">
-              Sorted by handled-in-window, descending; ties break alphabetically.
-            </p>
+            <p className="text-xs text-slate-500">{t("teamperf.perAgentSub")}</p>
           </div>
         </header>
 
         {!summary || summary.rows.length === 0 ? (
           <div className="px-5 py-8 text-sm text-slate-500">
-            {busy
-              ? "Loading agents…"
-              : "No active agents on this tenant. Invite an agent from Settings to see their metrics here."}
+            {busy ? t("teamperf.emptyLoading") : t("teamperf.empty")}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full table-auto text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-5 py-3 font-medium">Agent</th>
-                  <th className="px-5 py-3 font-medium">Open</th>
+                  <th className="px-5 py-3 font-medium">{t("teamperf.colAgent")}</th>
+                  <th className="px-5 py-3 font-medium">{t("teamperf.colOpen")}</th>
                   <th className="px-5 py-3 font-medium">
-                    Handled (last {summary.windowDays}d)
+                    {t("teamperf.colHandled", { n: summary.windowDays })}
                   </th>
-                  <th className="px-5 py-3 font-medium">Avg first response</th>
-                  <th className="px-5 py-3 font-medium">SLA breaches</th>
+                  <th className="px-5 py-3 font-medium">
+                    {t("teamperf.colAvgResponse")}
+                  </th>
+                  <th className="px-5 py-3 font-medium">{t("teamperf.slaBreaches")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -263,10 +262,9 @@ export default function TeamPerformancePage() {
       </section>
 
       <p className="mt-6 text-xs text-slate-500">
-        SLA breaches come from the inbox SLA timer (
-        <code className="font-mono">Conversation.slaBreachedAt</code>). Avg
-        first response only includes conversations where an agent reply has
-        been recorded.
+        {t("teamperf.footnotePre")}
+        <code className="font-mono">Conversation.slaBreachedAt</code>
+        {t("teamperf.footnotePost")}
       </p>
     </DashboardShell>
   );
