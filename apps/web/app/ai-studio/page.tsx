@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
 
 const CHANNELS = [
   { value: "whatsapp", label: "WhatsApp" },
@@ -28,6 +29,7 @@ interface Variant {
 }
 
 export default function AiStudioPage() {
+  const { t } = useI18n();
   const { user, loading, signOut } = useAuth({
     required: true,
     roles: ["BUSINESS_ADMIN", "TEAM_LEAD"],
@@ -54,21 +56,19 @@ export default function AiStudioPage() {
       });
       setVariants(data.variants);
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Generation failed.");
+      setErr(e instanceof ApiClientError ? e.message : t("aiStudio.failed"));
     } finally {
       setBusy(false);
     }
   }
 
-  if (loading || !user) return <div className="p-10 text-sm text-slate-500">Loading…</div>;
+  if (loading || !user) return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
 
   return (
     <DashboardShell user={user} signOut={signOut}>
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold">AI Creative Studio</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Describe what you want to say. Claude writes the copy in your tone.
-        </p>
+        <h1 className="text-2xl font-semibold">{t("aiStudio.title")}</h1>
+        <p className="mt-1 text-sm text-slate-500">{t("aiStudio.subtitle")}</p>
       </header>
 
       <form
@@ -77,19 +77,21 @@ export default function AiStudioPage() {
       >
         <div className="md:col-span-3">
           <label className="block text-sm font-medium text-slate-700">
-            What's the message?
+            {t("aiStudio.messageLabel")}
           </label>
           <textarea
             required
             rows={3}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. Promote our weekend salon sale: 20% off all hair services, valid Sat-Sun only."
+            placeholder={t("aiStudio.messagePlaceholder")}
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Channel</label>
+          <label className="block text-sm font-medium text-slate-700">
+            {t("aiStudio.channelLabel")}
+          </label>
           <select
             value={channel}
             onChange={(e) => setChannel(e.target.value as typeof channel)}
@@ -103,27 +105,29 @@ export default function AiStudioPage() {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">Tone</label>
+          <label className="block text-sm font-medium text-slate-700">
+            {t("aiStudio.toneLabel")}
+          </label>
           <select
             value={tone}
             onChange={(e) => setTone(e.target.value as typeof tone)}
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           >
-            {TONES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
+            {TONES.map((tn) => (
+              <option key={tn.value} value={tn.value}>
+                {t("aiStudio.tone." + tn.value)}
               </option>
             ))}
           </select>
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700">
-            Audience (optional)
+            {t("aiStudio.audienceLabel")}
           </label>
           <input
             value={audience}
             onChange={(e) => setAudience(e.target.value)}
-            placeholder="e.g. young professionals, Dwarka"
+            placeholder={t("aiStudio.audiencePlaceholder")}
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
@@ -133,7 +137,7 @@ export default function AiStudioPage() {
             disabled={busy}
             className="rounded-md bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
           >
-            {busy ? "Generating…" : "Generate 3 variants"}
+            {busy ? t("aiStudio.generating") : t("aiStudio.generate")}
           </button>
         </div>
       </form>
@@ -147,7 +151,7 @@ export default function AiStudioPage() {
       {variants.length > 0 && (
         <section className="mt-6 space-y-3">
           <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
-            Variants
+            {t("aiStudio.variants")}
           </h2>
           {variants.map((v, i) => (
             <div
@@ -155,14 +159,14 @@ export default function AiStudioPage() {
               className="rounded-lg border border-slate-200 bg-white p-4 text-sm"
             >
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-emerald-700">
-                Variant {i + 1}
+                {t("aiStudio.variantN", { n: i + 1 })}
               </div>
               <p className="whitespace-pre-wrap">{v.text}</p>
               <button
                 onClick={() => navigator.clipboard.writeText(v.text)}
                 className="mt-3 rounded-md border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50"
               >
-                Copy
+                {t("aiStudio.copy")}
               </button>
             </div>
           ))}
