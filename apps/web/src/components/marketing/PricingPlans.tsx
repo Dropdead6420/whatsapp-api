@@ -6,56 +6,12 @@ import { ArrowRight } from "lucide-react";
 import { api, ApiClientError } from "../../lib/api";
 import { pricingSignupHref } from "../../lib/billingIntent";
 import { CheckList } from "./MarketingShell";
-import { fallbackPlans } from "./data";
-
-interface PublicPlan {
-  id: string;
-  name: string;
-  displayName: string;
-  description: string | null;
-  priceInPaisa: number;
-  billingCycle: string;
-  features: string[];
-  chatbotEnabled: boolean;
-  creativeStudioEnabled: boolean;
-  adsIntegrationEnabled: boolean;
-  apiAccessEnabled: boolean;
-}
-
-function fallbackToPublicPlan(index: number, plan: (typeof fallbackPlans)[number]): PublicPlan {
-  return {
-    id: `fallback-${plan.name}`,
-    name: plan.name.toUpperCase(),
-    displayName: plan.name,
-    description: plan.description,
-    priceInPaisa:
-      plan.price === "Custom"
-        ? 0
-        : Number(plan.price.replace(/[^\d]/g, "")) * 100,
-    billingCycle: "monthly",
-    features: plan.features,
-    chatbotEnabled: index > 0,
-    creativeStudioEnabled: index > 0,
-    adsIntegrationEnabled: index > 1,
-    apiAccessEnabled: index > 1,
-  };
-}
-
-function formatCurrencyFromPaisa(value: number) {
-  if (value <= 0) return "Custom";
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(value / 100);
-}
-
-function billingLabel(value: string) {
-  if (!value) return "month";
-  if (value === "monthly") return "month";
-  if (value === "annual") return "year";
-  return value;
-}
+import {
+  billingLabel,
+  fallbackPublicPlans,
+  formatCurrencyFromPaisa,
+  type PublicPlan,
+} from "./pricingCatalog";
 
 export function PricingPlans({
   compact = false,
@@ -64,10 +20,7 @@ export function PricingPlans({
   compact?: boolean;
   showSourceNote?: boolean;
 }) {
-  const fallback = useMemo(
-    () => fallbackPlans.map((plan, index) => fallbackToPublicPlan(index, plan)),
-    [],
-  );
+  const fallback = useMemo(() => fallbackPublicPlans(), []);
   const [plans, setPlans] = useState<PublicPlan[]>(fallback);
   const [source, setSource] = useState<"live" | "fallback">("fallback");
   const [error, setError] = useState<string | null>(null);

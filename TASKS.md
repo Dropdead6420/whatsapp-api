@@ -188,6 +188,7 @@ Detailed plan in [`docs/PHASE_D_STORAGE_PLAN.md`](docs/PHASE_D_STORAGE_PLAN.md).
 Collapsed at the end of each calendar month.
 
 ### June 2026
+- ✅ **Live pricing comparison** — `/pricing` now renders both pricing cards and the comparison table from the public `/api/v1/pricing/plans` catalog. SuperAdmin plan edits in `/billing` now flow through to displayed prices, limits, and feature availability instead of leaving a static comparison table behind.
 - ✅ **Partner commercial controls** — SuperAdmin can now set a white-label partner's commercial model (`RESELLER`, `BRING_YOUR_OWN_META`, `HYBRID`) and margin flag during tenant creation or from the tenant detail page. The tenant PATCH route now only accepts partner economics fields for WHITE_LABEL tenants, keeping direct/business tenants clean.
 - ✅ **SuperAdmin billing partner economics** — `/api/v1/admin/billing` now monthly-normalizes active MRR, splits direct vs partner MRR, and returns partner-by-partner plan distribution/profit. `/billing` renders the live partner economics table so platform billing and partner portal numbers can be checked from one admin screen.
 - ✅ **Partner dashboard live plan economics** — `/api/v1/partner/dashboard` now rolls up active child subscriptions from the SuperAdmin-managed `Plan` table, normalizes annual plans into monthly MRR, applies partner margin, and returns live plan distribution. `/partner/dashboard` no longer displays mock license allocation or simulated 15% profit when no subscription data exists.

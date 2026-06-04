@@ -1,49 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Minus } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import {
   MarketingPageShell,
   SectionHeader,
 } from "../../src/components/marketing/MarketingShell";
+import { PricingComparison } from "../../src/components/marketing/PricingComparison";
 import { PricingPlans } from "../../src/components/marketing/PricingPlans";
-
-const comparison = [
-  {
-    feature: "Shared inbox and CRM",
-    starter: true,
-    growth: true,
-    partner: true,
-  },
-  {
-    feature: "Broadcast campaigns and templates",
-    starter: true,
-    growth: true,
-    partner: true,
-  },
-  {
-    feature: "AI Agent Builder",
-    starter: false,
-    growth: true,
-    partner: true,
-  },
-  {
-    feature: "Workflow Builder",
-    starter: false,
-    growth: true,
-    partner: true,
-  },
-  {
-    feature: "Compliance Firewall",
-    starter: false,
-    growth: true,
-    partner: true,
-  },
-  {
-    feature: "White-label partner portal",
-    starter: false,
-    growth: false,
-    partner: true,
-  },
-];
 
 const questions = [
   {
@@ -91,26 +53,10 @@ export default function PricingPage() {
           <SectionHeader
             align="center"
             title="Compare core capabilities"
-            description="Keep plan selection simple, then use tenant-level feature flags to fine tune access for each customer."
+            description="This table is driven by the same SuperAdmin plan catalog as the pricing cards, so limits and feature flags stay aligned."
           />
-          <div className="mt-10 overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr] border-b border-slate-200 bg-slate-50 text-sm font-semibold text-slate-700">
-              <div className="p-4">Feature</div>
-              <div className="p-4 text-center">Starter</div>
-              <div className="p-4 text-center">Growth</div>
-              <div className="p-4 text-center">Partner</div>
-            </div>
-            {comparison.map((row) => (
-              <div
-                key={row.feature}
-                className="grid grid-cols-[1.5fr_1fr_1fr_1fr] border-b border-slate-100 text-sm last:border-b-0"
-              >
-                <div className="p-4 font-medium text-slate-800">{row.feature}</div>
-                <PlanMark value={row.starter} />
-                <PlanMark value={row.growth} />
-                <PlanMark value={row.partner} />
-              </div>
-            ))}
+          <div className="mt-10">
+            <PricingComparison />
           </div>
         </div>
       </section>
@@ -150,17 +96,5 @@ export default function PricingPage() {
         </div>
       </section>
     </MarketingPageShell>
-  );
-}
-
-function PlanMark({ value }: { value: boolean }) {
-  return (
-    <div className="flex items-center justify-center p-4">
-      {value ? (
-        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-      ) : (
-        <Minus className="h-5 w-5 text-slate-300" />
-      )}
-    </div>
   );
 }
