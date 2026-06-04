@@ -8,8 +8,10 @@ import {
   resetPassword,
   ApiClientError,
 } from "../../../src/lib/api";
+import { useI18n } from "../../../src/i18n/I18nProvider";
 
 function ResetPasswordInner() {
+  const { t } = useI18n();
   const params = useSearchParams();
   const token = params?.get("token");
   const [email, setEmail] = useState("");
@@ -24,9 +26,9 @@ function ResetPasswordInner() {
     setBusy(true);
     try {
       await requestPasswordReset(email.trim());
-      setInfo("If an account exists for that email, we sent a reset link.");
+      setInfo(t("auth.reset.requestSent"));
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Request failed.");
+      setError(err instanceof ApiClientError ? err.message : t("auth.reset.requestFailed"));
     } finally {
       setBusy(false);
     }
@@ -39,9 +41,9 @@ function ResetPasswordInner() {
     setBusy(true);
     try {
       await resetPassword(token, password);
-      setInfo("Password updated. You can log in with your new password.");
+      setInfo(t("auth.reset.updated"));
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "Reset failed.");
+      setError(err instanceof ApiClientError ? err.message : t("auth.reset.resetFailed"));
     } finally {
       setBusy(false);
     }
@@ -50,7 +52,7 @@ function ResetPasswordInner() {
   return (
     <>
       <h1 className="text-xl font-semibold">
-        {token ? "Set a new password" : "Reset your password"}
+        {token ? t("auth.reset.setTitle") : t("auth.reset.requestTitle")}
       </h1>
 
       {info && (
@@ -67,7 +69,9 @@ function ResetPasswordInner() {
       {!token ? (
         <form onSubmit={onRequest} className="mt-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700">Email</label>
+            <label className="block text-sm font-medium text-slate-700">
+              {t("auth.common.email")}
+            </label>
             <input
               type="email"
               required
@@ -81,13 +85,15 @@ function ResetPasswordInner() {
             disabled={busy}
             className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
           >
-            {busy ? "Sending…" : "Send reset link"}
+            {busy ? t("auth.login.resending") : t("auth.reset.sendLink")}
           </button>
         </form>
       ) : (
         <form onSubmit={onReset} className="mt-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700">New password</label>
+            <label className="block text-sm font-medium text-slate-700">
+              {t("auth.reset.newPassword")}
+            </label>
             <input
               type="password"
               required
@@ -102,23 +108,28 @@ function ResetPasswordInner() {
             disabled={busy}
             className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
           >
-            {busy ? "Updating…" : "Update password"}
+            {busy ? t("auth.reset.updating") : t("auth.reset.updateBtn")}
           </button>
         </form>
       )}
 
       <p className="mt-6 text-center text-sm text-slate-600">
         <Link href="/login" className="font-medium text-emerald-700 hover:underline">
-          Back to log in
+          {t("auth.signup.backToLogin")}
         </Link>
       </p>
     </>
   );
 }
 
+function ResetPasswordFallback() {
+  const { t } = useI18n();
+  return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
+}
+
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+    <Suspense fallback={<ResetPasswordFallback />}>
       <ResetPasswordInner />
     </Suspense>
   );
