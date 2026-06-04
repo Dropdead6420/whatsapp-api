@@ -192,6 +192,26 @@ const en: Dict = {
   "teamperf.colAvgResponse": "Avg first response",
   "teamperf.footnotePre": "SLA breaches come from the inbox SLA timer (",
   "teamperf.footnotePost": "). Avg first response only includes conversations where an agent reply has been recorded.",
+  "cannedReplies.title": "Canned replies",
+  "cannedReplies.descPre": "Save shortcuts your agents can use in the inbox. Type ",
+  "cannedReplies.descPost": " and press Send to expand.",
+  "cannedReplies.newReply": "+ New reply",
+  "cannedReplies.cancel": "Cancel",
+  "cannedReplies.saving": "Saving…",
+  "cannedReplies.saved": "Saved",
+  "cannedReplies.save": "Save",
+  "cannedReplies.delete": "Delete",
+  "cannedReplies.confirmDelete": "Delete this canned reply?",
+  "cannedReplies.loadFailed": "Load failed",
+  "cannedReplies.saveFailed": "Save failed",
+  "cannedReplies.deleteFailed": "Delete failed",
+  "cannedReplies.colShortcut": "Shortcut",
+  "cannedReplies.labelTitle": "Title",
+  "cannedReplies.labelBody": "Body",
+  "cannedReplies.empty": "No canned replies yet. Add a few to speed up your agents.",
+  "cannedReplies.phShortcut": "/hours",
+  "cannedReplies.phTitle": "Business hours",
+  "cannedReplies.phBody": "We're open Mon–Sat, 10am–8pm. Closed Sundays.",
 };
 
 const hi: Dict = {
@@ -306,6 +326,18 @@ const hi: Dict = {
   "teamperf.colAgent": "एजेंट",
   "teamperf.colOpen": "खुले",
   "teamperf.colAvgResponse": "औसत पहली प्रतिक्रिया",
+  "cannedReplies.title": "तैयार उत्तर",
+  "cannedReplies.newReply": "+ नया उत्तर",
+  "cannedReplies.cancel": "रद्द करें",
+  "cannedReplies.saving": "सहेजा जा रहा है…",
+  "cannedReplies.saved": "सहेजा गया",
+  "cannedReplies.save": "सहेजें",
+  "cannedReplies.delete": "हटाएं",
+  "cannedReplies.confirmDelete": "यह तैयार उत्तर हटाएं?",
+  "cannedReplies.colShortcut": "शॉर्टकट",
+  "cannedReplies.labelTitle": "शीर्षक",
+  "cannedReplies.labelBody": "सामग्री",
+  "cannedReplies.empty": "अभी कोई तैयार उत्तर नहीं। अपने एजेंट्स को तेज़ करने के लिए कुछ जोड़ें।",
 };
 
 const es: Dict = {
@@ -420,6 +452,18 @@ const es: Dict = {
   "teamperf.colAgent": "Agente",
   "teamperf.colOpen": "Abiertas",
   "teamperf.colAvgResponse": "Resp. media inicial",
+  "cannedReplies.title": "Respuestas predefinidas",
+  "cannedReplies.newReply": "+ Nueva respuesta",
+  "cannedReplies.cancel": "Cancelar",
+  "cannedReplies.saving": "Guardando…",
+  "cannedReplies.saved": "Guardado",
+  "cannedReplies.save": "Guardar",
+  "cannedReplies.delete": "Eliminar",
+  "cannedReplies.confirmDelete": "¿Eliminar esta respuesta predefinida?",
+  "cannedReplies.colShortcut": "Atajo",
+  "cannedReplies.labelTitle": "Título",
+  "cannedReplies.labelBody": "Cuerpo",
+  "cannedReplies.empty": "Aún no hay respuestas predefinidas. Añade algunas para agilizar a tus agentes.",
 };
 
 const fr: Dict = {
@@ -534,6 +578,18 @@ const fr: Dict = {
   "teamperf.colAgent": "Agent",
   "teamperf.colOpen": "Ouvertes",
   "teamperf.colAvgResponse": "Réponse initiale moy.",
+  "cannedReplies.title": "Réponses enregistrées",
+  "cannedReplies.newReply": "+ Nouvelle réponse",
+  "cannedReplies.cancel": "Annuler",
+  "cannedReplies.saving": "Enregistrement…",
+  "cannedReplies.saved": "Enregistré",
+  "cannedReplies.save": "Enregistrer",
+  "cannedReplies.delete": "Supprimer",
+  "cannedReplies.confirmDelete": "Supprimer cette réponse enregistrée ?",
+  "cannedReplies.colShortcut": "Raccourci",
+  "cannedReplies.labelTitle": "Titre",
+  "cannedReplies.labelBody": "Corps",
+  "cannedReplies.empty": "Aucune réponse enregistrée pour l’instant. Ajoutez-en pour accélérer vos agents.",
 };
 
 const de: Dict = {
@@ -648,6 +704,18 @@ const de: Dict = {
   "teamperf.colAgent": "Agent",
   "teamperf.colOpen": "Offen",
   "teamperf.colAvgResponse": "Ø Erstantwort",
+  "cannedReplies.title": "Vorgefertigte Antworten",
+  "cannedReplies.newReply": "+ Neue Antwort",
+  "cannedReplies.cancel": "Abbrechen",
+  "cannedReplies.saving": "Wird gespeichert…",
+  "cannedReplies.saved": "Gespeichert",
+  "cannedReplies.save": "Speichern",
+  "cannedReplies.delete": "Löschen",
+  "cannedReplies.confirmDelete": "Diese vorgefertigte Antwort löschen?",
+  "cannedReplies.colShortcut": "Kürzel",
+  "cannedReplies.labelTitle": "Titel",
+  "cannedReplies.labelBody": "Text",
+  "cannedReplies.empty": "Noch keine vorgefertigten Antworten. Fügen Sie welche hinzu, um Ihre Agenten zu beschleunigen.",
 };
 
 const ar: Dict = {
@@ -762,6 +830,18 @@ const ar: Dict = {
   "teamperf.colAgent": "الوكيل",
   "teamperf.colOpen": "مفتوحة",
   "teamperf.colAvgResponse": "متوسط أول رد",
+  "cannedReplies.title": "الردود الجاهزة",
+  "cannedReplies.newReply": "+ رد جديد",
+  "cannedReplies.cancel": "إلغاء",
+  "cannedReplies.saving": "جارٍ الحفظ…",
+  "cannedReplies.saved": "تم الحفظ",
+  "cannedReplies.save": "حفظ",
+  "cannedReplies.delete": "حذف",
+  "cannedReplies.confirmDelete": "حذف هذا الرد الجاهز؟",
+  "cannedReplies.colShortcut": "اختصار",
+  "cannedReplies.labelTitle": "العنوان",
+  "cannedReplies.labelBody": "النص",
+  "cannedReplies.empty": "لا توجد ردود جاهزة بعد. أضف بعضها لتسريع وكلائك.",
 };
 
 const ur: Dict = {
@@ -876,6 +956,18 @@ const ur: Dict = {
   "teamperf.colAgent": "ایجنٹ",
   "teamperf.colOpen": "کھلے",
   "teamperf.colAvgResponse": "اوسط پہلا جواب",
+  "cannedReplies.title": "تیار شدہ جوابات",
+  "cannedReplies.newReply": "+ نیا جواب",
+  "cannedReplies.cancel": "منسوخ کریں",
+  "cannedReplies.saving": "محفوظ ہو رہا ہے…",
+  "cannedReplies.saved": "محفوظ ہو گیا",
+  "cannedReplies.save": "محفوظ کریں",
+  "cannedReplies.delete": "حذف کریں",
+  "cannedReplies.confirmDelete": "یہ تیار شدہ جواب حذف کریں؟",
+  "cannedReplies.colShortcut": "شارٹ کٹ",
+  "cannedReplies.labelTitle": "عنوان",
+  "cannedReplies.labelBody": "متن",
+  "cannedReplies.empty": "ابھی کوئی تیار شدہ جواب نہیں۔ اپنے ایجنٹس کو تیز کرنے کے لیے کچھ شامل کریں۔",
 };
 
 export const MESSAGES: Record<string, Dict> = { en, hi, es, fr, de, ar, ur };

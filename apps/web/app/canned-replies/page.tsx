@@ -5,6 +5,7 @@ import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
 import { useAutoSave } from "../../src/hooks/useAutoSave";
+import { useI18n } from "../../src/i18n/I18nProvider";
 
 interface CannedReply {
   id: string;
@@ -14,6 +15,7 @@ interface CannedReply {
 }
 
 export default function CannedRepliesPage() {
+  const { t } = useI18n();
   const { user, loading, signOut } = useAuth({
     required: true,
     roles: ["BUSINESS_ADMIN", "TEAM_LEAD"],
@@ -43,7 +45,7 @@ export default function CannedRepliesPage() {
       const data = await api.get<CannedReply[]>("/api/v1/canned-replies");
       setItems(data);
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Load failed");
+      setErr(e instanceof ApiClientError ? e.message : t("cannedReplies.loadFailed"));
     }
   }
 
@@ -65,33 +67,33 @@ export default function CannedRepliesPage() {
       clearForm();
       await refresh();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Save failed");
+      setErr(e instanceof ApiClientError ? e.message : t("cannedReplies.saveFailed"));
     } finally {
       setBusy(false);
     }
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this canned reply?")) return;
+    if (!confirm(t("cannedReplies.confirmDelete"))) return;
     try {
       await api.delete(`/api/v1/canned-replies/${id}`);
       await refresh();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Delete failed");
+      setErr(e instanceof ApiClientError ? e.message : t("cannedReplies.deleteFailed"));
     }
   }
 
-  if (loading || !user) return <div className="p-10 text-sm text-slate-500">Loading…</div>;
+  if (loading || !user) return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
 
   return (
     <DashboardShell user={user} signOut={signOut}>
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Canned replies</h1>
+          <h1 className="text-2xl font-semibold">{t("cannedReplies.title")}</h1>
           <p className="text-sm text-slate-500">
-            Save shortcuts your agents can use in the inbox. Type{" "}
-            <code className="rounded bg-slate-100 px-1 text-xs">/shortcut</code>{" "}
-            and press Send to expand.
+            {t("cannedReplies.descPre")}
+            <code className="rounded bg-slate-100 px-1 text-xs">/shortcut</code>
+            {t("cannedReplies.descPost")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -111,14 +113,14 @@ export default function CannedRepliesPage() {
                     : "h-1.5 w-1.5 rounded-full bg-emerald-500"
                 }
               />
-              {formStatus === "saving" ? "Saving…" : "Saved"}
+              {formStatus === "saving" ? t("cannedReplies.saving") : t("cannedReplies.saved")}
             </span>
           )}
           <button
             onClick={() => setShowForm((s) => !s)}
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
           >
-            {showForm ? "Cancel" : "+ New reply"}
+            {showForm ? t("cannedReplies.cancel") : t("cannedReplies.newReply")}
           </button>
         </div>
       </header>
@@ -136,24 +138,26 @@ export default function CannedRepliesPage() {
         >
           <div>
             <label className="block text-sm font-medium text-slate-700">
-              Shortcut
+              {t("cannedReplies.colShortcut")}
             </label>
             <input
               required
               value={form.shortcut}
               onChange={(e) => setForm((f) => ({ ...f, shortcut: e.target.value }))}
-              placeholder="/hours"
+              placeholder={t("cannedReplies.phShortcut")}
               pattern="^/[a-z0-9_-]+$"
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700">Title</label>
+            <label className="block text-sm font-medium text-slate-700">
+              {t("cannedReplies.labelTitle")}
+            </label>
             <input
               required
               value={form.title}
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-              placeholder="Business hours"
+              placeholder={t("cannedReplies.phTitle")}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
@@ -164,7 +168,7 @@ export default function CannedRepliesPage() {
               disabled={busy}
               className="mt-1 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
             >
-              {busy ? "Saving…" : "Save"}
+              {busy ? t("cannedReplies.saving") : t("cannedReplies.save")}
             </button>
           </div>
           <div className="md:col-span-3">
@@ -185,9 +189,9 @@ export default function CannedRepliesPage() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3">Shortcut</th>
-              <th className="px-4 py-3">Title</th>
-              <th className="px-4 py-3">Body</th>
+              <th className="px-4 py-3">{t("cannedReplies.colShortcut")}</th>
+              <th className="px-4 py-3">{t("cannedReplies.labelTitle")}</th>
+              <th className="px-4 py-3">{t("cannedReplies.labelBody")}</th>
               <th className="px-4 py-3 text-right"></th>
             </tr>
           </thead>
@@ -204,7 +208,7 @@ export default function CannedRepliesPage() {
                     onClick={() => remove(r.id)}
                     className="text-xs text-red-600 hover:underline"
                   >
-                    Delete
+                    {t("cannedReplies.delete")}
                   </button>
                 </td>
               </tr>
@@ -212,7 +216,7 @@ export default function CannedRepliesPage() {
             {items.length === 0 && !err && (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-500">
-                  No canned replies yet. Add a few to speed up your agents.
+                  {t("cannedReplies.empty")}
                 </td>
               </tr>
             )}
