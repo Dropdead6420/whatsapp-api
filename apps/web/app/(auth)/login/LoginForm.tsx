@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { login, resendVerification, ApiClientError } from "../../../src/lib/api";
 import { roleHome } from "../../../src/hooks/useAuth";
+import { useI18n } from "../../../src/i18n/I18nProvider";
 import {
   billingDestinationForRole,
   billingIntentHref,
@@ -48,6 +49,7 @@ function explainLoginError(err: unknown): LoginError {
 
 export function LoginForm({ billingIntent }: { billingIntent: BillingIntent }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<LoginError | null>(null);
@@ -88,27 +90,20 @@ export function LoginForm({ billingIntent }: { billingIntent: BillingIntent }) {
 
   return (
     <>
-      <h1 className="text-xl font-semibold">Log in</h1>
-      <p className="mt-1 text-sm text-slate-500">
-        Welcome back. Enter your credentials below.
-      </p>
+      <h1 className="text-xl font-semibold">{t("auth.login.title")}</h1>
+      <p className="mt-1 text-sm text-slate-500">{t("auth.login.subtitle")}</p>
       {billingIntent.billing && (
         <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          Continue after login
-          {billingIntent.plan ? (
-            <>
-              {" "}
-              with the <span className="font-semibold">{billingIntent.plan}</span> plan
-            </>
-          ) : null}
-          .
+          {billingIntent.plan
+            ? t("auth.login.continueWithPlan", { plan: billingIntent.plan })
+            : t("auth.login.continueAfter")}
         </div>
       )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-slate-700" htmlFor="email">
-            Email
+            {t("auth.common.email")}
           </label>
           <input
             id="email"
@@ -121,7 +116,7 @@ export function LoginForm({ billingIntent }: { billingIntent: BillingIntent }) {
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700" htmlFor="password">
-            Password
+            {t("auth.common.password")}
           </label>
           <input
             id="password"
@@ -150,7 +145,7 @@ export function LoginForm({ billingIntent }: { billingIntent: BillingIntent }) {
                 disabled={resendBusy || !email.trim()}
                 className="mt-3 block font-medium text-red-800 underline disabled:opacity-60"
               >
-                {resendBusy ? "Sending..." : "Resend verification email"}
+                {resendBusy ? t("auth.login.resending") : t("auth.login.resend")}
               </button>
             )}
           </div>
@@ -167,19 +162,19 @@ export function LoginForm({ billingIntent }: { billingIntent: BillingIntent }) {
           disabled={busy}
           className="w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
         >
-          {busy ? "Logging in..." : "Log in"}
+          {busy ? t("auth.login.submitting") : t("auth.login.submit")}
         </button>
       </form>
 
       <div className="mt-6 flex justify-between text-sm">
         <Link href="/reset-password" className="text-slate-600 hover:text-slate-900">
-          Forgot password?
+          {t("auth.login.forgotPassword")}
         </Link>
         <Link
           href={billingIntentHref("/signup", billingIntent)}
           className="text-slate-600 hover:text-slate-900"
         >
-          Create account
+          {t("auth.login.createAccount")}
         </Link>
       </div>
     </>
