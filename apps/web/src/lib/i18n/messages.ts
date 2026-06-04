@@ -243,6 +243,20 @@ const en: Dict = {
   "leads.sendConfirm": "Send this WhatsApp follow-up now? Only send if the contact has opted in.",
   "leads.sent": "Follow-up sent.",
   "leads.sendFailed": "Failed to send follow-up",
+  "campaigns.title": "Campaigns",
+  "campaigns.subtitle": "Schedule, dispatch, and track WhatsApp broadcasts.",
+  "campaigns.loadFailed": "Failed to load",
+  "campaigns.confirmSend": "Dispatch this campaign now?",
+  "campaigns.sendFailed": "Failed",
+  "campaigns.colName": "Name",
+  "campaigns.colTemplate": "Template",
+  "campaigns.colStatus": "Status",
+  "campaigns.colSentTotal": "Sent / Total",
+  "campaigns.colDelivered": "Delivered",
+  "campaigns.colRead": "Read",
+  "campaigns.colCreated": "Created",
+  "campaigns.sendNow": "Send now",
+  "campaigns.empty": "No campaigns yet. Create a template first, then a campaign via API.",
 };
 
 const hi: Dict = {
@@ -387,6 +401,15 @@ const hi: Dict = {
   "leads.schedule": "शेड्यूल करें",
   "leads.sendNow": "अभी भेजें",
   "leads.dismiss": "खारिज करें",
+  "campaigns.title": "अभियान",
+  "campaigns.colName": "नाम",
+  "campaigns.colTemplate": "टेम्पलेट",
+  "campaigns.colStatus": "स्थिति",
+  "campaigns.colSentTotal": "भेजे / कुल",
+  "campaigns.colDelivered": "पहुंचाए",
+  "campaigns.colRead": "पढ़े",
+  "campaigns.colCreated": "बनाया",
+  "campaigns.sendNow": "अभी भेजें",
 };
 
 const es: Dict = {
@@ -531,6 +554,15 @@ const es: Dict = {
   "leads.schedule": "Programar",
   "leads.sendNow": "Enviar ahora",
   "leads.dismiss": "Descartar",
+  "campaigns.title": "Campañas",
+  "campaigns.colName": "Nombre",
+  "campaigns.colTemplate": "Plantilla",
+  "campaigns.colStatus": "Estado",
+  "campaigns.colSentTotal": "Enviados / Total",
+  "campaigns.colDelivered": "Entregados",
+  "campaigns.colRead": "Leídos",
+  "campaigns.colCreated": "Creado",
+  "campaigns.sendNow": "Enviar ahora",
 };
 
 const fr: Dict = {
@@ -675,6 +707,15 @@ const fr: Dict = {
   "leads.schedule": "Planifier",
   "leads.sendNow": "Envoyer",
   "leads.dismiss": "Ignorer",
+  "campaigns.title": "Campagnes",
+  "campaigns.colName": "Nom",
+  "campaigns.colTemplate": "Modèle",
+  "campaigns.colStatus": "Statut",
+  "campaigns.colSentTotal": "Envoyés / Total",
+  "campaigns.colDelivered": "Livrés",
+  "campaigns.colRead": "Lus",
+  "campaigns.colCreated": "Créé",
+  "campaigns.sendNow": "Envoyer",
 };
 
 const de: Dict = {
@@ -819,6 +860,15 @@ const de: Dict = {
   "leads.schedule": "Planen",
   "leads.sendNow": "Jetzt senden",
   "leads.dismiss": "Verwerfen",
+  "campaigns.title": "Kampagnen",
+  "campaigns.colName": "Name",
+  "campaigns.colTemplate": "Vorlage",
+  "campaigns.colStatus": "Status",
+  "campaigns.colSentTotal": "Gesendet / Gesamt",
+  "campaigns.colDelivered": "Zugestellt",
+  "campaigns.colRead": "Gelesen",
+  "campaigns.colCreated": "Erstellt",
+  "campaigns.sendNow": "Jetzt senden",
 };
 
 const ar: Dict = {
@@ -963,6 +1013,15 @@ const ar: Dict = {
   "leads.schedule": "جدولة",
   "leads.sendNow": "إرسال الآن",
   "leads.dismiss": "تجاهل",
+  "campaigns.title": "الحملات",
+  "campaigns.colName": "الاسم",
+  "campaigns.colTemplate": "القالب",
+  "campaigns.colStatus": "الحالة",
+  "campaigns.colSentTotal": "المرسلة / الإجمالي",
+  "campaigns.colDelivered": "تم التسليم",
+  "campaigns.colRead": "مقروءة",
+  "campaigns.colCreated": "أُنشئت",
+  "campaigns.sendNow": "إرسال الآن",
 };
 
 const ur: Dict = {
@@ -1107,6 +1166,15 @@ const ur: Dict = {
   "leads.schedule": "شیڈول کریں",
   "leads.sendNow": "ابھی بھیجیں",
   "leads.dismiss": "نظر انداز کریں",
+  "campaigns.title": "مہمات",
+  "campaigns.colName": "نام",
+  "campaigns.colTemplate": "ٹیمپلیٹ",
+  "campaigns.colStatus": "حیثیت",
+  "campaigns.colSentTotal": "بھیجے / کل",
+  "campaigns.colDelivered": "پہنچائے",
+  "campaigns.colRead": "پڑھے",
+  "campaigns.colCreated": "بنایا",
+  "campaigns.sendNow": "ابھی بھیجیں",
 };
 
 export const MESSAGES: Record<string, Dict> = { en, hi, es, fr, de, ar, ur };

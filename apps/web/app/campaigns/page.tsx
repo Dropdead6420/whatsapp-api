@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
 
 interface Campaign {
   id: string;
@@ -19,6 +20,7 @@ interface Campaign {
 }
 
 export default function CampaignsPage() {
+  const { t } = useI18n();
   const { user, loading, signOut } = useAuth({
     required: true,
     roles: ["BUSINESS_ADMIN", "TEAM_LEAD"],
@@ -31,29 +33,27 @@ export default function CampaignsPage() {
     api
       .get<Campaign[]>("/api/v1/campaigns")
       .then(setCampaigns)
-      .catch((e) => setErr(e instanceof ApiClientError ? e.message : "Failed to load"));
+      .catch((e) => setErr(e instanceof ApiClientError ? e.message : t("campaigns.loadFailed")));
   }, [user]);
 
   async function send(id: string) {
-    if (!confirm("Dispatch this campaign now?")) return;
+    if (!confirm(t("campaigns.confirmSend"))) return;
     try {
       await api.post(`/api/v1/campaigns/${id}/send`);
       const fresh = await api.get<Campaign[]>("/api/v1/campaigns");
       setCampaigns(fresh);
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed");
+      setErr(e instanceof ApiClientError ? e.message : t("campaigns.sendFailed"));
     }
   }
 
-  if (loading || !user) return <div className="p-10 text-sm text-slate-500">Loading…</div>;
+  if (loading || !user) return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
 
   return (
     <DashboardShell user={user} signOut={signOut}>
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold">Campaigns</h1>
-        <p className="text-sm text-slate-500">
-          Schedule, dispatch, and track WhatsApp broadcasts.
-        </p>
+        <h1 className="text-2xl font-semibold">{t("campaigns.title")}</h1>
+        <p className="text-sm text-slate-500">{t("campaigns.subtitle")}</p>
       </header>
 
       {err && (
@@ -66,13 +66,13 @@ export default function CampaignsPage() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Template</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Sent / Total</th>
-              <th className="px-4 py-3 text-right">Delivered</th>
-              <th className="px-4 py-3 text-right">Read</th>
-              <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3">{t("campaigns.colName")}</th>
+              <th className="px-4 py-3">{t("campaigns.colTemplate")}</th>
+              <th className="px-4 py-3">{t("campaigns.colStatus")}</th>
+              <th className="px-4 py-3 text-right">{t("campaigns.colSentTotal")}</th>
+              <th className="px-4 py-3 text-right">{t("campaigns.colDelivered")}</th>
+              <th className="px-4 py-3 text-right">{t("campaigns.colRead")}</th>
+              <th className="px-4 py-3">{t("campaigns.colCreated")}</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
@@ -100,7 +100,7 @@ export default function CampaignsPage() {
                       onClick={() => send(c.id)}
                       className="rounded-md border border-slate-300 px-3 py-1 text-xs hover:bg-slate-50"
                     >
-                      Send now
+                      {t("campaigns.sendNow")}
                     </button>
                   )}
                 </td>
@@ -109,7 +109,7 @@ export default function CampaignsPage() {
             {campaigns.length === 0 && !err && (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
-                  No campaigns yet. Create a template first, then a campaign via API.
+                  {t("campaigns.empty")}
                 </td>
               </tr>
             )}
