@@ -214,6 +214,47 @@ export async function fetchMeFull(): Promise<MeResponse | null> {
   }
 }
 
+export interface LanguageOption {
+  code: string;
+  name: string;
+  nativeName: string;
+  direction: "LTR" | "RTL";
+  isLaunchLanguage: boolean;
+}
+
+export interface TenantLanguageSettings {
+  setting: {
+    tenantId: string;
+    languageCode: string;
+    locale: string;
+    direction: "LTR" | "RTL";
+    allowAutoTranslate: boolean;
+    requireApprovalForSensitive: boolean;
+    canUpdatePreference: boolean;
+  };
+  policy: {
+    source: "customer" | "partner" | "platform";
+    defaultLanguageCode: string;
+    allowedLanguages: string[];
+    allowCustomerOverride: boolean;
+  };
+  languages: LanguageOption[];
+}
+
+export async function fetchLanguageSettings(): Promise<TenantLanguageSettings> {
+  return api.get<TenantLanguageSettings>("/api/v1/language-settings");
+}
+
+export async function updateLanguagePreference(
+  languageCode: string,
+  locale?: string,
+): Promise<TenantLanguageSettings> {
+  return api.patch<TenantLanguageSettings>("/api/v1/language-settings", {
+    languageCode,
+    locale,
+  });
+}
+
 export async function requestPasswordReset(email: string): Promise<void> {
   await api.post(
     "/api/v1/auth/request-password-reset",

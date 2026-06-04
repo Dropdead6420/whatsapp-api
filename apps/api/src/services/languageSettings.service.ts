@@ -74,6 +74,31 @@ export interface TranslationJobInput {
   requestedByUserId?: string;
 }
 
+export interface TenantLanguageContext {
+  setting: {
+    tenantId: string;
+    languageCode: string;
+    locale: string;
+    direction: TextDirection;
+    allowAutoTranslate: boolean;
+    requireApprovalForSensitive: boolean;
+    canUpdatePreference: boolean;
+  };
+  policy: {
+    source: "customer" | "partner" | "platform";
+    defaultLanguageCode: string;
+    allowedLanguages: string[];
+    allowCustomerOverride: boolean;
+  };
+  languages: Array<{
+    code: string;
+    name: string;
+    nativeName: string;
+    direction: TextDirection;
+    isLaunchLanguage: boolean;
+  }>;
+}
+
 const LANGUAGE_CODE_RE = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/;
 const LOCALE_RE = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i;
 const KEY_RE = /^[a-z][a-z0-9_.:-]{1,160}$/i;
@@ -173,10 +198,139 @@ async function assertTenant(id: string) {
   return tenant;
 }
 
+function jsonLanguageCodes(value: Prisma.JsonValue | null | undefined): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((code): code is string => typeof code === "string");
+}
+
+function directionForLanguageCode(
+  code: string,
+  languages: Array<{ code: string; direction: TextDirection }>,
+): TextDirection {
+  return (
+    languages.find((language) => language.code === code)?.direction ??
+    (isRtlLanguageCode(code) ? TextDirection.RTL : TextDirection.LTR)
+  );
+}
+
+function languageRowsForAllowedCodes(
+  languages: Awaited<ReturnType<typeof listLanguages>>,
+  allowedCodes: string[],
+) {
+  const allowed = new Set(allowedCodes);
+  return languages
+    .filter((language) => allowed.has(language.code))
+    .map((language) => ({
+      code: language.code,
+      name: language.name,
+      nativeName: language.nativeName,
+      direction: language.direction,
+      isLaunchLanguage: language.isLaunchLanguage,
+    }));
+}
+
 export async function listLanguages(args: { activeOnly?: boolean } = {}) {
   return prisma.language.findMany({
     where: args.activeOnly ? { isActive: true } : {},
     orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
+  });
+}
+
+export async function getTenantLanguageContext(
+  tenantId: string,
+): Promise<TenantLanguageContext> {
+  const tenant = await assertTenant(tenantId);
+  const activeLanguages = await listLanguages({ activeOnly: true });
+  const activeCodes = activeLanguages.map((language) => language.code);
+  let allowedLanguages = activeCodes;
+  let defaultLanguageCode = "en";
+  let allowCustomerOverride = true;
+  let source: TenantLanguageContext["policy"]["source"] = "platform";
+
+  if (tenant.type === TenantType.WHITE_LABEL) {
+    const partnerSetting = await getPartnerLanguageSetting(tenant.id);
+    const partnerAllowed = jsonLanguageCodes(partnerSetting.allowedLanguages);
+    allowedLanguages = partnerAllowed.length ? partnerAllowed : [partnerSetting.defaultLanguageCode];
+    defaultLanguageCode = partnerSetting.defaultLanguageCode;
+    allowCustomerOverride = true;
+    source = "partner";
+  } else if (tenant.parentTenantId) {
+    const partnerSetting = await prisma.partnerLanguageSetting.findUnique({
+      where: { partnerTenantId: tenant.parentTenantId },
+    });
+    if (partnerSetting) {
+      const partnerAllowed = jsonLanguageCodes(partnerSetting.allowedLanguages);
+      allowedLanguages = partnerAllowed.length ? partnerAllowed : [partnerSetting.defaultLanguageCode];
+      defaultLanguageCode = partnerSetting.defaultLanguageCode;
+      allowCustomerOverride = partnerSetting.allowCustomerOverride;
+      source = "partner";
+    }
+  }
+
+  const activeAllowed = normalizeLanguageCodes(
+    allowedLanguages.filter((code) => activeCodes.includes(normalizeLanguageCode(code))),
+  );
+  const fallbackAllowed = activeAllowed.length ? activeAllowed : ["en"];
+  const customerSetting =
+    tenant.type === TenantType.WHITE_LABEL
+      ? null
+      : await getCustomerLanguageSetting(tenant.id);
+  const rawLanguageCode = customerSetting?.languageCode ?? defaultLanguageCode;
+  const languageCode = fallbackAllowed.includes(rawLanguageCode)
+    ? rawLanguageCode
+    : fallbackAllowed.includes(defaultLanguageCode)
+      ? defaultLanguageCode
+      : fallbackAllowed[0]!;
+  const locale = customerSetting?.locale ?? (languageCode === "en" ? "en-IN" : languageCode);
+  const direction = directionForLanguageCode(languageCode, activeLanguages);
+
+  return {
+    setting: {
+      tenantId: tenant.id,
+      languageCode,
+      locale,
+      direction,
+      allowAutoTranslate: customerSetting?.allowAutoTranslate ?? true,
+      requireApprovalForSensitive: customerSetting?.requireApprovalForSensitive ?? true,
+      canUpdatePreference: tenant.type !== TenantType.WHITE_LABEL && allowCustomerOverride,
+    },
+    policy: {
+      source,
+      defaultLanguageCode,
+      allowedLanguages: fallbackAllowed,
+      allowCustomerOverride,
+    },
+    languages: languageRowsForAllowedCodes(activeLanguages, fallbackAllowed),
+  };
+}
+
+export async function setTenantLanguagePreference(input: {
+  tenantId: string;
+  languageCode: string;
+  locale?: string;
+  createdByUserId?: string;
+}) {
+  const context = await getTenantLanguageContext(input.tenantId);
+  if (!context.setting.canUpdatePreference) {
+    throw new ApiError(
+      ErrorCodes.FORBIDDEN,
+      403,
+      "Language preference is locked by the partner policy.",
+    );
+  }
+  const languageCode = normalizeLanguageCode(input.languageCode);
+  if (!context.policy.allowedLanguages.includes(languageCode)) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      `Language ${languageCode} is not allowed for this tenant.`,
+    );
+  }
+  return setCustomerLanguageSetting({
+    tenantId: input.tenantId,
+    languageCode,
+    locale: input.locale,
+    createdByUserId: input.createdByUserId,
   });
 }
 

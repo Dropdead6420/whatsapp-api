@@ -3,8 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AuthUserPublic } from "@nexaflow/shared";
+import {
+  fetchLanguageSettings,
+  updateLanguagePreference,
+  type TenantLanguageSettings,
+} from "../lib/api";
 import {
   BarChart3,
   Bell,
@@ -558,6 +563,8 @@ export function MobileDrawer({
   onClose,
   user,
   signOut,
+  onLocaleChange,
+  languageLocked,
 }: {
   open: boolean;
   sections: AppNavSection[];
@@ -565,6 +572,8 @@ export function MobileDrawer({
   onClose: () => void;
   user: AuthUserPublic;
   signOut: () => void;
+  onLocaleChange?: (locale: string) => void;
+  languageLocked?: boolean;
 }) {
   const { t } = useI18n();
   return (
@@ -586,7 +595,7 @@ export function MobileDrawer({
       />
       <aside
         className={cn(
-          "relative flex h-full w-[min(88vw,22rem)] flex-col bg-white shadow-2xl transition-transform duration-200",
+          "absolute left-0 top-0 flex h-full w-[min(88vw,22rem)] flex-col bg-white shadow-2xl transition-transform duration-200",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -630,6 +639,16 @@ export function MobileDrawer({
         </nav>
 
         <div className="border-t border-slate-200 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-xs font-semibold text-slate-600">
+              {t("common.language")}
+            </span>
+            <LocaleSwitcher
+              onLocaleChange={onLocaleChange}
+              disabled={languageLocked}
+              className="max-w-[9rem]"
+            />
+          </div>
           <div className="mb-3 text-xs text-slate-500">
             Signed in as <span className="font-semibold text-slate-800">{user.name}</span>
           </div>
@@ -655,11 +674,15 @@ export function Topbar({
   user,
   onOpenMenu,
   signOut,
+  onLocaleChange,
+  languageLocked,
 }: {
   title: string;
   user: AuthUserPublic;
   onOpenMenu: () => void;
   signOut: () => void;
+  onLocaleChange?: (locale: string) => void;
+  languageLocked?: boolean;
 }) {
   const { t } = useI18n();
   return (
@@ -712,7 +735,11 @@ export function Topbar({
           <Bell className="h-4 w-4" />
         </button>
 
-        <LocaleSwitcher className="hidden md:inline-flex" />
+        <LocaleSwitcher
+          onLocaleChange={onLocaleChange}
+          disabled={languageLocked}
+          className="hidden md:inline-flex"
+        />
 
         <UserMenu user={user} signOut={signOut} />
       </div>
@@ -814,10 +841,12 @@ export function AppShell({
   signOut: () => void;
   children: ReactNode;
 }) {
-  const { t } = useI18n();
+  const { t, configureLanguages } = useI18n();
   const pathname = usePathname() ?? "/";
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [languageSettings, setLanguageSettings] =
+    useState<TenantLanguageSettings | null>(null);
   const sections = useMemo(() => filterSections(user, features), [features, user]);
   const flatItems = sections.flatMap((section) => section.items);
   const title = t(navKey(pageTitleFromPath(pathname, sections)));
@@ -825,6 +854,50 @@ export function AppShell({
   const bottomItems = BOTTOM_NAV_ITEMS.map((href) =>
     flatItems.find((item) => item.href === href),
   ).filter(Boolean) as AppNavItem[];
+  const languageLocked = languageSettings
+    ? !languageSettings.setting.canUpdatePreference
+    : false;
+
+  useEffect(() => {
+    if (!user.tenantId) return;
+    let cancelled = false;
+    void fetchLanguageSettings()
+      .then((settings) => {
+        if (cancelled) return;
+        setLanguageSettings(settings);
+        configureLanguages({
+          languages: settings.languages,
+          preferredLocale:
+            settings.setting.locale || settings.setting.languageCode,
+        });
+      })
+      .catch(() => {
+        // Keep the build-time language list when tenant settings are unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [configureLanguages, user.tenantId]);
+
+  const handleLocaleChange = useCallback(
+    (locale: string) => {
+      if (!languageSettings?.setting.canUpdatePreference) return;
+      void updateLanguagePreference(locale, locale === "en" ? "en-IN" : locale)
+        .then((settings) => {
+          setLanguageSettings(settings);
+          configureLanguages({
+            languages: settings.languages,
+            preferredLocale:
+              settings.setting.locale || settings.setting.languageCode,
+          });
+        })
+        .catch(() => {
+          // The local switch already succeeded; a later reload will fall back
+          // to the last saved tenant preference if the save could not complete.
+        });
+    },
+    [configureLanguages, languageSettings?.setting.canUpdatePreference],
+  );
 
   return (
     <div className="min-h-screen bg-slate-50" data-active-href={activeHref ?? ""}>
@@ -844,6 +917,8 @@ export function AppShell({
         onClose={() => setDrawerOpen(false)}
         user={user}
         signOut={signOut}
+        onLocaleChange={handleLocaleChange}
+        languageLocked={languageLocked}
       />
 
       <div className={cn("min-h-screen", sidebarCollapsed ? "md:pl-20" : "md:pl-72")}>
@@ -852,6 +927,8 @@ export function AppShell({
           user={user}
           onOpenMenu={() => setDrawerOpen(true)}
           signOut={signOut}
+          onLocaleChange={handleLocaleChange}
+          languageLocked={languageLocked}
         />
         <main className="mx-auto max-w-7xl px-4 pb-28 pt-5 sm:px-6 lg:px-8 md:pb-8">
           {children}
