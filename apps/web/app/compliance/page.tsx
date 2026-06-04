@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
+import { useI18n } from "../../src/i18n/I18nProvider";
 
 type ComplianceMode = "MANUAL" | "ASSISTED" | "AUTOPILOT";
 type ComplianceScope = "CAMPAIGN" | "DRIP_STEP" | "TEMPLATE" | "REPLY";
@@ -64,6 +65,7 @@ const MODES: ComplianceMode[] = ["MANUAL", "ASSISTED", "AUTOPILOT"];
 const SCOPES: ComplianceScope[] = ["CAMPAIGN", "DRIP_STEP", "TEMPLATE", "REPLY"];
 
 export default function CompliancePage() {
+  const { t } = useI18n();
   const { user, features, loading, signOut } = useAuth({
     required: true,
     roles: ["SUPER_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD"],
@@ -88,7 +90,7 @@ export default function CompliancePage() {
       setMode(nextMode);
       setItems(checks.items);
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to load compliance data");
+      setErr(e instanceof ApiClientError ? e.message : t("compliance.loadFailed"));
     }
   }
 
@@ -106,7 +108,7 @@ export default function CompliancePage() {
       });
       setMode(saved);
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to update mode");
+      setErr(e instanceof ApiClientError ? e.message : t("compliance.modeFailed"));
     } finally {
       setSavingMode(false);
     }
@@ -127,16 +129,14 @@ export default function CompliancePage() {
       setLatest(result);
       await load();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to run compliance check");
+      setErr(e instanceof ApiClientError ? e.message : t("compliance.checkFailed"));
     } finally {
       setChecking(false);
     }
   }
 
   async function overrideCheck(check: ComplianceCheck) {
-    const reason = window.prompt(
-      "Reason for override. Only use this when a human has reviewed and accepts the risk.",
-    );
+    const reason = window.prompt(t("compliance.overridePrompt"));
     if (!reason?.trim()) return;
     setErr(null);
     try {
@@ -145,32 +145,30 @@ export default function CompliancePage() {
       });
       await load();
     } catch (e) {
-      setErr(e instanceof ApiClientError ? e.message : "Failed to override check");
+      setErr(e instanceof ApiClientError ? e.message : t("compliance.overrideFailed"));
     }
   }
 
   const currentModeCopy = useMemo(() => {
     switch (mode?.default) {
       case "MANUAL":
-        return "Checks are logged, but operators decide.";
+        return t("compliance.modeCopyManual");
       case "AUTOPILOT":
-        return "Only passing content can proceed automatically.";
+        return t("compliance.modeCopyAutopilot");
       default:
-        return "Passing content proceeds; review verdicts require approval.";
+        return t("compliance.modeCopyAssisted");
     }
-  }, [mode?.default]);
+  }, [mode?.default, t]);
 
   if (loading || !user) {
-    return <div className="p-10 text-sm text-slate-500">Loading…</div>;
+    return <div className="p-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Compliance Firewall</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Review outbound WhatsApp content before campaigns, drip steps, templates, and replies go out.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("compliance.title")}</h1>
+        <p className="mt-1 text-sm text-slate-500">{t("compliance.subtitle")}</p>
       </header>
 
       {err && (
@@ -182,7 +180,7 @@ export default function CompliancePage() {
       <section className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">Default mode</h2>
+            <h2 className="text-sm font-semibold text-slate-900">{t("compliance.defaultMode")}</h2>
             <p className="mt-1 text-sm text-slate-500">{currentModeCopy}</p>
           </div>
           <div className="flex rounded-md border border-slate-200 bg-slate-50 p-1">
@@ -198,7 +196,7 @@ export default function CompliancePage() {
                     : "text-slate-600 hover:bg-white"
                 }`}
               >
-                {formatMode(m)}
+                {t("compliance.mode." + m)}
               </button>
             ))}
           </div>
@@ -207,10 +205,10 @@ export default function CompliancePage() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,420px)_1fr]">
         <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-slate-900">Manual check</h2>
+          <h2 className="text-sm font-semibold text-slate-900">{t("compliance.manualCheck")}</h2>
           <form className="mt-4 space-y-4" onSubmit={submitCheck}>
             <label className="block text-sm">
-              <span className="font-medium text-slate-700">Scope</span>
+              <span className="font-medium text-slate-700">{t("compliance.scopeLabel")}</span>
               <select
                 value={scope}
                 onChange={(e) => setScope(e.target.value as ComplianceScope)}
@@ -218,19 +216,19 @@ export default function CompliancePage() {
               >
                 {SCOPES.map((s) => (
                   <option key={s} value={s}>
-                    {formatScope(s)}
+                    {t("compliance.scope." + s)}
                   </option>
                 ))}
               </select>
             </label>
             <label className="block text-sm">
-              <span className="font-medium text-slate-700">Content</span>
+              <span className="font-medium text-slate-700">{t("compliance.content")}</span>
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 rows={8}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-                placeholder="Paste campaign, template, drip, or reply copy"
+                placeholder={t("compliance.contentPlaceholder")}
               />
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-600">
@@ -239,14 +237,14 @@ export default function CompliancePage() {
                 checked={useAi}
                 onChange={(e) => setUseAi(e.target.checked)}
               />
-              Include AI review
+              {t("compliance.includeAi")}
             </label>
             <button
               type="submit"
               disabled={checking || !content.trim()}
               className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {checking ? "Checking…" : "Run check"}
+              {checking ? t("compliance.checking") : t("compliance.runCheck")}
             </button>
           </form>
 
@@ -256,7 +254,9 @@ export default function CompliancePage() {
                 <span className={verdictClass(latest.check.verdict)}>
                   {latest.check.verdict}
                 </span>
-                <span className="text-slate-500">Score {latest.check.score}</span>
+                <span className="text-slate-500">
+                  {t("compliance.scoreValue", { n: latest.check.score })}
+                </span>
               </div>
               <p className="mt-2 text-slate-600">{latest.check.reasoning}</p>
               {latest.check.rewrite && (
@@ -270,25 +270,25 @@ export default function CompliancePage() {
 
         <section className="rounded-lg border border-slate-200 bg-white">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-            <h2 className="text-sm font-semibold text-slate-900">Recent checks</h2>
+            <h2 className="text-sm font-semibold text-slate-900">{t("compliance.recentChecks")}</h2>
             <button
               type="button"
               onClick={() => void load()}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
-              Refresh
+              {t("compliance.refresh")}
             </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-3">Verdict</th>
-                  <th className="px-4 py-3">Scope</th>
-                  <th className="px-4 py-3">Score</th>
-                  <th className="px-4 py-3">Content</th>
-                  <th className="px-4 py-3">Reason</th>
-                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3">{t("compliance.colVerdict")}</th>
+                  <th className="px-4 py-3">{t("compliance.scopeLabel")}</th>
+                  <th className="px-4 py-3">{t("compliance.colScore")}</th>
+                  <th className="px-4 py-3">{t("compliance.colContent")}</th>
+                  <th className="px-4 py-3">{t("compliance.colReason")}</th>
+                  <th className="px-4 py-3">{t("compliance.colAction")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -299,11 +299,11 @@ export default function CompliancePage() {
                         {check.verdict}
                       </span>
                       {check.overridden && (
-                        <div className="mt-1 text-xs text-amber-700">Overridden</div>
+                        <div className="mt-1 text-xs text-amber-700">{t("compliance.overridden")}</div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      {formatScope(check.scope)}
+                      {t("compliance.scope." + check.scope)}
                       {check.refId && <div className="text-xs text-slate-400">{check.refId}</div>}
                     </td>
                     <td className="px-4 py-3 text-slate-600">{check.score}</td>
@@ -334,7 +334,7 @@ export default function CompliancePage() {
                           onClick={() => void overrideCheck(check)}
                           className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-50"
                         >
-                          Override
+                          {t("compliance.override")}
                         </button>
                       ) : (
                         <span className="text-xs text-slate-400">—</span>
@@ -345,7 +345,7 @@ export default function CompliancePage() {
                 {items.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
-                      No compliance checks yet.
+                      {t("compliance.empty")}
                     </td>
                   </tr>
                 )}
@@ -356,22 +356,6 @@ export default function CompliancePage() {
       </div>
     </DashboardShell>
   );
-}
-
-function formatMode(mode: ComplianceMode): string {
-  return mode
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatScope(scope: ComplianceScope): string {
-  return scope
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function verdictClass(verdict: ComplianceVerdict): string {
