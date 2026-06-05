@@ -388,10 +388,38 @@ router.get(
         })
         .parse(req.query);
 
-      const where: Record<string, unknown> = childTenantWhere(partner.id);
-      if (q.search) {
-        where.name = { contains: q.search, mode: "insensitive" };
-      }
+      const where = {
+        ...childTenantWhere(partner.id),
+        ...(q.search
+          ? {
+              OR: [
+                { name: { contains: q.search, mode: "insensitive" as const } },
+                {
+                  users: {
+                    some: {
+                      role: UserRole.BUSINESS_ADMIN,
+                      status: { not: UserStatus.DELETED },
+                      OR: [
+                        {
+                          name: {
+                            contains: q.search,
+                            mode: "insensitive" as const,
+                          },
+                        },
+                        {
+                          email: {
+                            contains: q.search,
+                            mode: "insensitive" as const,
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
+            }
+          : {}),
+      };
 
       const [total, items] = await prisma.$transaction([
         prisma.tenant.count({ where }),
