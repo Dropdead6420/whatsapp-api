@@ -8,6 +8,7 @@ import {
   fallbackPublicPlans,
   formatCurrencyFromPaisa,
   formatPlanNumber,
+  isCustomPlan,
   type PublicPlan,
 } from "./pricingCatalog";
 
@@ -29,9 +30,8 @@ const rows: ComparisonRow[] = [
     kind: "text",
     value: (plan) => {
       const price = formatCurrencyFromPaisa(plan.priceInPaisa);
-      return plan.priceInPaisa <= 0
-        ? price
-        : `${price} / ${billingLabel(plan.billingCycle)}`;
+      if (isCustomPlan(plan)) return `${price}+ starting`;
+      return `${price} / ${billingLabel(plan.billingCycle)}`;
     },
   },
   {
@@ -136,8 +136,8 @@ export function PricingComparison() {
                 <th key={plan.id} className="px-4 py-3 text-center font-semibold">
                   <div className="truncate">{plan.displayName}</div>
                   <div className="mt-1 text-xs font-medium text-slate-500">
-                    {plan.priceInPaisa <= 0
-                      ? "Custom"
+                    {isCustomPlan(plan)
+                      ? `${formatCurrencyFromPaisa(plan.priceInPaisa)}+`
                       : `${formatCurrencyFromPaisa(plan.priceInPaisa)} / ${billingLabel(
                           plan.billingCycle,
                         )}`}

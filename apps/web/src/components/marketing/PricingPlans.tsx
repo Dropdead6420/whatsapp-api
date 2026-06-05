@@ -10,6 +10,7 @@ import {
   billingLabel,
   fallbackPublicPlans,
   formatCurrencyFromPaisa,
+  isCustomPlan,
   type PublicPlan,
 } from "./pricingCatalog";
 
@@ -53,7 +54,13 @@ export function PricingPlans({
   }, []);
 
   const visiblePlans = compact ? plans.slice(0, 3) : plans;
-  const featuredIndex = Math.min(1, Math.max(0, visiblePlans.length - 1));
+  const preferredFeaturedIndex = visiblePlans.findIndex(
+    (plan) => plan.name === "PRO" || plan.displayName.toLowerCase() === "standard",
+  );
+  const featuredIndex =
+    preferredFeaturedIndex >= 0
+      ? preferredFeaturedIndex
+      : Math.min(1, Math.max(0, visiblePlans.length - 1));
 
   return (
     <div>
@@ -67,10 +74,17 @@ export function PricingPlans({
           {error ? <span className="text-amber-700">{error}</span> : null}
         </div>
       ) : null}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div
+        className={
+          compact
+            ? "grid gap-4 lg:grid-cols-3"
+            : "grid gap-4 md:grid-cols-2 xl:grid-cols-5"
+        }
+      >
         {visiblePlans.map((plan, index) => {
           const featured = index === featuredIndex && visiblePlans.length > 1;
-          const custom = plan.priceInPaisa <= 0 || plan.name === "CUSTOM";
+          const custom = isCustomPlan(plan);
+          const price = formatCurrencyFromPaisa(plan.priceInPaisa);
           return (
             <div
               key={plan.id}
@@ -97,13 +111,18 @@ export function PricingPlans({
                 ) : null}
               </div>
               <div className="mt-6 text-3xl font-semibold tracking-tight text-slate-950">
-                {formatCurrencyFromPaisa(plan.priceInPaisa)}
-                {!custom ? (
+                {custom ? `${price}+` : price}
+                {custom ? (
+                  <span className="text-sm font-medium text-slate-500">
+                    {" "}
+                    starting
+                  </span>
+                ) : (
                   <span className="text-sm font-medium text-slate-500">
                     {" "}
                     /{billingLabel(plan.billingCycle)}
                   </span>
-                ) : null}
+                )}
               </div>
               <Link
                 href={pricingSignupHref(plan.name)}
@@ -113,7 +132,7 @@ export function PricingPlans({
                     : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
                 }`}
               >
-                {custom ? "Talk to us" : "Start now"}
+                {custom ? "Talk to sales" : plan.priceInPaisa === 0 ? "Start free" : "Start now"}
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <div className="mt-6">

@@ -23,31 +23,54 @@ export function fallbackToPublicPlan(
   index: number,
   plan: (typeof fallbackPlans)[number],
 ): PublicPlan {
-  const name = plan.name.toUpperCase();
-  const isPartner = name === "PARTNER";
-  const isGrowth = index > 0;
-  const isProLike = index > 1 || isPartner;
+  const keys = ["STARTER", "GROWTH", "PRO", "ENTERPRISE", "CUSTOM"] as const;
+  const name = keys[index] ?? plan.name.toUpperCase();
+  const isFree = name === "STARTER";
+  const isBasic = name === "GROWTH";
+  const isStandard = name === "PRO";
+  const isPremium = name === "ENTERPRISE";
 
   return {
     id: `fallback-${plan.name}`,
     name,
     displayName: plan.name,
     description: plan.description,
-    priceInPaisa:
-      plan.price === "Custom"
-        ? 0
-        : Number(plan.price.replace(/[^\d]/g, "")) * 100,
+    priceInPaisa: plan.priceInPaisa,
     billingCycle: "monthly",
-    messageQuota: isPartner ? 100_000 : isGrowth ? 25_000 : 5_000,
-    contactLimit: isPartner ? 100_000 : isGrowth ? 10_000 : 1_000,
-    agentLimit: isPartner ? 50 : isGrowth ? 10 : 3,
-    aiCreditsPerMonth: isPartner ? 50_000 : isGrowth ? 10_000 : 1_000,
-    campaignLimit: isPartner ? 500 : isGrowth ? 100 : 20,
+    messageQuota: isFree
+      ? 100
+      : isBasic
+        ? 1_000
+        : isStandard
+          ? 10_000
+          : isPremium
+            ? 50_000
+            : 250_000,
+    contactLimit: isFree
+      ? 100
+      : isBasic
+        ? 1_000
+        : isStandard
+          ? 10_000
+          : isPremium
+            ? 50_000
+            : 250_000,
+    agentLimit: isFree ? 1 : isBasic ? 2 : isStandard ? 5 : isPremium ? 15 : 100,
+    aiCreditsPerMonth: isFree
+      ? 50
+      : isBasic
+        ? 200
+        : isStandard
+          ? 1_000
+          : isPremium
+            ? 3_500
+            : 10_000,
+    campaignLimit: isFree ? 1 : isBasic ? 20 : isStandard ? 100 : isPremium ? 500 : 2_000,
     features: plan.features,
-    chatbotEnabled: isGrowth,
-    creativeStudioEnabled: isGrowth,
-    adsIntegrationEnabled: isProLike,
-    apiAccessEnabled: isProLike,
+    chatbotEnabled: !isFree,
+    creativeStudioEnabled: !isFree,
+    adsIntegrationEnabled: isPremium || name === "CUSTOM",
+    apiAccessEnabled: isPremium || name === "CUSTOM",
   };
 }
 
@@ -56,12 +79,15 @@ export function fallbackPublicPlans(): PublicPlan[] {
 }
 
 export function formatCurrencyFromPaisa(value: number) {
-  if (value <= 0) return "Custom";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(value / 100);
+}
+
+export function isCustomPlan(plan: Pick<PublicPlan, "name">) {
+  return plan.name.toUpperCase() === "CUSTOM";
 }
 
 export function formatPlanNumber(value: number) {

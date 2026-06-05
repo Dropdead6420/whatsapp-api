@@ -15,6 +15,7 @@ import {
 } from "../middleware/auth";
 import { requirePermission } from "../middleware/rbac";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
+import { publicPlan } from "../services/planCatalog.service";
 
 const router = Router();
 
@@ -33,55 +34,6 @@ function normalizePlanName(value: string | undefined): PlanName | null {
   return Object.values(PlanName).includes(normalized as PlanName)
     ? (normalized as PlanName)
     : null;
-}
-
-function planFeatures(plan: {
-  messageQuota: number;
-  contactLimit: number;
-  agentLimit: number;
-  aiCreditsPerMonth: number;
-  campaignLimit: number;
-  chatbotEnabled: boolean;
-  adsIntegrationEnabled: boolean;
-  creativeStudioEnabled: boolean;
-  apiAccessEnabled: boolean;
-}): string[] {
-  const items = [
-    `${plan.messageQuota.toLocaleString("en-IN")} WhatsApp messages / month`,
-    `${plan.contactLimit.toLocaleString("en-IN")} contacts`,
-    `${plan.agentLimit.toLocaleString("en-IN")} team ${
-      plan.agentLimit === 1 ? "seat" : "seats"
-    }`,
-    `${plan.campaignLimit.toLocaleString("en-IN")} campaigns / month`,
-    `${plan.aiCreditsPerMonth.toLocaleString("en-IN")} AI credits / month`,
-  ];
-  if (plan.chatbotEnabled) items.push("Chatbot and workflow automation");
-  if (plan.creativeStudioEnabled) items.push("AI creative studio");
-  if (plan.adsIntegrationEnabled) items.push("Ads integrations");
-  if (plan.apiAccessEnabled) items.push("API and developer access");
-  return items;
-}
-
-function publicPlan(plan: Awaited<ReturnType<typeof prismaRead.plan.findFirst>>) {
-  if (!plan) return null;
-  return {
-    id: plan.id,
-    name: plan.name,
-    displayName: plan.displayName,
-    description: plan.description,
-    priceInPaisa: plan.priceInPaisa,
-    billingCycle: plan.billingCycle,
-    messageQuota: plan.messageQuota,
-    contactLimit: plan.contactLimit,
-    agentLimit: plan.agentLimit,
-    aiCreditsPerMonth: plan.aiCreditsPerMonth,
-    campaignLimit: plan.campaignLimit,
-    chatbotEnabled: plan.chatbotEnabled,
-    adsIntegrationEnabled: plan.adsIntegrationEnabled,
-    creativeStudioEnabled: plan.creativeStudioEnabled,
-    apiAccessEnabled: plan.apiAccessEnabled,
-    features: planFeatures(plan),
-  };
 }
 
 async function findRequestedPlan(input: { planId?: string; planName?: string }) {
