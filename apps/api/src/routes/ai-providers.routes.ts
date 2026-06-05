@@ -15,6 +15,7 @@ import {
   setDefaultProvider,
   updateProvider,
 } from "../services/aiProviderHub.service";
+import { getAiUsageSummary } from "../services/aiCostManager.service";
 
 // AI Provider Hub routes (Complete Planning PDF §2.10 / Phase 4). Scope +
 // owning tenant are derived from the caller (SuperAdmin→PLATFORM,
@@ -66,6 +67,10 @@ const resolveSchema = z.object({
   kind: z.nativeEnum(AiProviderKind).optional(),
 });
 
+const usageSchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).optional(),
+});
+
 router.get("/", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const query = listSchema.parse(req.query);
@@ -101,6 +106,18 @@ router.get("/resolve", async (req: RequestWithAuth, res: Response, next: NextFun
   try {
     const { kind } = resolveSchema.parse(req.query);
     const data = await resolveProviderChain(contextFor(req), kind);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// AI cost manager: spend summary over a window, scoped to the caller
+// (PLATFORM sees all tenants; PARTNER / CUSTOMER see their own).
+router.get("/usage", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { days } = usageSchema.parse(req.query);
+    const data = await getAiUsageSummary(contextFor(req), days ?? 30);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
