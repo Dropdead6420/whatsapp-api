@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "@nexaflow/db";
@@ -18,6 +19,7 @@ import {
 import { requirePermission, requireRole } from "../middleware/rbac";
 import { logAudit, extractRequestMeta } from "../services/audit.service";
 import { authService } from "../services/auth.service";
+import { sendEmail } from "../services/email.service";
 import {
   getPartnerTicket,
   listPartnerTickets,
@@ -92,6 +94,50 @@ function childTenantWhere(partnerTenantId: string) {
     parentTenantId: partnerTenantId,
     type: TenantType.BUSINESS,
   };
+}
+
+function generateTemporaryPassword(): string {
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  const required = ["N", "f", "7", "!"];
+  const random = Array.from({ length: 12 }, () => {
+    const index = crypto.randomInt(0, alphabet.length);
+    return alphabet[index];
+  });
+  const chars = [...required, ...random];
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+async function sendCustomerAdminResetEmail(args: {
+  toEmail: string;
+  toName: string;
+  customerWorkspaceName: string;
+  loginUrl: string;
+  temporaryPassword: string;
+  tenantId: string;
+}): Promise<void> {
+  try {
+    await sendEmail({
+      to: args.toEmail,
+      subject: `Admin access reset for ${args.customerWorkspaceName}`,
+      tenantId: args.tenantId,
+      text:
+        `Hi ${args.toName},\n\n` +
+        `Your admin access for "${args.customerWorkspaceName}" was reset by your partner workspace.\n\n` +
+        `Sign in: ${args.loginUrl}\n` +
+        `Temporary password: ${args.temporaryPassword}\n\n` +
+        "Please sign in and change this password immediately.\n",
+    });
+  } catch (err) {
+    console.warn(
+      "[partner] customer admin reset email failed (non-fatal):",
+      (err as Error).message,
+    );
+  }
 }
 
 function countsByTenant<T extends { tenantId: string }>(
@@ -899,6 +945,127 @@ router.patch(
       }
 
       res.json({ success: true, data: updated });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/partner/customers/:customerId/admin-reset
+//
+// Emergency customer access recovery for partners. The generated
+// password is returned once and emailed best-effort; it is never stored
+// in plaintext.
+router.post(
+  "/customers/:customerId/admin-reset",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+
+      const customer = await prisma.tenant.findFirst({
+        where: {
+          id: req.params.customerId,
+          ...childTenantWhere(partner.id),
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+        },
+      });
+
+      if (!customer) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Customer not found.");
+      }
+
+      const admin = await prisma.user.findFirst({
+        where: {
+          tenantId: customer.id,
+          role: UserRole.BUSINESS_ADMIN,
+          status: { not: UserStatus.DELETED },
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          status: true,
+          emailVerified: true,
+        },
+      });
+
+      if (!admin) {
+        throw new ApiError(
+          ErrorCodes.NOT_FOUND,
+          404,
+          "No business admin found for this customer.",
+        );
+      }
+
+      const temporaryPassword = generateTemporaryPassword();
+      const passwordHash = await authService.hashPassword(temporaryPassword);
+      const updatedAdmin = await prisma.user.update({
+        where: { id: admin.id },
+        data: {
+          password: passwordHash,
+          status: UserStatus.ACTIVE,
+          emailVerified: new Date(),
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          status: true,
+          emailVerified: true,
+        },
+      });
+
+      const loginUrl = process.env.WEB_BASE_URL
+        ? `${process.env.WEB_BASE_URL}/login`
+        : "/login";
+      void sendCustomerAdminResetEmail({
+        toEmail: updatedAdmin.email,
+        toName: updatedAdmin.name,
+        customerWorkspaceName: customer.name,
+        loginUrl,
+        temporaryPassword,
+        tenantId: customer.id,
+      });
+
+      await logAudit({
+        tenantId: partner.id,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "PartnerCustomerAdminAccess",
+        resourceId: updatedAdmin.id,
+        oldValues: {
+          customerId: customer.id,
+          customerName: customer.name,
+          adminEmail: admin.email,
+          adminStatus: admin.status,
+          emailVerified: admin.emailVerified,
+        },
+        newValues: {
+          customerId: customer.id,
+          customerName: customer.name,
+          adminEmail: updatedAdmin.email,
+          adminStatus: updatedAdmin.status,
+          emailVerified: updatedAdmin.emailVerified,
+          temporaryPasswordReturned: true,
+        },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({
+        success: true,
+        data: {
+          admin: updatedAdmin,
+          loginUrl,
+          temporaryPassword,
+        },
+      });
     } catch (err) {
       next(err);
     }

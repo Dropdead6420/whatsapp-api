@@ -45,6 +45,19 @@ interface CustomerTenant {
   }>;
 }
 
+interface AdminResetResult {
+  customerName: string;
+  admin: {
+    id: string;
+    email: string;
+    name: string;
+    status: string;
+    emailVerified: string | null;
+  };
+  loginUrl: string;
+  temporaryPassword: string;
+}
+
 const blankCustomerForm = {
   name: "",
   adminEmail: "",
@@ -137,6 +150,11 @@ export default function PartnerCustomersPage() {
   const [changingStatusCustomerId, setChangingStatusCustomerId] = useState<
     string | null
   >(null);
+  const [resettingAdminCustomerId, setResettingAdminCustomerId] = useState<
+    string | null
+  >(null);
+  const [adminResetResult, setAdminResetResult] =
+    useState<AdminResetResult | null>(null);
 
   async function refresh(nextSearch = search) {
     setCustomersLoading(true);
@@ -241,6 +259,27 @@ export default function PartnerCustomersPage() {
       setErr(ex instanceof ApiClientError ? ex.message : "Status change failed");
     } finally {
       setChangingStatusCustomerId(null);
+    }
+  }
+
+  async function resetCustomerAdminAccess(customer: CustomerTenant) {
+    const confirmed = window.confirm(
+      `Reset the primary admin password for ${customer.name}? A new temporary password will be shown once.`,
+    );
+    if (!confirmed) return;
+
+    setResettingAdminCustomerId(customer.id);
+    try {
+      const reset = await api.post<Omit<AdminResetResult, "customerName">>(
+        `/api/v1/partner/customers/${customer.id}/admin-reset`,
+        {},
+      );
+      setAdminResetResult({ ...reset, customerName: customer.name });
+      setErr(null);
+    } catch (ex) {
+      setErr(ex instanceof ApiClientError ? ex.message : "Admin reset failed");
+    } finally {
+      setResettingAdminCustomerId(null);
     }
   }
 
@@ -426,6 +465,61 @@ export default function PartnerCustomersPage() {
       </div>
 
       {err && <p className="mb-4 text-sm text-red-600">{err}</p>}
+
+      {adminResetResult && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">
+                Temporary admin password generated
+              </p>
+              <p className="mt-1 text-sm text-amber-800">
+                {adminResetResult.admin.name} ({adminResetResult.admin.email}) can
+                sign in to {adminResetResult.customerName}. Show this password once
+                and ask them to change it immediately.
+              </p>
+              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <div className="rounded-md bg-white px-3 py-2">
+                  <p className="text-xs font-medium uppercase text-slate-500">
+                    Login
+                  </p>
+                  <p className="mt-1 break-all font-mono text-slate-800">
+                    {adminResetResult.loginUrl}
+                  </p>
+                </div>
+                <div className="rounded-md bg-white px-3 py-2">
+                  <p className="text-xs font-medium uppercase text-slate-500">
+                    Temporary password
+                  </p>
+                  <p className="mt-1 font-mono text-slate-900">
+                    {adminResetResult.temporaryPassword}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void navigator.clipboard.writeText(
+                    `${adminResetResult.loginUrl}\n${adminResetResult.admin.email}\n${adminResetResult.temporaryPassword}`,
+                  )
+                }
+                className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+              >
+                Copy access
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminResetResult(null)}
+                className="rounded-md border border-amber-300 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <form
@@ -736,23 +830,35 @@ export default function PartnerCustomersPage() {
                         {c.status}
                       </span>
                       {c.status === "ACTIVE" || c.status === "SUSPENDED" ? (
-                        <button
-                          type="button"
-                          disabled={changingStatusCustomerId === c.id}
-                          onClick={() =>
-                            void changeCustomerStatus(
-                              c,
-                              c.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
-                            )
-                          }
-                          className="block rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {changingStatusCustomerId === c.id
-                            ? "Updating…"
-                            : c.status === "ACTIVE"
-                              ? "Suspend"
-                              : "Reactivate"}
-                        </button>
+                        <div className="space-y-1.5">
+                          <button
+                            type="button"
+                            disabled={changingStatusCustomerId === c.id}
+                            onClick={() =>
+                              void changeCustomerStatus(
+                                c,
+                                c.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
+                              )
+                            }
+                            className="block rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {changingStatusCustomerId === c.id
+                              ? "Updating…"
+                              : c.status === "ACTIVE"
+                                ? "Suspend"
+                                : "Reactivate"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={resettingAdminCustomerId === c.id}
+                            onClick={() => void resetCustomerAdminAccess(c)}
+                            className="block rounded-md border border-amber-300 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {resettingAdminCustomerId === c.id
+                              ? "Resetting…"
+                              : "Reset admin pwd"}
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                   </td>
