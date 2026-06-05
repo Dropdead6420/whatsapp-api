@@ -31,7 +31,9 @@ export type AuditAction =
   | "PROPOSAL_GENERATED"
   | "PROPOSAL_CREATED"
   | "PROPOSAL_STATUS_CHANGED"
-  | "SECRET_REVEAL";
+  | "SECRET_REVEAL"
+  | "TWO_FACTOR_ENABLED"
+  | "TWO_FACTOR_DISABLED";
 
 export interface AuditInput {
   tenantId: string;
