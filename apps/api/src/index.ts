@@ -76,6 +76,7 @@ import adminLanguagesRoutes from "./routes/admin-languages.routes";
 import currencySettingsRoutes from "./routes/currency-settings.routes";
 import languageSettingsRoutes from "./routes/language-settings.routes";
 import numberMigrationsRoutes from "./routes/number-migrations.routes";
+import secretVaultRoutes from "./routes/secret-vault.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -323,6 +324,7 @@ app.use("/api/v1/webhooks", webhooksRoutes);
 app.use("/api/v1/domains", domainsRoutes);
 app.use("/api/v1/wallets", walletsRoutes);
 app.use("/api/v1/api-keys", apiKeysRoutes);
+app.use("/api/v1/secret-vault", secretVaultRoutes);
 app.use("/api/v1/admin/provider-routes", providerRoutesRoutes);
 app.use("/api/v1/partner/demo", demoRoutes);
 app.use("/api/v1/partner/proposals", proposalRoutes);

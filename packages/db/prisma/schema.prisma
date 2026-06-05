@@ -227,6 +227,7 @@ model Tenant {
   demoTenant               DemoTenant?
   createdDemos             DemoTenant[]              @relation("DemoCreatedBy")
   supportTickets           SupportTicket[]
+  secretVaultEntries       SecretVaultEntry[]
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
@@ -3200,4 +3201,75 @@ model DomainHealthSample {
   @@index([domainId, observedAt(sort: Desc)])
   @@index([tenantId, observedAt(sort: Desc)])
   @@index([partnerTenantId, outcome, observedAt(sort: Desc)])
+}
+
+// =====================================================================
+// API Secret Vault (Complete Planning PDF §2.9 / §5 rule "all API keys
+// must be encrypted"). Stores provider credentials — Meta/WABA, AI
+// providers, payment gateways, SMTP and custom keys — envelope-encrypted
+// at rest (see lib/tokenCrypto.ts). Secrets are scoped:
+//   PLATFORM  → SuperAdmin-owned shared credentials (tenantId null)
+//   PARTNER   → white-label partner-owned (tenantId = partner tenant)
+//   CUSTOMER  → customer-owned, e.g. BYO keys (tenantId = customer tenant)
+// Ciphertext is NEVER returned by list endpoints; only a masked last4 +
+// non-secret metadata. Reveal/rotate/test are audited.
+// =====================================================================
+
+enum SecretScope {
+  PLATFORM
+  PARTNER
+  CUSTOMER
+}
+
+enum SecretProvider {
+  META
+  OPENAI
+  ANTHROPIC
+  GEMINI
+  DEEPSEEK
+  GROK
+  RAZORPAY
+  STRIPE
+  PAYPAL
+  PAYU
+  SMTP
+  CUSTOM
+}
+
+enum SecretStatus {
+  ACTIVE
+  DISABLED
+}
+
+model SecretVaultEntry {
+  id    String @id @default(cuid())
+  scope SecretScope
+
+  // Null for PLATFORM scope; the owning tenant for PARTNER / CUSTOMER.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  provider SecretProvider
+  label    String
+
+  // Envelope-encrypted secret material ("v1:..." blob). Never returned raw.
+  ciphertext String
+  // Last 4 chars of the plaintext, captured at write time, for safe display.
+  last4 String?
+  // Non-secret metadata (key id, region, public id, etc.) as JSON string.
+  metadata String?
+
+  status        SecretStatus @default(ACTIVE)
+  lastRotatedAt DateTime?
+  lastTestedAt  DateTime?
+  lastTestOk    Boolean?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scope, tenantId])
+  @@index([scope, tenantId, provider])
+  @@index([tenantId, status])
 }

@@ -30,7 +30,8 @@ export type AuditAction =
   | "BILLING_PLAN_REQUEST"
   | "PROPOSAL_GENERATED"
   | "PROPOSAL_CREATED"
-  | "PROPOSAL_STATUS_CHANGED";
+  | "PROPOSAL_STATUS_CHANGED"
+  | "SECRET_REVEAL";
 
 export interface AuditInput {
   tenantId: string;
