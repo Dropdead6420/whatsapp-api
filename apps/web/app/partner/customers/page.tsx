@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../../src/hooks/useAuth";
 import { PartnerShell } from "../../../src/components/PartnerShell";
 import { api, ApiClientError } from "../../../src/lib/api";
@@ -73,6 +73,14 @@ function billingLabel(value: string) {
   return "month";
 }
 
+function monthlyPlanValue(paise: number, billingCycle: string) {
+  const normalized = billingCycle.trim().toLowerCase();
+  if (normalized === "annual" || normalized === "yearly") {
+    return Math.round(paise / 12);
+  }
+  return paise;
+}
+
 function usagePercent(used: number, limit: number) {
   if (!limit) return 0;
   return Math.min(100, Math.round((used / limit) * 100));
@@ -96,6 +104,8 @@ export default function PartnerCustomersPage() {
   const [form, setForm] = useState(blankCustomerForm);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [planFilter, setPlanFilter] = useState("ALL");
   const [customersLoading, setCustomersLoading] = useState(false);
   const [changingPlanCustomerId, setChangingPlanCustomerId] = useState<string | null>(
     null,
@@ -177,11 +187,61 @@ export default function PartnerCustomersPage() {
     }
   }
 
+  const selectedPlan = plans.find((plan) => plan.id === form.planId);
+  const statusOptions = useMemo(
+    () => Array.from(new Set(customers.map((customer) => customer.status))).sort(),
+    [customers],
+  );
+  const filteredCustomers = useMemo(
+    () =>
+      customers.filter((customer) => {
+        const activePlanId = customer.subscriptions?.[0]?.plan.id ?? "NO_PLAN";
+        const matchesStatus =
+          statusFilter === "ALL" || customer.status === statusFilter;
+        const matchesPlan = planFilter === "ALL" || activePlanId === planFilter;
+        return matchesStatus && matchesPlan;
+      }),
+    [customers, planFilter, statusFilter],
+  );
+  const portfolioSummary = useMemo(() => {
+    const activeCustomers = customers.filter(
+      (customer) => customer.status === "ACTIVE",
+    ).length;
+    const estimatedMrrInPaisa = customers.reduce((sum, customer) => {
+      const subscription = customer.subscriptions?.[0];
+      if (!subscription) return sum;
+      return (
+        sum +
+        monthlyPlanValue(
+          subscription.plan.priceInPaisa,
+          subscription.plan.billingCycle,
+        )
+      );
+    }, 0);
+    const quotaRiskCustomers = customers.filter((customer) => {
+      const contactPercent = usagePercent(customer._count.contacts, customer.contactLimit);
+      const agentPercent = usagePercent(customer._count.users, customer.agentLimit);
+      const campaignPercent = usagePercent(
+        customer._count.campaigns,
+        customer.campaignLimit,
+      );
+      return Math.max(contactPercent, agentPercent, campaignPercent) >= 70;
+    }).length;
+    const unplannedCustomers = customers.filter(
+      (customer) => !customer.subscriptions?.[0],
+    ).length;
+    return {
+      totalCustomers: customers.length,
+      activeCustomers,
+      estimatedMrrInPaisa,
+      quotaRiskCustomers,
+      unplannedCustomers,
+    };
+  }, [customers]);
+
   if (loading || !user) {
     return <div className="p-10 text-sm text-slate-500">Loading…</div>;
   }
-
-  const selectedPlan = plans.find((plan) => plan.id === form.planId);
 
   return (
     <PartnerShell user={user} signOut={signOut}>
@@ -230,6 +290,29 @@ export default function PartnerCustomersPage() {
             Add customer
           </button>
         </div>
+      </div>
+
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          label="Total customers"
+          value={formatNumber(portfolioSummary.totalCustomers)}
+          detail={`${formatNumber(portfolioSummary.activeCustomers)} active`}
+        />
+        <SummaryCard
+          label="Estimated partner MRR"
+          value={formatMoney(portfolioSummary.estimatedMrrInPaisa)}
+          detail="Monthly equivalent from active plans"
+        />
+        <SummaryCard
+          label="Quota risk"
+          value={formatNumber(portfolioSummary.quotaRiskCustomers)}
+          detail="At or above 70% of a key limit"
+        />
+        <SummaryCard
+          label="No plan"
+          value={formatNumber(portfolioSummary.unplannedCustomers)}
+          detail="Customers using manual defaults"
+        />
       </div>
 
       {err && <p className="mb-4 text-sm text-red-600">{err}</p>}
@@ -392,6 +475,42 @@ export default function PartnerCustomersPage() {
         </form>
       )}
 
+      <div className="mb-3 flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-600">
+          Showing {formatNumber(filteredCustomers.length)} of{" "}
+          {formatNumber(customers.length)} customers
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <select
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            aria-label="Filter customers by status"
+          >
+            <option value="ALL">All statuses</option>
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            value={planFilter}
+            onChange={(event) => setPlanFilter(event.target.value)}
+            aria-label="Filter customers by plan"
+          >
+            <option value="ALL">All plans</option>
+            <option value="NO_PLAN">No plan</option>
+            {plans.map((plan) => (
+              <option key={plan.id} value={plan.id}>
+                {plan.displayName}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
@@ -403,7 +522,7 @@ export default function PartnerCustomersPage() {
             </tr>
           </thead>
           <tbody>
-            {customers.map((c) => {
+            {filteredCustomers.map((c) => {
               const activeSubscription = c.subscriptions?.[0];
               const contactPercent = usagePercent(c._count.contacts, c.contactLimit);
               const agentPercent = usagePercent(c._count.users, c.agentLimit);
@@ -487,10 +606,12 @@ export default function PartnerCustomersPage() {
                 </tr>
               );
             })}
-            {customers.length === 0 && (
+            {filteredCustomers.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                  No customers yet.
+                  {customers.length === 0
+                    ? "No customers yet."
+                    : "No customers match the selected filters."}
                 </td>
               </tr>
             )}
@@ -498,6 +619,26 @@ export default function PartnerCustomersPage() {
         </table>
       </div>
     </PartnerShell>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="text-xs font-medium uppercase text-slate-500">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
+      <p className="mt-1 text-xs text-slate-500">{detail}</p>
+    </div>
   );
 }
 
