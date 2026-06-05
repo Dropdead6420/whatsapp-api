@@ -228,6 +228,7 @@ model Tenant {
   createdDemos             DemoTenant[]              @relation("DemoCreatedBy")
   supportTickets           SupportTicket[]
   secretVaultEntries       SecretVaultEntry[]
+  aiProviderConfigs        AiProviderConfig[]
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
@@ -3272,4 +3273,73 @@ model SecretVaultEntry {
   @@index([scope, tenantId])
   @@index([scope, tenantId, provider])
   @@index([tenantId, status])
+}
+
+// =====================================================================
+// AI Provider Hub (Complete Planning PDF §2.10 / Phase 4). A scoped
+// registry of AI providers + models with a fallback order. Each config
+// can reference an encrypted API key in the Secret Vault (secretId,
+// resolved within the same scope) or fall back to platform env keys.
+// Scopes reuse SecretScope: PLATFORM (SuperAdmin), PARTNER, CUSTOMER.
+// The cost manager aggregates AiUsage; fallback execution wires into
+// ai.service in a later slice.
+// =====================================================================
+
+enum AiProviderKey {
+  OPENAI
+  ANTHROPIC
+  GEMINI
+  DEEPSEEK
+  GROK
+  CUSTOM
+}
+
+enum AiProviderKind {
+  TEXT
+  IMAGE
+  VIDEO
+  VOICE
+  EMBEDDING
+}
+
+enum AiProviderStatus {
+  ACTIVE
+  DISABLED
+}
+
+model AiProviderConfig {
+  id    String      @id @default(cuid())
+  scope SecretScope
+
+  // Null for PLATFORM scope; the owning tenant for PARTNER / CUSTOMER.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  provider AiProviderKey
+  kind     AiProviderKind @default(TEXT)
+  label    String
+
+  // Optional pointer to an encrypted key in the Secret Vault (same scope).
+  // Null = use platform env credentials. Stored as a plain id; the service
+  // resolves it scoped so a config can only use a secret it owns.
+  secretId String?
+
+  defaultModel String?
+  models       String[] @default([])
+  baseUrl      String?
+
+  // Lower priority value = tried first in the fallback chain.
+  priority  Int              @default(100)
+  isDefault Boolean          @default(false)
+  status    AiProviderStatus @default(ACTIVE)
+  metadata  String?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scope, tenantId])
+  @@index([scope, tenantId, kind, status, priority])
+  @@index([secretId])
 }
