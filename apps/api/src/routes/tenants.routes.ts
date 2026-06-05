@@ -141,7 +141,7 @@ router.post("/", async (req: RequestWithAuth, res: Response, next: NextFunction)
           status: TenantStatus.ACTIVE,
           domain: body.domain ?? null,
           parentTenantId: body.parentTenantId ?? null,
-          messageQuotaPerMonth: body.messageQuotaPerMonth ?? 10_000,
+          messageQuotaPerMonth: body.messageQuotaPerMonth ?? 1_000_000,
           contactLimit: body.contactLimit ?? 1_000,
           agentLimit: body.agentLimit ?? 5,
           aiCreditsPerMonth: body.aiCreditsPerMonth ?? 1_000,

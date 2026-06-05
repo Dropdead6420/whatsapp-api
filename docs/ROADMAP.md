@@ -37,7 +37,7 @@ Status snapshot: see [`docs/BLUEPRINT_PHASE_AUDIT.md`](BLUEPRINT_PHASE_AUDIT.md)
 - ✅ Meta Cloud API outbound (text + template)
 - ✅ Inbound webhook with verify-token handshake
 - ✅ STOP / UNSUBSCRIBE / CANCEL keyword opt-out
-- ✅ Send throttle (per-second + monthly quota)
+- ✅ Send throttle (per-second/provider smoothing; no artificial plan message caps)
 - ✅ Idempotent inbound webhook processing (`Message.metaMessageId @unique`)
 - ✅ Meta `X-Hub-Signature-256` verification over the raw request body
 - ✅ WABA quality fields on `Tenant` (`wabaQualityRating`, `wabaMessagingLimitTier`, `wabaAccountStatus`, `wabaLastSyncedAt`)

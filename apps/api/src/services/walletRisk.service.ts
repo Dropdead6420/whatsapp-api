@@ -203,7 +203,6 @@ const VALID_ACTION_CODES: WalletRiskAction[] = [
   WalletRiskAction.ENABLE_AUTO_RECHARGE,
   WalletRiskAction.THROTTLE_CAMPAIGNS,
   WalletRiskAction.SWITCH_TO_POSTPAID,
-  WalletRiskAction.UPGRADE_PLAN,
 ];
 
 async function runLlmNarrative(args: {
@@ -212,7 +211,6 @@ async function runLlmNarrative(args: {
   deterministic: DeterministicResult;
   autoRechargeEnabled: boolean;
   billingMode: string;
-  messageQuotaPerMonth: number;
 }): Promise<{
   action: WalletRiskAction;
   amount: number | null;
@@ -232,7 +230,7 @@ async function runLlmNarrative(args: {
     `Tenant: ${args.tenantName}`,
     `Billing mode: ${args.billingMode}`,
     `Auto-recharge enabled: ${args.autoRechargeEnabled}`,
-    `Monthly message quota: ${args.messageQuotaPerMonth}`,
+    "WhatsApp volume is governed by wallet/rates and Meta/provider limits, not plan message quotas.",
     "",
     "Wallet snapshot:",
     `  balance_credits: ${d.balanceCredits}`,
@@ -248,7 +246,6 @@ async function runLlmNarrative(args: {
     "  ENABLE_AUTO_RECHARGE — they don't have it on, but should.",
     "  THROTTLE_CAMPAIGNS — burn is unsustainably high vs balance.",
     "  SWITCH_TO_POSTPAID — they're a stable high-volume tenant.",
-    "  UPGRADE_PLAN — they're hitting their monthly quota ceiling.",
     "",
     "If you recommend RECHARGE or ENABLE_AUTO_RECHARGE, suggest an amount",
     "(integer credits) sized to cover 30 days of avg burn rounded up to",
@@ -374,7 +371,6 @@ export async function assessTenantWalletRisk(
     select: {
       id: true,
       name: true,
-      messageQuotaPerMonth: true,
       wallets: {
         where: { type: WalletType.WHATSAPP_USAGE },
         take: 1,
@@ -399,7 +395,6 @@ export async function assessTenantWalletRisk(
       deterministic,
       autoRechargeEnabled: wallet.autoRechargeEnabled,
       billingMode: String(wallet.billingMode),
-      messageQuotaPerMonth: tenant.messageQuotaPerMonth,
     });
   }
 

@@ -24,7 +24,7 @@ const PLANS: Array<{
     description:
       "Free forever workspace for testing NexaFlow with basic CRM, inbox, landing page, and trial AI credits.",
     priceInPaisa: 0,
-    messageQuota: 100,
+    messageQuota: 1_000_000,
     contactLimit: 100,
     agentLimit: 1,
     aiCreditsPerMonth: 50,
@@ -40,7 +40,7 @@ const PLANS: Array<{
     description:
       "Basic launch plan for small businesses starting WhatsApp CRM, campaigns, opt-in management, and simple AI content.",
     priceInPaisa: 149_900,
-    messageQuota: 1_000,
+    messageQuota: 1_000_000,
     contactLimit: 1_000,
     agentLimit: 2,
     aiCreditsPerMonth: 200,
@@ -56,7 +56,7 @@ const PLANS: Array<{
     description:
       "Standard growth plan for teams that need advanced CRM, scheduling, chatbot flows, integrations, and more AI usage.",
     priceInPaisa: 399_900,
-    messageQuota: 10_000,
+    messageQuota: 1_000_000,
     contactLimit: 10_000,
     agentLimit: 5,
     aiCreditsPerMonth: 1_000,
@@ -72,7 +72,7 @@ const PLANS: Array<{
     description:
       "Premium automation plan with AI agents, ads assistants, developer connectors, priority support, and higher limits.",
     priceInPaisa: 899_900,
-    messageQuota: 50_000,
+    messageQuota: 1_000_000,
     contactLimit: 50_000,
     agentLimit: 15,
     aiCreditsPerMonth: 3_500,
@@ -88,7 +88,7 @@ const PLANS: Array<{
     description:
       "Enterprise and large partner plan with custom users, WhatsApp numbers, rates, onboarding, SLA, and white-label options.",
     priceInPaisa: 2_499_900,
-    messageQuota: 250_000,
+    messageQuota: 1_000_000,
     contactLimit: 250_000,
     agentLimit: 100,
     aiCreditsPerMonth: 10_000,

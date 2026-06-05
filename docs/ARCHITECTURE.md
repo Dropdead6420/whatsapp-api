@@ -204,10 +204,10 @@ The runtime ignores keys prefixed with `_editor`.
 
 Every WhatsApp send must pass `canSendNow(tenantId)` and follow up with
 `recordSend(tenantId)`. This protects Meta quality rating and enforces per-tenant
-monthly quota.
+wallet/rate governance.
 
 - **Per-second cap**: Redis sorted set of recent send timestamps; rejects when the rolling 1-second window exceeds `SEND_PER_SECOND_LIMIT` (default 20).
-- **Monthly cap**: Redis counter keyed by `send:{tenantId}:month:{YYYY-MM}`. Refused when ≥ `Tenant.messageQuotaPerMonth`. The campaign worker pauses the campaign and resumes it next cycle.
+- **Monthly telemetry**: Redis counter keyed by `send:{tenantId}:month:{YYYY-MM}`. This is reported for operators and can be promoted to an explicit safety cap only when `SEND_MONTHLY_SAFETY_CAP_ENABLED=true`; plan tiers do not impose artificial WhatsApp message limits.
 - **Fails open**: if Redis is unavailable, sends proceed (logged warning). Better degraded than blocked at the infra layer.
 
 ---

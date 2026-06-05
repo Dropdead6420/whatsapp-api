@@ -107,7 +107,7 @@ When the Partner Portal ships, partner staff get their own role split
 
 - Outbound sends respect `Contact.optedOut`. A missed check is a P0 compliance bug.
 - `STOP`, `UNSUBSCRIBE`, `CANCEL`, `STOP ALL` (exact, case-insensitive, trimmed) flip `optedOut=true` + stamp `optedOutAt` + deactivate the conversation.
-- The send throttle enforces tier-aware per-second smoothing + monthly quota; this protects Meta quality rating.
+- The send throttle enforces per-second/provider smoothing; wallet/rate rules and Meta quality controls govern WhatsApp volume.
 - Templates submitted to Meta stay in `DRAFT` until the provider returns `APPROVED`. Broadcasts on non-approved templates must be refused at dispatch time (currently only enforced at UI; harden at the worker — see TASKS).
 - 24-hour customer-service window: outbound sends outside the window require an approved template (provider already enforces; our worker should refuse early to avoid waste).
 

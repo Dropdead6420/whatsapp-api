@@ -166,7 +166,6 @@ function tenantLimitDataFromPlan(plan: {
   campaignLimit: number;
 }) {
   return {
-    messageQuotaPerMonth: plan.messageQuota,
     contactLimit: plan.contactLimit,
     agentLimit: plan.agentLimit,
     aiCreditsPerMonth: plan.aiCreditsPerMonth,
@@ -663,7 +662,7 @@ router.post(
             ...(selectedPlan
               ? tenantLimitDataFromPlan(selectedPlan)
               : {
-                  messageQuotaPerMonth: body.messageQuotaPerMonth ?? 10_000,
+                  messageQuotaPerMonth: body.messageQuotaPerMonth ?? 1_000_000,
                   contactLimit: body.contactLimit ?? 1_000,
                   agentLimit: body.agentLimit ?? 5,
                   aiCreditsPerMonth: 500,

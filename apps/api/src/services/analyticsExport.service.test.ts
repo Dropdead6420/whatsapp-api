@@ -23,7 +23,12 @@ describe("analyticsSummaryToCsvRows", () => {
     const rows = analyticsSummaryToCsvRows({
       scope: "tenant",
       totals: { contacts: 12, messagesMonth: 50 },
-      sendQuota: { monthlyUsed: 50, monthlyQuota: 1000, percentUsed: 5 },
+      sendQuota: {
+        monthlyUsed: 50,
+        monthlyQuota: null,
+        monthlySafetyCapEnabled: false,
+        percentUsed: null,
+      },
       planQuotas: {
         contacts: { used: 12, limit: 1000 },
         campaigns: { used: 2, limit: 10 },
@@ -36,7 +41,7 @@ describe("analyticsSummaryToCsvRows", () => {
       expect.arrayContaining([
         { section: "Report", metric: "scope", value: "tenant" },
         { section: "Totals", metric: "contacts", value: 12 },
-        { section: "Send Quota", metric: "percentUsed", value: 5 },
+        { section: "Send Quota", metric: "monthlySafetyCapEnabled", value: false },
         { section: "Plan Quotas", metric: "contacts.limit", value: 1000 },
         { section: "Leads By Status", metric: "NEW", value: 3 },
         { section: "Campaigns By Status", metric: "COMPLETED", value: 1 },

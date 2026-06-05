@@ -31,9 +31,10 @@ interface DashboardSummary {
   };
   sendQuota?: {
     monthlyUsed: number;
-    monthlyQuota: number;
+    monthlyQuota: number | null;
+    monthlySafetyCapEnabled: boolean;
     perSecondLimit: number;
-    percentUsed: number;
+    percentUsed: number | null;
   };
   planQuotas?: {
     contacts: { used: number; limit: number };
@@ -320,34 +321,46 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
                 {t("dashboard.sendQuotaTitle")}
               </div>
               <div className="mt-1 font-medium">
-                {quota.monthlyUsed.toLocaleString()} / {quota.monthlyQuota.toLocaleString()}
-                <span className="ml-2 text-slate-500">{t("dashboard.thisMonth")}</span>
+                {quota.monthlyUsed.toLocaleString()}
+                <span className="ml-2 text-slate-500">
+                  {quota.monthlySafetyCapEnabled && quota.monthlyQuota
+                    ? `/ ${quota.monthlyQuota.toLocaleString()} ${t("dashboard.thisMonth")}`
+                    : t("dashboard.walletMetered")}
+                </span>
               </div>
             </div>
-            <div
-              className={`rounded-full px-2 py-0.5 text-xs ${
-                quota.percentUsed >= 90
-                  ? "bg-red-50 text-red-700"
-                  : quota.percentUsed >= 70
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-emerald-50 text-emerald-700"
-              }`}
-            >
-              {t("dashboard.percentUsedBadge", { pct: quota.percentUsed })}
+            {quota.monthlySafetyCapEnabled && quota.percentUsed !== null ? (
+              <div
+                className={`rounded-full px-2 py-0.5 text-xs ${
+                  quota.percentUsed >= 90
+                    ? "bg-red-50 text-red-700"
+                    : quota.percentUsed >= 70
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-emerald-50 text-emerald-700"
+                }`}
+              >
+                {t("dashboard.percentUsedBadge", { pct: quota.percentUsed })}
+              </div>
+            ) : (
+              <div className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                {t("dashboard.noPlanMessageCap")}
+              </div>
+            )}
+          </div>
+          {quota.monthlySafetyCapEnabled && quota.percentUsed !== null ? (
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full ${
+                  quota.percentUsed >= 90
+                    ? "bg-red-500"
+                    : quota.percentUsed >= 70
+                      ? "bg-amber-500"
+                      : "bg-emerald-500"
+                }`}
+                style={{ width: `${Math.min(100, quota.percentUsed)}%` }}
+              />
             </div>
-          </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className={`h-full ${
-                quota.percentUsed >= 90
-                  ? "bg-red-500"
-                  : quota.percentUsed >= 70
-                    ? "bg-amber-500"
-                    : "bg-emerald-500"
-              }`}
-              style={{ width: `${Math.min(100, quota.percentUsed)}%` }}
-            />
-          </div>
+          ) : null}
           <p className="mt-2 text-[11px] text-slate-500">
             {t("dashboard.perSecondNote", { limit: quota.perSecondLimit })}
           </p>

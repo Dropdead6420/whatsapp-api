@@ -44,7 +44,7 @@ export function planFeatures(plan: PlanCatalogRecord): string[] {
       return [
         `${plan.agentLimit.toLocaleString("en-IN")} user`,
         `${plan.contactLimit.toLocaleString("en-IN")} contacts`,
-        `${plan.messageQuota.toLocaleString("en-IN")} WhatsApp messages / month`,
+        "Pay-as-you-go WhatsApp usage via wallet",
         "Basic CRM and shared inbox",
         "1 landing page on a NexaFlow subdomain",
         "Basic chatbot template and campaign tool",
@@ -99,7 +99,7 @@ export function planFeatures(plan: PlanCatalogRecord): string[] {
       ];
     default:
       return [
-        `${plan.messageQuota.toLocaleString("en-IN")} WhatsApp messages / month`,
+        "Pay-as-you-go WhatsApp usage via wallet",
         `${plan.contactLimit.toLocaleString("en-IN")} contacts`,
         `${plan.agentLimit.toLocaleString("en-IN")} team ${
           plan.agentLimit === 1 ? "seat" : "seats"

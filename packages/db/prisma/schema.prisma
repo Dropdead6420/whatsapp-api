@@ -138,7 +138,7 @@ model Tenant {
   emailConfig      String? // JSON: provider-specific config
 
   // Features & Limits
-  messageQuotaPerMonth Int     @default(10000)
+  messageQuotaPerMonth Int     @default(1000000)
   contactLimit         Int     @default(1000)
   agentLimit           Int     @default(5)
   aiCreditsPerMonth    Int     @default(1000)

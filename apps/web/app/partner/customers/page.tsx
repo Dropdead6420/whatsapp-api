@@ -745,8 +745,8 @@ export default function PartnerCustomersPage() {
                       <dd>{formatNumber(selectedPlan.contactLimit)}</dd>
                     </div>
                     <div className="flex justify-between gap-3">
-                      <dt>Messages</dt>
-                      <dd>{formatNumber(selectedPlan.messageQuota)}</dd>
+                      <dt>WhatsApp usage</dt>
+                      <dd>Wallet/rate based</dd>
                     </div>
                     <div className="flex justify-between gap-3">
                       <dt>Agents</dt>

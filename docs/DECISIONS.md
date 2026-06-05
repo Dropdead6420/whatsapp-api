@@ -68,8 +68,8 @@ Format:
 
 - **Date**: 2026-05-17
 - **Status**: Accepted
-- **Context**: Meta penalizes bursts. Per-tenant monthly quota is a billing requirement.
-- **Decision**: `canSendNow(tenantId)` checks (a) Redis sorted-set rolling 1-second cap and (b) Redis monthly counter against `Tenant.messageQuotaPerMonth`. **Fails open on Redis outage** — we'd rather slightly over-send than fail every WhatsApp dispatch when infra is degraded.
+- **Context**: Meta penalizes bursts. The final billing architecture does not sell artificial WhatsApp message caps in plans; Meta/provider quality tiers plus NexaFlow wallet/rate rules govern volume.
+- **Decision**: `canSendNow(tenantId)` checks Redis sorted-set rolling 1-second caps per tenant and per WABA phone number. The legacy monthly counter remains only as telemetry, with an opt-in operational safety cap behind `SEND_MONTHLY_SAFETY_CAP_ENABLED=true`. **Fails open on Redis outage** — we'd rather slightly over-send than fail every WhatsApp dispatch when infra is degraded.
 - **Consequences**:
   - Bypasses are visible as console warnings.
   - We accept brief quota overshoot during infra incidents.

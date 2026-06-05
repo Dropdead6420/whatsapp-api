@@ -23,7 +23,7 @@ export default function NewTenantPage() {
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
-  const [messageQuota, setMessageQuota] = useState(10000);
+  const [messageQuota, setMessageQuota] = useState(1_000_000);
   const [contactLimit, setContactLimit] = useState(1000);
   const [agentLimit, setAgentLimit] = useState(5);
   const [aiCredits, setAiCredits] = useState(1000);
@@ -208,7 +208,10 @@ export default function NewTenantPage() {
             Limits
           </h2>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Messages / month">
+            <Field
+              label="WhatsApp safety cap / month"
+              hint="Optional operational guardrail only. Plans use wallet/rates and Meta/provider limits."
+            >
               <input
                 type="number"
                 min={0}

@@ -84,7 +84,6 @@ function tenantLimitDataFromPlan(plan: {
   campaignLimit: number;
 }) {
   return {
-    messageQuotaPerMonth: plan.messageQuota,
     contactLimit: plan.contactLimit,
     agentLimit: plan.agentLimit,
     aiCreditsPerMonth: plan.aiCreditsPerMonth,

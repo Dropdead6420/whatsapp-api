@@ -35,9 +35,9 @@ const rows: ComparisonRow[] = [
     },
   },
   {
-    label: "WhatsApp messages / month",
+    label: "WhatsApp usage",
     kind: "text",
-    value: (plan) => formatPlanNumber(plan.messageQuota),
+    value: () => "Pay-as-you-go wallet; Meta/provider limits apply",
   },
   {
     label: "Contacts",

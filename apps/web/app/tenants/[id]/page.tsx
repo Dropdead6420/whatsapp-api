@@ -102,7 +102,7 @@ export default function TenantDetailPage() {
     secondary: "#1E293B",
     accent: "#F59E0B",
     customCss: "",
-    messageQuotaPerMonth: 10000,
+    messageQuotaPerMonth: 1_000_000,
     contactLimit: 1000,
     agentLimit: 5,
     aiCreditsPerMonth: 1000,
@@ -520,7 +520,10 @@ export default function TenantDetailPage() {
             Limits
           </h2>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Messages / month">
+            <Field
+              label="WhatsApp safety cap / month"
+              hint="Optional operational guardrail only. Plans use wallet/rates and Meta/provider limits."
+            >
               <input
                 type="number"
                 min={0}

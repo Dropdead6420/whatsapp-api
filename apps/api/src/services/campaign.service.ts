@@ -128,9 +128,9 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
   let throttled = 0;
   for (const contact of contacts) {
     try {
-      // Throttle gate: respects monthly quota + per-second smoothing. If the
-      // per-second window is full, wait briefly and re-check (campaigns are
-      // background work — we can absorb the smoothing delay).
+      // Throttle gate: respects per-second/provider smoothing. If the per-second
+      // window is full, wait briefly and re-check (campaigns are background work
+      // and can absorb the smoothing delay).
       const throttleOpts = { phoneNumberId: campaign.tenant.wabaPhoneNumber };
       let gate = await canSendNow(campaign.tenantId, throttleOpts);
       if (!gate.allowed && gate.retryAfterMs) {
@@ -138,7 +138,8 @@ export async function dispatchCampaign(campaignId: string): Promise<void> {
         gate = await canSendNow(campaign.tenantId, throttleOpts);
       }
       if (!gate.allowed) {
-        // Monthly quota exhausted — stop the campaign so the rest doesn't fail.
+        // Provider smoothing or an explicitly enabled safety cap is exhausted:
+        // stop the campaign so the rest doesn't fail.
         throttled = contacts.length - (sent + failed);
         console.warn(
           `[campaign:${campaign.id}] halted: ${gate.reason}`,

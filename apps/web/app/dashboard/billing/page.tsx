@@ -216,10 +216,6 @@ export default function DashboardBillingPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <QuotaCard
-              label={t("billing.quotaMessages")}
-              value={formatCompact(billing?.tenant.messageQuotaPerMonth ?? 0)}
-            />
-            <QuotaCard
               label={t("billing.quotaContacts")}
               value={formatCompact(billing?.tenant.contactLimit ?? 0)}
             />
@@ -230,6 +226,10 @@ export default function DashboardBillingPage() {
             <QuotaCard
               label={t("billing.quotaCampaigns")}
               value={formatCompact(billing?.tenant.campaignLimit ?? 0)}
+            />
+            <QuotaCard
+              label={t("billing.quotaAiCredits")}
+              value={formatCompact(billing?.tenant.aiCreditsPerMonth ?? 0)}
             />
           </div>
         </div>

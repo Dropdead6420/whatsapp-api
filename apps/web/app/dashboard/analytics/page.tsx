@@ -24,9 +24,10 @@ interface AnalyticsSummary {
   totals: Record<string, number>;
   sendQuota?: {
     monthlyUsed: number;
-    monthlyQuota: number;
+    monthlyQuota: number | null;
+    monthlySafetyCapEnabled: boolean;
     perSecondLimit: number;
-    percentUsed: number;
+    percentUsed: number | null;
   };
   planQuotas?: {
     contacts?: { used: number; limit: number };
@@ -322,25 +323,44 @@ export default function AnalyticsPage() {
                 <Send className="h-5 w-5" />
               </span>
               <div>
-                <h2 className="text-sm font-semibold text-slate-950">Send quota</h2>
+                <h2 className="text-sm font-semibold text-slate-950">
+                  WhatsApp send controls
+                </h2>
                 <p className="text-xs text-slate-500">
-                  {compact(summary.sendQuota.monthlyUsed)} of{" "}
-                  {compact(summary.sendQuota.monthlyQuota)} monthly sends used
+                  {summary.sendQuota.monthlySafetyCapEnabled &&
+                  summary.sendQuota.monthlyQuota
+                    ? `${compact(summary.sendQuota.monthlyUsed)} of ${compact(
+                        summary.sendQuota.monthlyQuota,
+                      )} monthly safety cap used`
+                    : `${compact(
+                        summary.sendQuota.monthlyUsed,
+                      )} wallet-metered sends this month`}
                 </p>
               </div>
             </div>
-            <div className="text-sm font-semibold text-slate-900">
-              {summary.sendQuota.percentUsed}%
+            {summary.sendQuota.monthlySafetyCapEnabled &&
+            summary.sendQuota.percentUsed !== null ? (
+              <div className="text-sm font-semibold text-slate-900">
+                {summary.sendQuota.percentUsed}%
+              </div>
+            ) : (
+              <div className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                No plan cap
+              </div>
+            )}
+          </div>
+          {summary.sendQuota.monthlySafetyCapEnabled &&
+          summary.sendQuota.percentUsed !== null ? (
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-emerald-500"
+                style={{ width: `${Math.min(100, summary.sendQuota.percentUsed)}%` }}
+              />
             </div>
-          </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-emerald-500"
-              style={{ width: `${Math.min(100, summary.sendQuota.percentUsed)}%` }}
-            />
-          </div>
+          ) : null}
           <p className="mt-3 text-xs text-slate-500">
             Per-second smoothing limit: {summary.sendQuota.perSecondLimit}/sec.
+            Monthly volume is controlled by wallet/rates and provider limits.
           </p>
         </section>
       )}

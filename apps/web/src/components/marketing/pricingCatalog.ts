@@ -37,15 +37,7 @@ export function fallbackToPublicPlan(
     description: plan.description,
     priceInPaisa: plan.priceInPaisa,
     billingCycle: "monthly",
-    messageQuota: isFree
-      ? 100
-      : isBasic
-        ? 1_000
-        : isStandard
-          ? 10_000
-          : isPremium
-            ? 50_000
-            : 250_000,
+    messageQuota: 1_000_000,
     contactLimit: isFree
       ? 100
       : isBasic

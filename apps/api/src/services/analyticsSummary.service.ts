@@ -199,10 +199,14 @@ export async function getTenantSummary(tenantId: string) {
     sendQuota: {
       monthlyUsed: sendStats.monthlyUsed,
       monthlyQuota: sendStats.monthlyQuota,
+      monthlySafetyCapEnabled: sendStats.monthlySafetyCapEnabled,
       perSecondLimit: sendStats.perSecondLimit,
-      percentUsed: Math.round(
-        (sendStats.monthlyUsed / Math.max(1, sendStats.monthlyQuota)) * 100,
-      ),
+      percentUsed:
+        sendStats.monthlySafetyCapEnabled && sendStats.monthlyQuota
+          ? Math.round(
+              (sendStats.monthlyUsed / Math.max(1, sendStats.monthlyQuota)) * 100,
+            )
+          : null,
     },
     planQuotas: tenant
       ? {

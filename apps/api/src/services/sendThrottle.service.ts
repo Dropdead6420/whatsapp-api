@@ -11,14 +11,19 @@ import { ApiError, ErrorCodes } from "@nexaflow/shared";
  * limit per phone number (typically 80/s). Bursts above either ceiling cause
  * quality-rating drops which can suspend the WABA.
  *
- * We enforce three protections:
- * 1. Monthly cap from `Tenant.messageQuotaPerMonth` (plan limit).
- * 2. Per-tenant per-second smoothing: max N sends per second across the
+ * We enforce two default protections:
+ * 1. Per-tenant per-second smoothing: max N sends per second across the
  *    whole account.
- * 3. Per-WABA-phone-number per-second smoothing: max M sends per second
+ * 2. Per-WABA-phone-number per-second smoothing: max M sends per second
  *    against a single phone number (T-093). This is the Meta-side limit
  *    that the tenant-level smoothing can't catch when one tenant has
  *    multiple numbers.
+ *
+ * The from-scratch architecture PDF is explicit: plan tiers must not impose
+ * artificial WhatsApp message limits. Meta/provider limits, wallet balance,
+ * rates, and quality controls own message volume. `Tenant.messageQuotaPerMonth`
+ * remains available only as an optional emergency safety cap when
+ * SEND_MONTHLY_SAFETY_CAP_ENABLED=true.
  *
  * Counters live in Redis. If Redis is unavailable the throttle fails open
  * rather than blocking real traffic — degraded performance > full outage.
@@ -28,6 +33,8 @@ const PER_SECOND_LIMIT = Number(process.env.SEND_PER_SECOND_LIMIT ?? "20");
 const PER_PHONE_PER_SECOND_LIMIT = Number(
   process.env.SEND_PER_PHONE_PER_SECOND_LIMIT ?? "80",
 );
+const MONTHLY_SAFETY_CAP_ENABLED =
+  process.env.SEND_MONTHLY_SAFETY_CAP_ENABLED === "true";
 const ROLLING_WINDOW_MS = 1000; // 1 second smoothing window
 
 interface ThrottleResult {
@@ -35,7 +42,8 @@ interface ThrottleResult {
   reason?: string;
   retryAfterMs?: number;
   monthlyUsed?: number;
-  monthlyQuota?: number;
+  monthlyQuota?: number | null;
+  monthlySafetyCapEnabled?: boolean;
 }
 
 export interface ThrottleOptions {
@@ -52,32 +60,37 @@ export async function canSendNow(
   tenantId: string,
   options: ThrottleOptions = {},
 ): Promise<ThrottleResult> {
-  let monthlyQuota = 10_000;
+  let monthlyQuota: number | null = null;
   let monthlyUsed = 0;
 
   try {
-    // 1. Monthly cap check from DB + Redis counter.
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { messageQuotaPerMonth: true },
-    });
-    monthlyQuota = tenant?.messageQuotaPerMonth ?? 10_000;
-
     const r = await getRedis();
     const monthKey = `send:{${tenantId}}:month:${monthStartIso()}`;
     const usedRaw = await r.get(monthKey);
     monthlyUsed = usedRaw ? Number(usedRaw) : 0;
 
-    if (monthlyUsed >= monthlyQuota) {
-      return {
-        allowed: false,
-        reason: `Monthly send quota reached (${monthlyUsed}/${monthlyQuota}). Upgrade your plan or wait until next billing cycle.`,
-        monthlyUsed,
-        monthlyQuota,
-      };
+    // Optional emergency safety cap. Disabled by default because WhatsApp
+    // volume is governed by Meta/provider quality limits + wallet/rate engine,
+    // not subscription plan tiers.
+    if (MONTHLY_SAFETY_CAP_ENABLED) {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { messageQuotaPerMonth: true },
+      });
+      monthlyQuota = tenant?.messageQuotaPerMonth ?? null;
+
+      if (monthlyQuota !== null && monthlyUsed >= monthlyQuota) {
+        return {
+          allowed: false,
+          reason: `Monthly safety cap reached (${monthlyUsed}/${monthlyQuota}). Ask SuperAdmin to raise the operational cap or wait until next billing cycle.`,
+          monthlyUsed,
+          monthlyQuota,
+          monthlySafetyCapEnabled: true,
+        };
+      }
     }
 
-    // 2. Per-tenant per-second smoothing using a sliding window of timestamps.
+    // 1. Per-tenant per-second smoothing using a sliding window of timestamps.
     const secKey = `send:{${tenantId}}:sec`;
     const now = Date.now();
     const cutoff = now - ROLLING_WINDOW_MS;
@@ -91,10 +104,11 @@ export async function canSendNow(
         retryAfterMs: ROLLING_WINDOW_MS,
         monthlyUsed,
         monthlyQuota,
+        monthlySafetyCapEnabled: MONTHLY_SAFETY_CAP_ENABLED,
       };
     }
 
-    // 3. Per-WABA-phone-number per-second smoothing (T-093). When the
+    // 2. Per-WABA-phone-number per-second smoothing (T-093). When the
     //    caller knows the phone number id, also gate against the Meta
     //    per-number ceiling.
     if (options.phoneNumberId) {
@@ -108,6 +122,7 @@ export async function canSendNow(
           retryAfterMs: ROLLING_WINDOW_MS,
           monthlyUsed,
           monthlyQuota,
+          monthlySafetyCapEnabled: MONTHLY_SAFETY_CAP_ENABLED,
         };
       }
     }
@@ -117,10 +132,20 @@ export async function canSendNow(
       "[send-throttle] check failed, allowing send:",
       (err as Error).message,
     );
-    return { allowed: true, monthlyUsed, monthlyQuota };
+    return {
+      allowed: true,
+      monthlyUsed,
+      monthlyQuota,
+      monthlySafetyCapEnabled: MONTHLY_SAFETY_CAP_ENABLED,
+    };
   }
 
-  return { allowed: true, monthlyUsed, monthlyQuota };
+  return {
+    allowed: true,
+    monthlyUsed,
+    monthlyQuota,
+    monthlySafetyCapEnabled: MONTHLY_SAFETY_CAP_ENABLED,
+  };
 }
 
 /**
@@ -181,20 +206,32 @@ export async function assertCanSend(
 
 export async function getTenantSendStats(
   tenantId: string,
-): Promise<{ monthlyUsed: number; monthlyQuota: number; perSecondLimit: number }> {
-  let monthlyQuota = 10_000;
+): Promise<{
+  monthlyUsed: number;
+  monthlyQuota: number | null;
+  monthlySafetyCapEnabled: boolean;
+  perSecondLimit: number;
+}> {
+  let monthlyQuota: number | null = null;
   let monthlyUsed = 0;
   try {
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { messageQuotaPerMonth: true },
-    });
-    monthlyQuota = tenant?.messageQuotaPerMonth ?? 10_000;
+    if (MONTHLY_SAFETY_CAP_ENABLED) {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { messageQuotaPerMonth: true },
+      });
+      monthlyQuota = tenant?.messageQuotaPerMonth ?? null;
+    }
     const r = await getRedis();
     const usedRaw = await r.get(`send:{${tenantId}}:month:${monthStartIso()}`);
     monthlyUsed = usedRaw ? Number(usedRaw) : 0;
   } catch {
     // ignore
   }
-  return { monthlyUsed, monthlyQuota, perSecondLimit: PER_SECOND_LIMIT };
+  return {
+    monthlyUsed,
+    monthlyQuota,
+    monthlySafetyCapEnabled: MONTHLY_SAFETY_CAP_ENABLED,
+    perSecondLimit: PER_SECOND_LIMIT,
+  };
 }

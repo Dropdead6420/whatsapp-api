@@ -232,7 +232,6 @@ router.post("/signup", async (req: Request, res: Response, next: NextFunction) =
           status: TenantStatus.ACTIVE,
           ...(selectedPlan
             ? {
-                messageQuotaPerMonth: selectedPlan.messageQuota,
                 contactLimit: selectedPlan.contactLimit,
                 agentLimit: selectedPlan.agentLimit,
                 aiCreditsPerMonth: selectedPlan.aiCreditsPerMonth,

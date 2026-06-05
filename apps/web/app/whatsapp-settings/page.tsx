@@ -616,7 +616,7 @@ export default function WhatsAppSettingsPage() {
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="text-sm font-semibold">Operational Guardrails</h2>
             <ul className="mt-3 space-y-2 text-xs text-slate-600">
-              <li>Outbound messages still respect monthly quota and per-second smoothing.</li>
+              <li>Outbound messages respect wallet balance, compliance, and per-second smoothing.</li>
               <li>Opted-out contacts are blocked before any send leaves NexaFlow.</li>
               <li>STOP, UNSUBSCRIBE, CANCEL, and STOP ALL close the conversation automatically.</li>
               <li>Access tokens are write-only in the app UI.</li>

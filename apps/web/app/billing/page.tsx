@@ -562,9 +562,9 @@ export default function BillingPage() {
                     <span className="text-slate-400">/{plan.billingCycle}</span>
                   </td>
                   <td className="px-4 py-3 text-slate-600">
-                    <div>{formatCompact(plan.messageQuota)} messages</div>
                     <div>{formatCompact(plan.contactLimit)} contacts</div>
                     <div>{plan.agentLimit} agents</div>
+                    <div>{formatCompact(plan.campaignLimit)} campaigns</div>
                   </td>
                   <td className="px-4 py-3 text-slate-600">
                     <div>{plan.creativeStudioEnabled ? "Creative Studio" : "No creative"}</div>
@@ -603,6 +603,7 @@ export default function BillingPage() {
               <h2 className="text-sm font-semibold">Public Plan Editor</h2>
               <p className="mt-1 text-xs text-slate-500">
                 These values power the website pricing cards and subscription limits.
+                WhatsApp usage is wallet/rate based; the message field below is only an optional safety cap.
               </p>
               <label className="mt-4 block text-sm">
                 <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -656,7 +657,7 @@ export default function BillingPage() {
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <NumberField
-                  label="Messages"
+                  label="WhatsApp safety cap"
                   value={planDraft.messageQuota}
                   onChange={(value) =>
                     setPlanDraft({ ...planDraft, messageQuota: value })
@@ -793,8 +794,9 @@ export default function BillingPage() {
             </button>
             {planId && planMap.get(planId) && (
               <p className="mt-3 text-xs text-slate-500">
-                Selected plan includes {formatCompact(planMap.get(planId)!.messageQuota)} messages and{" "}
-                {formatCompact(planMap.get(planId)!.contactLimit)} contacts.
+                Selected plan includes {formatCompact(planMap.get(planId)!.contactLimit)} contacts,{" "}
+                {formatCompact(planMap.get(planId)!.campaignLimit)} campaigns, and{" "}
+                {formatCompact(planMap.get(planId)!.aiCreditsPerMonth)} AI credits.
               </p>
             )}
           </form>

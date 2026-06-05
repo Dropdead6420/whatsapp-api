@@ -67,7 +67,7 @@ async function upsertTenant(args: {
       type: args.type,
       status: TenantStatus.ACTIVE,
       parentTenantId: args.parentTenantId ?? null,
-      messageQuotaPerMonth: args.messageQuotaPerMonth ?? 100_000,
+      messageQuotaPerMonth: args.messageQuotaPerMonth ?? 1_000_000,
       contactLimit: 25_000,
       agentLimit: 25,
       aiCreditsPerMonth: 5_000,
@@ -79,7 +79,7 @@ async function upsertTenant(args: {
       type: args.type,
       status: TenantStatus.ACTIVE,
       parentTenantId: args.parentTenantId ?? null,
-      messageQuotaPerMonth: args.messageQuotaPerMonth ?? 100_000,
+      messageQuotaPerMonth: args.messageQuotaPerMonth ?? 1_000_000,
       contactLimit: 25_000,
       agentLimit: 25,
       aiCreditsPerMonth: 5_000,
@@ -189,14 +189,14 @@ async function main() {
     name: "NexaFlow Platform",
     domain: "platform.nexaflow.local",
     type: TenantType.DIRECT,
-    messageQuotaPerMonth: 300_000,
+    messageQuotaPerMonth: 1_000_000,
   });
 
   const partner = await upsertTenant({
     name: process.env.SEED_PARTNER_TENANT_NAME ?? "Medscub Partner Demo",
     domain: process.env.SEED_PARTNER_TENANT_DOMAIN ?? "partner.demo.medscub.local",
     type: TenantType.WHITE_LABEL,
-    messageQuotaPerMonth: 300_000,
+    messageQuotaPerMonth: 1_000_000,
   });
 
   const business = await upsertTenant({
@@ -204,7 +204,7 @@ async function main() {
     domain: process.env.SEED_BUSINESS_TENANT_DOMAIN ?? "cutz-bangs.demo.medscub.local",
     type: TenantType.BUSINESS,
     parentTenantId: partner.id,
-    messageQuotaPerMonth: 100_000,
+    messageQuotaPerMonth: 1_000_000,
   });
 
   const team = await ensureTeam(business.id);

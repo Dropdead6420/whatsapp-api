@@ -14,7 +14,12 @@ describe("analyticsSummaryToPdf", () => {
     const pdf = analyticsSummaryToPdf({
       scope: "tenant",
       totals: { contacts: 12, messagesMonth: 50 },
-      sendQuota: { monthlyUsed: 50, monthlyQuota: 1000, percentUsed: 5 },
+      sendQuota: {
+        monthlyUsed: 50,
+        monthlyQuota: null,
+        monthlySafetyCapEnabled: false,
+        percentUsed: null,
+      },
       campaignsByStatus: { DRAFT: 1, COMPLETED: 2 },
     });
 
