@@ -132,6 +132,14 @@ function maxUsagePercent(customer: CustomerTenant) {
   );
 }
 
+function needsAdminAttention(customer: CustomerTenant) {
+  return (
+    !customer.primaryAdmin ||
+    !customer.primaryAdmin.emailVerified ||
+    !customer.primaryAdmin.lastLoginAt
+  );
+}
+
 function csvValue(value: string | number | null | undefined) {
   const raw = value === null || value === undefined ? "" : String(value);
   return `"${raw.replace(/"/g, '""')}"`;
@@ -160,6 +168,7 @@ export default function PartnerCustomersPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [planFilter, setPlanFilter] = useState("ALL");
   const [usageFilter, setUsageFilter] = useState("ALL");
+  const [adminHealthFilter, setAdminHealthFilter] = useState("ALL");
   const [customersLoading, setCustomersLoading] = useState(false);
   const [changingPlanCustomerId, setChangingPlanCustomerId] = useState<string | null>(
     null,
@@ -410,9 +419,19 @@ export default function PartnerCustomersPage() {
           usageFilter === "ALL" ||
           (usageFilter === "AT_RISK" && maxUsage >= 70) ||
           (usageFilter === "OVER_LIMIT" && maxUsage >= 100);
-        return matchesStatus && matchesPlan && matchesUsage;
+        const matchesAdminHealth =
+          adminHealthFilter === "ALL" ||
+          (adminHealthFilter === "ATTENTION" && needsAdminAttention(customer)) ||
+          (adminHealthFilter === "NO_ADMIN" && !customer.primaryAdmin) ||
+          (adminHealthFilter === "UNVERIFIED" &&
+            !!customer.primaryAdmin &&
+            !customer.primaryAdmin.emailVerified) ||
+          (adminHealthFilter === "NEVER_LOGIN" &&
+            !!customer.primaryAdmin &&
+            !customer.primaryAdmin.lastLoginAt);
+        return matchesStatus && matchesPlan && matchesUsage && matchesAdminHealth;
       }),
-    [customers, planFilter, statusFilter, usageFilter],
+    [adminHealthFilter, customers, planFilter, statusFilter, usageFilter],
   );
   const portfolioSummary = useMemo(() => {
     const activeCustomers = customers.filter(
@@ -441,12 +460,14 @@ export default function PartnerCustomersPage() {
     const unplannedCustomers = customers.filter(
       (customer) => !customer.subscriptions?.[0],
     ).length;
+    const adminAttentionCustomers = customers.filter(needsAdminAttention).length;
     return {
       totalCustomers: customers.length,
       activeCustomers,
       estimatedMrrInPaisa,
       quotaRiskCustomers,
       unplannedCustomers,
+      adminAttentionCustomers,
     };
   }, [customers]);
 
@@ -503,7 +524,7 @@ export default function PartnerCustomersPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard
           label="Total customers"
           value={formatNumber(portfolioSummary.totalCustomers)}
@@ -518,6 +539,11 @@ export default function PartnerCustomersPage() {
           label="Quota risk"
           value={formatNumber(portfolioSummary.quotaRiskCustomers)}
           detail="At or above 70% of a key limit"
+        />
+        <SummaryCard
+          label="Admin attention"
+          value={formatNumber(portfolioSummary.adminAttentionCustomers)}
+          detail="No admin, unverified, or never logged in"
         />
         <SummaryCard
           label="No plan"
@@ -746,7 +772,7 @@ export default function PartnerCustomersPage() {
           Showing {formatNumber(filteredCustomers.length)} of{" "}
           {formatNumber(customers.length)} customers
         </p>
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
           <select
             className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
             value={statusFilter}
@@ -783,6 +809,18 @@ export default function PartnerCustomersPage() {
             <option value="ALL">All usage</option>
             <option value="AT_RISK">At risk (70%+)</option>
             <option value="OVER_LIMIT">Over limit (100%+)</option>
+          </select>
+          <select
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            value={adminHealthFilter}
+            onChange={(event) => setAdminHealthFilter(event.target.value)}
+            aria-label="Filter customers by admin health"
+          >
+            <option value="ALL">All admins</option>
+            <option value="ATTENTION">Needs attention</option>
+            <option value="NO_ADMIN">No admin</option>
+            <option value="UNVERIFIED">Admin unverified</option>
+            <option value="NEVER_LOGIN">Admin never logged in</option>
           </select>
           <button
             type="button"
