@@ -402,6 +402,22 @@ router.get(
           orderBy: { createdAt: "desc" },
           include: {
             _count: { select: { users: true, contacts: true, campaigns: true } },
+            users: {
+              where: {
+                role: UserRole.BUSINESS_ADMIN,
+                status: { not: UserStatus.DELETED },
+              },
+              orderBy: { createdAt: "asc" },
+              take: 1,
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                status: true,
+                emailVerified: true,
+                lastLoginAt: true,
+              },
+            },
             subscriptions: {
               where: { status: SubscriptionStatus.ACTIVE },
               orderBy: { updatedAt: "desc" },
@@ -416,7 +432,10 @@ router.get(
 
       res.json({
         success: true,
-        data: items,
+        data: items.map(({ users, ...tenant }) => ({
+          ...tenant,
+          primaryAdmin: users[0] ?? null,
+        })),
         pagination: {
           page: q.page,
           limit: q.limit,
@@ -992,6 +1011,7 @@ router.post(
           name: true,
           status: true,
           emailVerified: true,
+          lastLoginAt: true,
         },
       });
 
@@ -1019,6 +1039,7 @@ router.post(
           role: true,
           status: true,
           emailVerified: true,
+          lastLoginAt: true,
         },
       });
 

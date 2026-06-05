@@ -25,6 +25,14 @@ interface CustomerTenant {
   name: string;
   status: string;
   createdAt: string;
+  primaryAdmin?: {
+    id: string;
+    email: string;
+    name: string;
+    status: string;
+    emailVerified: string | null;
+    lastLoginAt: string | null;
+  } | null;
   messageQuotaPerMonth: number;
   contactLimit: number;
   agentLimit: number;
@@ -53,6 +61,7 @@ interface AdminResetResult {
     name: string;
     status: string;
     emailVerified: string | null;
+    lastLoginAt: string | null;
   };
   loginUrl: string;
   temporaryPassword: string;
@@ -126,6 +135,14 @@ function maxUsagePercent(customer: CustomerTenant) {
 function csvValue(value: string | number | null | undefined) {
   const raw = value === null || value === undefined ? "" : String(value);
   return `"${raw.replace(/"/g, '""')}"`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Never";
+  return new Date(value).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 export default function PartnerCustomersPage() {
@@ -222,7 +239,15 @@ export default function PartnerCustomersPage() {
         { planId },
       );
       setCustomers((current) =>
-        current.map((customer) => (customer.id === customerId ? updated : customer)),
+        current.map((customer) =>
+          customer.id === customerId
+            ? {
+                ...customer,
+                ...updated,
+                primaryAdmin: updated.primaryAdmin ?? customer.primaryAdmin,
+              }
+            : customer,
+        ),
       );
       setErr(null);
     } catch (ex) {
@@ -252,7 +277,15 @@ export default function PartnerCustomersPage() {
         { status },
       );
       setCustomers((current) =>
-        current.map((item) => (item.id === customer.id ? updated : item)),
+        current.map((item) =>
+          item.id === customer.id
+            ? {
+                ...item,
+                ...updated,
+                primaryAdmin: updated.primaryAdmin ?? item.primaryAdmin,
+              }
+            : item,
+        ),
       );
       setErr(null);
     } catch (ex) {
@@ -275,6 +308,23 @@ export default function PartnerCustomersPage() {
         {},
       );
       setAdminResetResult({ ...reset, customerName: customer.name });
+      setCustomers((current) =>
+        current.map((item) =>
+          item.id === customer.id
+            ? {
+                ...item,
+                primaryAdmin: {
+                  id: reset.admin.id,
+                  email: reset.admin.email,
+                  name: reset.admin.name,
+                  status: reset.admin.status,
+                  emailVerified: reset.admin.emailVerified,
+                  lastLoginAt: reset.admin.lastLoginAt,
+                },
+              }
+            : item,
+        ),
+      );
       setErr(null);
     } catch (ex) {
       setErr(ex instanceof ApiClientError ? ex.message : "Admin reset failed");
@@ -287,6 +337,11 @@ export default function PartnerCustomersPage() {
     const headers = [
       "Customer",
       "Status",
+      "Admin name",
+      "Admin email",
+      "Admin status",
+      "Admin verified",
+      "Admin last login",
       "Plan",
       "Renewal date",
       "Contacts used",
@@ -303,6 +358,13 @@ export default function PartnerCustomersPage() {
       return [
         customer.name,
         customer.status,
+        customer.primaryAdmin?.name ?? "",
+        customer.primaryAdmin?.email ?? "",
+        customer.primaryAdmin?.status ?? "",
+        customer.primaryAdmin?.emailVerified ? "Yes" : "No",
+        customer.primaryAdmin?.lastLoginAt
+          ? new Date(customer.primaryAdmin.lastLoginAt).toISOString()
+          : "",
         subscription?.plan.displayName ?? "No plan",
         subscription?.currentPeriodEnd
           ? new Date(subscription.currentPeriodEnd).toISOString().slice(0, 10)
@@ -738,6 +800,7 @@ export default function PartnerCustomersPage() {
           <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Admin</th>
               <th className="px-4 py-3">Plan</th>
               <th className="px-4 py-3">Usage</th>
               <th className="px-4 py-3">Status</th>
@@ -756,6 +819,48 @@ export default function PartnerCustomersPage() {
                     <p className="mt-1 text-xs text-slate-500">
                       Created {new Date(c.createdAt).toLocaleDateString("en-IN")}
                     </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.primaryAdmin ? (
+                      <div className="min-w-56 space-y-2">
+                        <div>
+                          <p className="font-medium text-slate-800">
+                            {c.primaryAdmin.name}
+                          </p>
+                          <a
+                            href={`mailto:${c.primaryAdmin.email}`}
+                            className="break-all text-xs text-indigo-600 hover:text-indigo-700"
+                          >
+                            {c.primaryAdmin.email}
+                          </a>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${statusBadgeClass(
+                              c.primaryAdmin.status,
+                            )}`}
+                          >
+                            {c.primaryAdmin.status}
+                          </span>
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${
+                              c.primaryAdmin.emailVerified
+                                ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                                : "bg-amber-50 text-amber-700 ring-amber-200"
+                            }`}
+                          >
+                            {c.primaryAdmin.emailVerified ? "Verified" : "Unverified"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Last login: {formatDateTime(c.primaryAdmin.lastLoginAt)}
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200">
+                        No admin
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="space-y-2">
@@ -867,7 +972,7 @@ export default function PartnerCustomersPage() {
             })}
             {filteredCustomers.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                   {customers.length === 0
                     ? "No customers yet."
                     : "No customers match the selected filters."}
