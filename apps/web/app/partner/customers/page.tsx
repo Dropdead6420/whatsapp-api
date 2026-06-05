@@ -179,6 +179,9 @@ export default function PartnerCustomersPage() {
   const [resettingAdminCustomerId, setResettingAdminCustomerId] = useState<
     string | null
   >(null);
+  const [copiedAdminCustomerId, setCopiedAdminCustomerId] = useState<string | null>(
+    null,
+  );
   const [adminResetResult, setAdminResetResult] =
     useState<AdminResetResult | null>(null);
 
@@ -339,6 +342,31 @@ export default function PartnerCustomersPage() {
       setErr(ex instanceof ApiClientError ? ex.message : "Admin reset failed");
     } finally {
       setResettingAdminCustomerId(null);
+    }
+  }
+
+  async function copyAdminDetails(customer: CustomerTenant) {
+    if (!customer.primaryAdmin) return;
+    const loginUrl =
+      typeof window === "undefined" ? "/login" : `${window.location.origin}/login`;
+    const text = [
+      `Customer: ${customer.name}`,
+      `Admin: ${customer.primaryAdmin.name}`,
+      `Email: ${customer.primaryAdmin.email}`,
+      `Login: ${loginUrl}`,
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAdminCustomerId(customer.id);
+      window.setTimeout(() => {
+        setCopiedAdminCustomerId((current) =>
+          current === customer.id ? null : current,
+        );
+      }, 1800);
+      setErr(null);
+    } catch {
+      setErr("Could not copy admin details. Please copy the email manually.");
     }
   }
 
@@ -893,6 +921,15 @@ export default function PartnerCustomersPage() {
                         <p className="text-xs text-slate-500">
                           Last login: {formatDateTime(c.primaryAdmin.lastLoginAt)}
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => void copyAdminDetails(c)}
+                          className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          {copiedAdminCustomerId === c.id
+                            ? "Copied"
+                            : "Copy admin details"}
+                        </button>
                       </div>
                     ) : (
                       <span className="inline-flex rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200">
