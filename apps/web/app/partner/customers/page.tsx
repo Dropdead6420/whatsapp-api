@@ -92,6 +92,19 @@ function usageTone(percent: number) {
   return "bg-emerald-500";
 }
 
+function maxUsagePercent(customer: CustomerTenant) {
+  return Math.max(
+    usagePercent(customer._count.contacts, customer.contactLimit),
+    usagePercent(customer._count.users, customer.agentLimit),
+    usagePercent(customer._count.campaigns, customer.campaignLimit),
+  );
+}
+
+function csvValue(value: string | number | null | undefined) {
+  const raw = value === null || value === undefined ? "" : String(value);
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
 export default function PartnerCustomersPage() {
   const { user, loading, signOut } = useAuth({
     required: true,
@@ -106,6 +119,7 @@ export default function PartnerCustomersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [planFilter, setPlanFilter] = useState("ALL");
+  const [usageFilter, setUsageFilter] = useState("ALL");
   const [customersLoading, setCustomersLoading] = useState(false);
   const [changingPlanCustomerId, setChangingPlanCustomerId] = useState<string | null>(
     null,
@@ -187,6 +201,54 @@ export default function PartnerCustomersPage() {
     }
   }
 
+  function exportFilteredCustomers() {
+    const headers = [
+      "Customer",
+      "Status",
+      "Plan",
+      "Renewal date",
+      "Contacts used",
+      "Contact limit",
+      "Agents used",
+      "Agent limit",
+      "Campaigns used",
+      "Campaign limit",
+      "Max usage %",
+      "Created date",
+    ];
+    const rows = filteredCustomers.map((customer) => {
+      const subscription = customer.subscriptions?.[0];
+      return [
+        customer.name,
+        customer.status,
+        subscription?.plan.displayName ?? "No plan",
+        subscription?.currentPeriodEnd
+          ? new Date(subscription.currentPeriodEnd).toISOString().slice(0, 10)
+          : "",
+        customer._count.contacts,
+        customer.contactLimit,
+        customer._count.users,
+        customer.agentLimit,
+        customer._count.campaigns,
+        customer.campaignLimit,
+        maxUsagePercent(customer),
+        new Date(customer.createdAt).toISOString().slice(0, 10),
+      ];
+    });
+    const csv = [headers, ...rows]
+      .map((row) => row.map((value) => csvValue(value)).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `partner-customers-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   const selectedPlan = plans.find((plan) => plan.id === form.planId);
   const statusOptions = useMemo(
     () => Array.from(new Set(customers.map((customer) => customer.status))).sort(),
@@ -199,9 +261,14 @@ export default function PartnerCustomersPage() {
         const matchesStatus =
           statusFilter === "ALL" || customer.status === statusFilter;
         const matchesPlan = planFilter === "ALL" || activePlanId === planFilter;
-        return matchesStatus && matchesPlan;
+        const maxUsage = maxUsagePercent(customer);
+        const matchesUsage =
+          usageFilter === "ALL" ||
+          (usageFilter === "AT_RISK" && maxUsage >= 70) ||
+          (usageFilter === "OVER_LIMIT" && maxUsage >= 100);
+        return matchesStatus && matchesPlan && matchesUsage;
       }),
-    [customers, planFilter, statusFilter],
+    [customers, planFilter, statusFilter, usageFilter],
   );
   const portfolioSummary = useMemo(() => {
     const activeCustomers = customers.filter(
@@ -480,7 +547,7 @@ export default function PartnerCustomersPage() {
           Showing {formatNumber(filteredCustomers.length)} of{" "}
           {formatNumber(customers.length)} customers
         </p>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
           <select
             className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
             value={statusFilter}
@@ -508,6 +575,24 @@ export default function PartnerCustomersPage() {
               </option>
             ))}
           </select>
+          <select
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            value={usageFilter}
+            onChange={(event) => setUsageFilter(event.target.value)}
+            aria-label="Filter customers by quota usage"
+          >
+            <option value="ALL">All usage</option>
+            <option value="AT_RISK">At risk (70%+)</option>
+            <option value="OVER_LIMIT">Over limit (100%+)</option>
+          </select>
+          <button
+            type="button"
+            onClick={exportFilteredCustomers}
+            disabled={filteredCustomers.length === 0}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Export CSV
+          </button>
         </div>
       </div>
 
