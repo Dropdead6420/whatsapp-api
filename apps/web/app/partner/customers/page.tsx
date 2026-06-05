@@ -92,6 +92,16 @@ function usageTone(percent: number) {
   return "bg-emerald-500";
 }
 
+function statusBadgeClass(status: string) {
+  if (status === "ACTIVE") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+  if (status === "SUSPENDED") {
+    return "bg-amber-50 text-amber-700 ring-amber-200";
+  }
+  return "bg-slate-100 text-slate-600 ring-slate-200";
+}
+
 function maxUsagePercent(customer: CustomerTenant) {
   return Math.max(
     usagePercent(customer._count.contacts, customer.contactLimit),
@@ -124,6 +134,9 @@ export default function PartnerCustomersPage() {
   const [changingPlanCustomerId, setChangingPlanCustomerId] = useState<string | null>(
     null,
   );
+  const [changingStatusCustomerId, setChangingStatusCustomerId] = useState<
+    string | null
+  >(null);
 
   async function refresh(nextSearch = search) {
     setCustomersLoading(true);
@@ -198,6 +211,36 @@ export default function PartnerCustomersPage() {
       setErr(ex instanceof ApiClientError ? ex.message : "Plan change failed");
     } finally {
       setChangingPlanCustomerId(null);
+    }
+  }
+
+  async function changeCustomerStatus(
+    customer: CustomerTenant,
+    status: "ACTIVE" | "SUSPENDED",
+  ) {
+    if (customer.status === status) return;
+    const isSuspending = status === "SUSPENDED";
+    const confirmed = window.confirm(
+      isSuspending
+        ? `Suspend ${customer.name}? Their users will no longer be treated as an active customer workspace.`
+        : `Reactivate ${customer.name}? Their workspace users will regain normal access.`,
+    );
+    if (!confirmed) return;
+
+    setChangingStatusCustomerId(customer.id);
+    try {
+      const updated = await api.patch<CustomerTenant>(
+        `/api/v1/partner/customers/${customer.id}/status`,
+        { status },
+      );
+      setCustomers((current) =>
+        current.map((item) => (item.id === customer.id ? updated : item)),
+      );
+      setErr(null);
+    } catch (ex) {
+      setErr(ex instanceof ApiClientError ? ex.message : "Status change failed");
+    } finally {
+      setChangingStatusCustomerId(null);
     }
   }
 
@@ -684,9 +727,34 @@ export default function PartnerCustomersPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                      {c.status}
-                    </span>
+                    <div className="space-y-2">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ring-1 ${statusBadgeClass(
+                          c.status,
+                        )}`}
+                      >
+                        {c.status}
+                      </span>
+                      {c.status === "ACTIVE" || c.status === "SUSPENDED" ? (
+                        <button
+                          type="button"
+                          disabled={changingStatusCustomerId === c.id}
+                          onClick={() =>
+                            void changeCustomerStatus(
+                              c,
+                              c.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
+                            )
+                          }
+                          className="block rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {changingStatusCustomerId === c.id
+                            ? "Updating…"
+                            : c.status === "ACTIVE"
+                              ? "Suspend"
+                              : "Reactivate"}
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );

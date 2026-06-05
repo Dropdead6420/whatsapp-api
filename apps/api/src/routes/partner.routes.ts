@@ -558,6 +558,10 @@ const changeCustomerPlanSchema = z.object({
   planId: z.string().cuid(),
 });
 
+const changeCustomerStatusSchema = z.object({
+  status: z.enum([TenantStatus.ACTIVE, TenantStatus.SUSPENDED]),
+});
+
 // POST /api/v1/partner/customers
 router.post(
   "/customers",
@@ -820,6 +824,81 @@ router.patch(
       });
 
       res.json({ success: true, data: updated.tenant });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// PATCH /api/v1/partner/customers/:customerId/status
+//
+// Lets a partner pause or reactivate one of their own child business
+// workspaces without giving them destructive delete access.
+router.patch(
+  "/customers/:customerId/status",
+  requirePermission(Permissions.CLIENT_CREATE),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const body = changeCustomerStatusSchema.parse(req.body);
+
+      const customer = await prisma.tenant.findFirst({
+        where: {
+          id: req.params.customerId,
+          ...childTenantWhere(partner.id),
+        },
+        include: {
+          subscriptions: {
+            where: { status: SubscriptionStatus.ACTIVE },
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            include: { plan: true },
+          },
+          _count: { select: { users: true, contacts: true, campaigns: true } },
+        },
+      });
+
+      if (!customer) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Customer not found.");
+      }
+
+      const updated =
+        customer.status === body.status
+          ? customer
+          : await prisma.tenant.update({
+              where: { id: customer.id },
+              data: { status: body.status },
+              include: {
+                subscriptions: {
+                  where: { status: SubscriptionStatus.ACTIVE },
+                  orderBy: { updatedAt: "desc" },
+                  take: 1,
+                  include: { plan: true },
+                },
+                _count: { select: { users: true, contacts: true, campaigns: true } },
+              },
+            });
+
+      if (customer.status !== body.status) {
+        await logAudit({
+          tenantId: partner.id,
+          userId: req.userId!,
+          action: "UPDATE",
+          resource: "PartnerCustomerStatus",
+          resourceId: customer.id,
+          oldValues: {
+            customerName: customer.name,
+            status: customer.status,
+          },
+          newValues: {
+            customerName: updated.name,
+            status: updated.status,
+          },
+          ...extractRequestMeta(req),
+        });
+      }
+
+      res.json({ success: true, data: updated });
     } catch (err) {
       next(err);
     }
