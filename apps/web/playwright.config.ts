@@ -14,7 +14,6 @@ import { defineConfig, devices } from "@playwright/test";
 // (when you're running the app yourself in another terminal).
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
-const PORT = Number(new URL(BASE_URL).port || "3000");
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "1";
 
 export default defineConfig({
@@ -52,8 +51,11 @@ export default defineConfig({
     : {
         webServer: {
           command: "npm run start",
+          // Playwright requires exactly one of `url` / `port` (it throws when
+          // both are set). `url` already encodes the port and waits for an
+          // HTTP response rather than just an open socket, so it's the right
+          // readiness signal for the Next server.
           url: BASE_URL,
-          port: PORT,
           reuseExistingServer: !process.env.CI,
           stdout: "ignore",
           stderr: "pipe",
