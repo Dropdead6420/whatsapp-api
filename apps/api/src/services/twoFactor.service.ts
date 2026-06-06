@@ -247,3 +247,20 @@ export async function verifyUserToken(
   if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) return true;
   return verifyTotp(decryptToken(user.twoFactorSecret), token);
 }
+
+export type TwoFactorGate = "not_required" | "code_required" | "invalid_code" | "ok";
+
+/**
+ * Pure login-gate decision: given whether the account has 2FA enabled, the
+ * code the client supplied, and whether that code verified, decide what the
+ * login handler should do. Keeps the route logic trivial + unit-testable.
+ */
+export function gateTwoFactor(
+  enabled: boolean,
+  code: string | null | undefined,
+  codeValid: boolean,
+): TwoFactorGate {
+  if (!enabled) return "not_required";
+  if (!code || !code.trim()) return "code_required";
+  return codeValid ? "ok" : "invalid_code";
+}

@@ -33,6 +33,7 @@ import {
   buildWelcomeEmail,
 } from "../services/email.service";
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
+import { gateTwoFactor, verifyUserToken } from "../services/twoFactor.service";
 
 const router = Router();
 
@@ -45,6 +46,8 @@ const WEB_URL = process.env.WEB_URL ?? "http://localhost:3000";
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
+  // Optional TOTP code; required only when the account has 2FA enabled.
+  twoFactorCode: z.string().trim().max(10).optional(),
 });
 
 const signupSchema = z.object({
@@ -362,7 +365,7 @@ router.post(
 
 router.post("/login", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password } = parseBody(loginSchema, req.body);
+    const { email, password, twoFactorCode } = parseBody(loginSchema, req.body);
     const meta = extractRequestMeta(req);
 
     // Per-account throttle (T-091). Pre-check before the bcrypt call so we
@@ -426,6 +429,24 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
         403,
         "Please verify your email before logging in.",
       );
+    }
+
+    // Two-factor gate: accounts with 2FA enabled must supply a valid TOTP
+    // code. Accounts without 2FA (the default) pass straight through.
+    if (user.twoFactorEnabled) {
+      const codeValid = twoFactorCode
+        ? await verifyUserToken(user.id, twoFactorCode)
+        : false;
+      const gate = gateTwoFactor(true, twoFactorCode, codeValid);
+      if (gate !== "ok") {
+        throw new ApiError(
+          ErrorCodes.TWO_FACTOR_REQUIRED,
+          401,
+          gate === "code_required"
+            ? "Two-factor authentication code required."
+            : "Invalid two-factor code.",
+        );
+      }
     }
 
     const tokens = await issueTokens(

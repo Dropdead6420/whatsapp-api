@@ -535,6 +535,7 @@ export const ErrorCodes = {
   EMAIL_NOT_VERIFIED: "EMAIL_NOT_VERIFIED",
   INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
   IMPERSONATION_BLOCKED: "IMPERSONATION_BLOCKED",
+  TWO_FACTOR_REQUIRED: "TWO_FACTOR_REQUIRED",
 } as const;
 
 // ============================================================================

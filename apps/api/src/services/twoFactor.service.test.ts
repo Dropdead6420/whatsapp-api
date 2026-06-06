@@ -3,6 +3,7 @@ import {
   base32Decode,
   base32Encode,
   buildOtpauthUrl,
+  gateTwoFactor,
   generateSecret,
   totp,
   verifyTotp,
@@ -62,6 +63,23 @@ describe("verifyTotp", () => {
   });
   it("rejects a wrong-but-valid-shape code", () => {
     expect(verifyTotp(RFC_SECRET_B32, "000000", 59, 1)).toBe(false);
+  });
+});
+
+describe("gateTwoFactor (login decision)", () => {
+  it("passes through when 2FA is disabled", () => {
+    expect(gateTwoFactor(false, undefined, false)).toBe("not_required");
+    expect(gateTwoFactor(false, "123456", false)).toBe("not_required");
+  });
+  it("requires a code when enabled and none supplied", () => {
+    expect(gateTwoFactor(true, undefined, false)).toBe("code_required");
+    expect(gateTwoFactor(true, "   ", false)).toBe("code_required");
+  });
+  it("rejects an invalid code", () => {
+    expect(gateTwoFactor(true, "000000", false)).toBe("invalid_code");
+  });
+  it("accepts a valid code", () => {
+    expect(gateTwoFactor(true, "287082", true)).toBe("ok");
   });
 });
 
