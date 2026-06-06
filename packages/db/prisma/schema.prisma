@@ -234,6 +234,7 @@ model Tenant {
   aiProviderConfigs        AiProviderConfig[]
   landingPages             LandingPage[]
   gmbPosts                 GmbPost[]
+  integrations             Integration[]
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
@@ -3553,4 +3554,58 @@ model GmbPost {
 
   @@index([tenantId, status])
   @@index([tenantId, scheduledAt])
+}
+
+// =====================================================================
+// Integrations Hub (Complete Planning PDF §2.22 / Phase 11). Tenant-scoped
+// third-party connections (Shopify, WooCommerce, Sheets, Calendar, Zapier,
+// Make, n8n, PayPal, PayU, custom webhook). Non-secret config lives here;
+// credentials are referenced by secretId in the encrypted Secret Vault.
+// Per-provider data sync layers on per connector in later slices.
+// =====================================================================
+
+enum IntegrationProvider {
+  SHOPIFY
+  WOOCOMMERCE
+  GOOGLE_SHEETS
+  GOOGLE_CALENDAR
+  ZAPIER
+  MAKE
+  N8N
+  PAYPAL
+  PAYU
+  CUSTOM_WEBHOOK
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  DISABLED
+  ERROR
+}
+
+model Integration {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  provider IntegrationProvider
+  label    String
+
+  // Non-secret connection config (shop domain, calendar id, webhook url…).
+  config Json?
+  // Optional pointer to an encrypted credential in the Secret Vault.
+  secretId             String?
+  externalAccountLabel String?
+
+  status       IntegrationStatus @default(CONNECTED)
+  lastSyncedAt DateTime?
+  error        String?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, provider])
 }
