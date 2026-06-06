@@ -113,6 +113,18 @@ export function toSafeLandingPage(row: PageRow) {
   };
 }
 
+/** Public-facing projection for the renderer — no internal/owner fields. */
+export function toPublicView(page: ReturnType<typeof toSafeLandingPage>) {
+  return {
+    slug: page.slug,
+    title: page.title,
+    blocks: page.blocks,
+    theme: page.theme,
+    seoTitle: page.seoTitle,
+    seoDescription: page.seoDescription,
+  };
+}
+
 // ---------------------------------------------------------------------
 // DB-backed operations (tenant-scoped)
 // ---------------------------------------------------------------------

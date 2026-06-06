@@ -3,6 +3,7 @@ import { ApiError } from "@nexaflow/shared";
 import {
   normalizeBlocks,
   slugify,
+  toPublicView,
   toSafeLandingPage,
 } from "./landingPage.service";
 
@@ -74,5 +75,31 @@ describe("toSafeLandingPage", () => {
   it("defaults null blocks to []", () => {
     expect(toSafeLandingPage({ ...base, blocks: null }).blocks).toEqual([]);
     expect(toSafeLandingPage({ ...base, theme: null }).theme).toBeNull();
+  });
+});
+
+describe("toPublicView", () => {
+  it("exposes only renderable fields, never owner/status/timestamps", () => {
+    const safe = toSafeLandingPage({
+      id: "p1",
+      tenantId: "t1",
+      slug: "home",
+      title: "Home",
+      blocks: [{ type: "hero", props: {} }],
+      theme: { color: "emerald" },
+      seoTitle: "Welcome",
+      seoDescription: "desc",
+      status: "PUBLISHED" as const,
+      publishedAt: new Date(),
+      archivedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const pub = toPublicView(safe);
+    expect(Object.keys(pub).sort()).toEqual(
+      ["blocks", "seoDescription", "seoTitle", "slug", "theme", "title"].sort(),
+    );
+    expect((pub as Record<string, unknown>).tenantId).toBeUndefined();
+    expect((pub as Record<string, unknown>).status).toBeUndefined();
   });
 });
