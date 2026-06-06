@@ -311,6 +311,31 @@ export async function revealSecret(
   };
 }
 
+/**
+ * Internal, scoped, NON-audited decryption for service-to-service use
+ * (e.g. the AI gateway pulling a provider key). Returns null when the
+ * secret is missing, disabled, or out of the caller's scope. Never call
+ * this from a route that returns the value to the client — use
+ * revealSecret (audited) for that.
+ */
+export async function resolveSecretValue(
+  ctx: SecretContext,
+  id: string | null | undefined,
+): Promise<string | null> {
+  if (!id) return null;
+  const row = await prisma.secretVaultEntry.findFirst({
+    where: {
+      id,
+      scope: ctx.scope,
+      tenantId: ctx.tenantId,
+      status: SecretStatus.ACTIVE,
+    },
+    select: { ciphertext: true },
+  });
+  if (!row) return null;
+  return decryptToken(row.ciphertext);
+}
+
 export interface TestSecretResult {
   ok: boolean;
   message: string;

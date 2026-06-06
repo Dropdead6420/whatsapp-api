@@ -16,6 +16,7 @@ import {
   updateProvider,
 } from "../services/aiProviderHub.service";
 import { getAiUsageSummary } from "../services/aiCostManager.service";
+import { testProviderConnection } from "../services/aiGateway.service";
 
 // AI Provider Hub routes (Complete Planning PDF §2.10 / Phase 4). Scope +
 // owning tenant are derived from the caller (SuperAdmin→PLATFORM,
@@ -167,6 +168,17 @@ router.post("/:id/set-default", async (req: RequestWithAuth, res: Response, next
       ...extractRequestMeta(req),
     });
     res.json({ success: true, data: config });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Live connectivity test: pings the provider with a tiny prompt using the
+// linked vault key. Returns a result object (never throws on provider error).
+router.post("/:id/test", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const result = await testProviderConnection(contextFor(req), req.params.id);
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
