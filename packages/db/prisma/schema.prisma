@@ -235,6 +235,7 @@ model Tenant {
   landingPages             LandingPage[]
   gmbPosts                 GmbPost[]
   integrations             Integration[]
+  callLogs                 CallLog[]
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
@@ -3608,4 +3609,57 @@ model Integration {
 
   @@index([tenantId, status])
   @@index([tenantId, provider])
+}
+
+// =====================================================================
+// Calling + Virtual Number — call log (Complete Planning PDF §2.21 /
+// Phase 11). Tenant-scoped record of inbound/outbound calls with optional
+// recording, transcript and AI summary. Live placement + transcription
+// via a telephony provider, and the virtual-number registry, land in
+// later slices; this slice covers logging + summary.
+// =====================================================================
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  COMPLETED
+  MISSED
+  FAILED
+  BUSY
+  NO_ANSWER
+  VOICEMAIL
+}
+
+model CallLog {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Optional link to a contact (plain id; not a FK to keep logging cheap).
+  contactId String?
+
+  direction CallDirection
+  status    CallStatus    @default(COMPLETED)
+
+  fromNumber String
+  toNumber   String
+
+  durationSeconds Int     @default(0)
+  recordingUrl    String?
+  transcript      String?
+  aiSummary       String?
+
+  startedAt DateTime?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, startedAt])
+  @@index([tenantId, contactId])
+  @@index([tenantId, direction])
 }

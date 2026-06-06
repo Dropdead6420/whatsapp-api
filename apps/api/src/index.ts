@@ -85,6 +85,7 @@ import twoFactorRoutes from "./routes/two-factor.routes";
 import landingPagesRoutes from "./routes/landing-pages.routes";
 import gmbRoutes from "./routes/gmb.routes";
 import integrationsRoutes from "./routes/integrations.routes";
+import callingRoutes from "./routes/calling.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -340,6 +341,7 @@ app.use("/api/v1/2fa", twoFactorRoutes);
 app.use("/api/v1/landing-pages", landingPagesRoutes);
 app.use("/api/v1/gmb", gmbRoutes);
 app.use("/api/v1/integrations", integrationsRoutes);
+app.use("/api/v1/calling", callingRoutes);
 app.use("/api/v1/admin/provider-routes", providerRoutesRoutes);
 app.use("/api/v1/partner/demo", demoRoutes);
 app.use("/api/v1/partner/proposals", proposalRoutes);
