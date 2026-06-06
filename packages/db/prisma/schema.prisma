@@ -229,6 +229,7 @@ model Tenant {
   supportTickets           SupportTicket[]
   secretVaultEntries       SecretVaultEntry[]
   aiProviderConfigs        AiProviderConfig[]
+  landingPages             LandingPage[]
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
@@ -3342,4 +3343,50 @@ model AiProviderConfig {
   @@index([scope, tenantId])
   @@index([scope, tenantId, kind, status, priority])
   @@index([secretId])
+}
+
+// =====================================================================
+// Landing Page + AI Single-Page Website Builder (Complete Planning PDF
+// §2.16 / Phase 10). A tenant-scoped, block-based page with a draft →
+// published lifecycle and a unique per-tenant slug for public hosting.
+// `blocks` is an ordered array of section objects (hero, features, cta,
+// text, image, contact); `theme` carries optional colour/font overrides.
+// AI generation of blocks (single-page website builder) reuses the AI
+// gateway in a later slice.
+// =====================================================================
+
+enum LandingPageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model LandingPage {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  slug  String
+  title String
+
+  // Ordered array of section blocks; null is treated as an empty page.
+  blocks Json?
+  // Optional theme overrides (colours, font).
+  theme  Json?
+
+  seoTitle       String?
+  seoDescription String?
+
+  status      LandingPageStatus @default(DRAFT)
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+  @@index([tenantId, updatedAt])
 }
