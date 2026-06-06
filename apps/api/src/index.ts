@@ -86,6 +86,7 @@ import landingPagesRoutes from "./routes/landing-pages.routes";
 import gmbRoutes from "./routes/gmb.routes";
 import integrationsRoutes from "./routes/integrations.routes";
 import callingRoutes from "./routes/calling.routes";
+import cdpRoutes from "./routes/cdp.routes";
 import {
   startCampaignWorker,
   stopCampaignWorker,
@@ -342,6 +343,7 @@ app.use("/api/v1/landing-pages", landingPagesRoutes);
 app.use("/api/v1/gmb", gmbRoutes);
 app.use("/api/v1/integrations", integrationsRoutes);
 app.use("/api/v1/calling", callingRoutes);
+app.use("/api/v1/cdp", cdpRoutes);
 app.use("/api/v1/admin/provider-routes", providerRoutesRoutes);
 app.use("/api/v1/partner/demo", demoRoutes);
 app.use("/api/v1/partner/proposals", proposalRoutes);
