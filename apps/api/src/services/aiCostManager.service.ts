@@ -141,3 +141,35 @@ export async function getAiUsageSummary(
   });
   return summarizeAiUsage(events, days);
 }
+
+export interface RecordUsageInput {
+  model: string;
+  feature: string;
+  inputTokens: number;
+  outputTokens: number;
+  costInCents?: number;
+}
+
+/**
+ * Append a usage event to the ledger (feeds getAiUsageSummary). Best-effort:
+ * a recording failure must never break the AI call that produced it.
+ */
+export async function recordAiUsage(
+  tenantId: string,
+  input: RecordUsageInput,
+): Promise<void> {
+  try {
+    await prisma.aiUsage.create({
+      data: {
+        tenantId,
+        model: input.model,
+        feature: input.feature,
+        inputTokens: Math.max(0, Math.trunc(input.inputTokens || 0)),
+        outputTokens: Math.max(0, Math.trunc(input.outputTokens || 0)),
+        costInCents: Math.max(0, Math.trunc(input.costInCents || 0)),
+      },
+    });
+  } catch (err) {
+    console.error("[ai-cost] failed to record AiUsage", err);
+  }
+}

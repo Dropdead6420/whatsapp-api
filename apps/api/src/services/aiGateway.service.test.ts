@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { AiProviderKey } from "@nexaflow/db";
-import { buildProviderRequest, parseProviderResponse } from "./aiGateway.service";
+import { AiProviderKey, AiProviderKind } from "@nexaflow/db";
+import {
+  buildProviderRequest,
+  parseProviderResponse,
+  parseUsage,
+  runChatViaChain,
+  type ChatResult,
+} from "./aiGateway.service";
+
+function chainEntry(over: Record<string, unknown> = {}) {
+  return {
+    id: "cfg1",
+    provider: AiProviderKey.OPENAI,
+    kind: AiProviderKind.TEXT,
+    defaultModel: "gpt-4o-mini",
+    baseUrl: null,
+    secretId: "sv1",
+    hasKey: true,
+    ...over,
+  };
+}
+
+function ok(provider: AiProviderKey): ChatResult {
+  return { provider, model: "m", text: "hi", inputTokens: 1, outputTokens: 1 };
+}
 
 describe("buildProviderRequest", () => {
   it("Anthropic → /v1/messages with x-api-key and default model", () => {
@@ -106,5 +129,77 @@ describe("parseProviderResponse", () => {
   it("returns empty string on missing/garbage shapes", () => {
     expect(parseProviderResponse(AiProviderKey.OPENAI, {})).toBe("");
     expect(parseProviderResponse(AiProviderKey.ANTHROPIC, null)).toBe("");
+  });
+});
+
+describe("parseUsage", () => {
+  it("Anthropic usage", () => {
+    expect(
+      parseUsage(AiProviderKey.ANTHROPIC, { usage: { input_tokens: 12, output_tokens: 7 } }),
+    ).toEqual({ inputTokens: 12, outputTokens: 7 });
+  });
+  it("OpenAI usage", () => {
+    expect(
+      parseUsage(AiProviderKey.OPENAI, { usage: { prompt_tokens: 5, completion_tokens: 9 } }),
+    ).toEqual({ inputTokens: 5, outputTokens: 9 });
+  });
+  it("Gemini usageMetadata", () => {
+    expect(
+      parseUsage(AiProviderKey.GEMINI, {
+        usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 4 },
+      }),
+    ).toEqual({ inputTokens: 3, outputTokens: 4 });
+  });
+  it("defaults to zero when absent", () => {
+    expect(parseUsage(AiProviderKey.OPENAI, {})).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+});
+
+describe("runChatViaChain (fallback orchestration)", () => {
+  it("skips entries with no key and uses the next that succeeds", async () => {
+    const tried: string[] = [];
+    const result = await runChatViaChain(
+      [chainEntry({ provider: AiProviderKey.ANTHROPIC }), chainEntry({ provider: AiProviderKey.OPENAI })],
+      {
+        getKey: async (e) => (e.provider === AiProviderKey.ANTHROPIC ? null : "key"),
+        send: async (e) => {
+          tried.push(e.provider);
+          return ok(e.provider);
+        },
+      },
+    );
+    expect(result.provider).toBe(AiProviderKey.OPENAI);
+    expect(tried).toEqual([AiProviderKey.OPENAI]); // anthropic skipped (no key)
+  });
+
+  it("falls back to the next provider when one throws", async () => {
+    const result = await runChatViaChain(
+      [chainEntry({ provider: AiProviderKey.OPENAI }), chainEntry({ provider: AiProviderKey.GEMINI })],
+      {
+        getKey: async () => "key",
+        send: async (e) => {
+          if (e.provider === AiProviderKey.OPENAI) throw new Error("429");
+          return ok(e.provider);
+        },
+      },
+    );
+    expect(result.provider).toBe(AiProviderKey.GEMINI);
+  });
+
+  it("throws 502 when the whole chain is exhausted", async () => {
+    await expect(
+      runChatViaChain([chainEntry()], {
+        getKey: async () => "key",
+        send: async () => {
+          throw new Error("boom");
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 502 });
+  });
+
+  it("throws when no providers are configured", async () => {
+    await expect(
+      runChatViaChain([], { getKey: async () => "k", send: async () => ok(AiProviderKey.OPENAI) }),
+    ).rejects.toThrow(/no AI providers configured/i);
   });
 });
