@@ -236,6 +236,7 @@ model Tenant {
   gmbPosts                 GmbPost[]
   integrations             Integration[]
   callLogs                 CallLog[]
+  virtualNumbers           VirtualNumber[]
   dripSequences            DripSequence[]
   dripEnrollments          DripEnrollment[]
   metaAdsConnection        MetaAdsConnection?
@@ -3662,4 +3663,43 @@ model CallLog {
   @@index([tenantId, startedAt])
   @@index([tenantId, contactId])
   @@index([tenantId, direction])
+}
+
+// =====================================================================
+// Calling — virtual number registry (Complete Planning PDF §2.21 /
+// Phase 11). The phone numbers a tenant owns/uses for calling. Live
+// provisioning via a telephony provider plugs into provider + secretId
+// later; this slice is the registry + lifecycle.
+// =====================================================================
+
+enum VirtualNumberStatus {
+  ACTIVE
+  SUSPENDED
+  RELEASED
+}
+
+model VirtualNumber {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  phoneNumber String // E.164, e.g. +14155552671
+  label       String?
+  countryCode String?
+  provider    String? // twilio | plivo | exotel | manual …
+  // Subset of: voice, sms, whatsapp.
+  capabilities String[] @default([])
+
+  // Optional pointer to provider credentials in the Secret Vault.
+  secretId String?
+
+  status VirtualNumberStatus @default(ACTIVE)
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, phoneNumber])
+  @@index([tenantId, status])
 }
