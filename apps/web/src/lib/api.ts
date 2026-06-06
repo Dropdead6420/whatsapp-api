@@ -195,6 +195,42 @@ export async function logout(): Promise<void> {
 export interface MeResponse {
   user: AuthUserPublic;
   features?: Record<string, boolean>;
+  products?: Record<string, boolean>;
+  productAccess?: ProductAccessItem[];
+}
+
+export interface ProductAddOnAccess {
+  key: string;
+  name: string;
+  description: string | null;
+  priceInPaisa: number;
+  billingCycle: string;
+  isActive: boolean;
+}
+
+export interface ProductAccessItem {
+  key: string;
+  name: string;
+  category: string;
+  description?: string | null;
+  routeHref: string | null;
+  featureKey: string | null;
+  icon?: string | null;
+  enabled: boolean;
+  limits?: unknown | null;
+  source?: string;
+  disabledReason?: string | null;
+  addOns?: ProductAddOnAccess[];
+}
+
+export interface CustomerProductAccessResponse {
+  products: ProductAccessItem[];
+  productsByKey: Record<string, boolean>;
+  features: Record<string, boolean>;
+  terminology: {
+    public: string;
+    internal: string;
+  };
 }
 
 export async function fetchMe(): Promise<AuthUserPublic | null> {
@@ -209,6 +245,16 @@ export async function fetchMe(): Promise<AuthUserPublic | null> {
 export async function fetchMeFull(): Promise<MeResponse | null> {
   try {
     return await api.get<MeResponse>("/api/v1/auth/me");
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchCustomerProductAccess(): Promise<CustomerProductAccessResponse | null> {
+  try {
+    return await api.get<CustomerProductAccessResponse>(
+      "/api/v1/products/customer-access",
+    );
   } catch {
     return null;
   }

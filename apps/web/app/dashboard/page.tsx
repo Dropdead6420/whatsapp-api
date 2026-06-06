@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
-import { api } from "../../src/lib/api";
+import {
+  api,
+  fetchCustomerProductAccess,
+  type CustomerProductAccessResponse,
+} from "../../src/lib/api";
 import { useI18n } from "../../src/i18n/I18nProvider";
 import {
   billingIntentHref,
@@ -59,10 +63,12 @@ interface OnboardingSummary {
 
 export default function DashboardPage() {
   const { t } = useI18n();
-  const { user, features, loading, signOut } = useAuth({ required: true });
+  const { user, features, products, loading, signOut } = useAuth({ required: true });
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [walletAlert, setWalletAlert] = useState<WalletAlert | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingSummary | null>(null);
+  const [marketplace, setMarketplace] =
+    useState<CustomerProductAccessResponse | null>(null);
   const [billingIntent, setBillingIntent] = useState<BillingIntent>({
     billing: false,
     plan: null,
@@ -89,6 +95,9 @@ export default function DashboardPage() {
         .get<OnboardingSummary>("/api/v1/onboarding/status")
         .then(setOnboarding)
         .catch(() => setOnboarding(null));
+      fetchCustomerProductAccess()
+        .then(setMarketplace)
+        .catch(() => setMarketplace(null));
     }
   }, [user]);
 
@@ -97,7 +106,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <DashboardShell user={user} features={features} signOut={signOut}>
+    <DashboardShell
+      user={user}
+      features={features}
+      products={products}
+      signOut={signOut}
+    >
       <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">
           {t("dashboard.welcome", { name: user.name.split(" ")[0] })}
@@ -171,7 +185,7 @@ export default function DashboardPage() {
 
       {user.role === "SUPER_ADMIN" && <SuperAdminCards summary={summary} />}
       {(user.role === "BUSINESS_ADMIN" || user.role === "TEAM_LEAD") && (
-        <BusinessCards summary={summary} />
+        <BusinessCards summary={summary} marketplace={marketplace} />
       )}
       {user.role === "AGENT" && (
         <p className="text-sm text-slate-600">
@@ -287,7 +301,13 @@ function PlanQuotaBar({
   );
 }
 
-function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
+function BusinessCards({
+  summary,
+  marketplace,
+}: {
+  summary: DashboardSummary | null;
+  marketplace: CustomerProductAccessResponse | null;
+}) {
   const { t } = useI18n();
   const totals = summary?.totals;
   const quota = summary?.sendQuota;
@@ -398,6 +418,122 @@ function BusinessCards({ summary }: { summary: DashboardSummary | null }) {
           )}
         </section>
       )}
+
+      <MarketplaceSummaryCard marketplace={marketplace} />
     </>
+  );
+}
+
+function MarketplaceSummaryCard({
+  marketplace,
+}: {
+  marketplace: CustomerProductAccessResponse | null;
+}) {
+  const enabledProducts =
+    marketplace?.products.filter((product) => product.enabled) ?? [];
+  const disabledProducts =
+    marketplace?.products.filter((product) => !product.enabled) ?? [];
+  const paidAddOns = enabledProducts.flatMap((product) =>
+    (product.addOns ?? []).map((addOn) => ({ ...addOn, productName: product.name })),
+  );
+  const categoryCounts = enabledProducts.reduce<Record<string, number>>(
+    (acc, product) => {
+      acc[product.category] = (acc[product.category] ?? 0) + 1;
+      return acc;
+    },
+    {},
+  );
+
+  return (
+    <section className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Product marketplace
+          </div>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">
+            Enabled modules and add-ons
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Your navigation is filtered from this product access list.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+            {enabledProducts.length} enabled
+            {disabledProducts.length > 0
+              ? ` · ${disabledProducts.length} disabled`
+              : ""}
+          </div>
+          <a
+            href="/dashboard/products"
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+          >
+            View all products
+          </a>
+        </div>
+      </div>
+
+      {marketplace ? (
+        <>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {enabledProducts.slice(0, 8).map((product) => (
+              <a
+                key={product.key}
+                href={product.routeHref ?? "/dashboard"}
+                className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 transition hover:border-emerald-200 hover:bg-emerald-50"
+              >
+                <div className="truncate text-sm font-semibold text-slate-950">
+                  {product.name}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {product.category}
+                </div>
+              </a>
+            ))}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {Object.entries(categoryCounts).map(([category, count]) => (
+              <span
+                key={category}
+                className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600"
+              >
+                {category}: {count}
+              </span>
+            ))}
+          </div>
+
+          {paidAddOns.length > 0 && (
+            <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50 p-3">
+              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Available add-ons
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {paidAddOns.slice(0, 4).map((addOn) => (
+                  <div
+                    key={`${addOn.productName}:${addOn.key}`}
+                    className="rounded-lg bg-white px-3 py-2 text-sm shadow-sm"
+                  >
+                    <div className="font-semibold text-slate-950">
+                      {addOn.name}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {addOn.productName} ·{" "}
+                      {formatCurrencyFromPaisa(addOn.priceInPaisa)}/
+                      {addOn.billingCycle}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="mt-4 rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+          Product access is loading or unavailable.
+        </div>
+      )}
+    </section>
   );
 }

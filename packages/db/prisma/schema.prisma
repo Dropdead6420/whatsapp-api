@@ -164,6 +164,9 @@ model Tenant {
   complianceMode Json?
 
   complianceChecks ComplianceCheck[]
+  partnerProductAccesses       PartnerProductAccess[]  @relation("PartnerProductAccessTenant")
+  customerProductAccesses      CustomerProductAccess[] @relation("CustomerProductAccessTenant")
+  customerProductAccessGrants  CustomerProductAccess[] @relation("CustomerProductAccessPartner")
 
   // T-041: Custom email sender (white-label). `emailFromAddress`
   // exists already (declared in the Email Configuration block above).
@@ -250,6 +253,115 @@ model Tenant {
 
   @@index([parentTenantId])
   @@index([status])
+}
+
+enum ProductCategory {
+  CORE
+  AI
+  AUTOMATION
+  BILLING
+  INTEGRATION
+  SUPPORT
+  DEVELOPER
+  COMPLIANCE
+  MARKETING
+}
+
+enum ProductAccessSource {
+  GLOBAL
+  SUPER_ADMIN
+  PARTNER
+  PLAN
+  LEGACY
+}
+
+model Product {
+  id              String          @id @default(cuid())
+  key             String          @unique
+  name            String
+  category        ProductCategory @default(CORE)
+  description     String?
+  routeHref       String?
+  featureKey      String?
+  icon            String?
+  isGlobalEnabled Boolean         @default(true)
+  sortOrder       Int             @default(1000)
+  metadata        Json?
+
+  addOns           ProductAddOn[]
+  partnerAccesses  PartnerProductAccess[]
+  customerAccesses CustomerProductAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, sortOrder])
+  @@index([featureKey])
+  @@index([isGlobalEnabled])
+}
+
+model ProductAddOn {
+  id           String  @id @default(cuid())
+  productId    String
+  product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  key          String
+  name         String
+  description  String?
+  priceInPaisa Int     @default(0)
+  billingCycle String  @default("monthly")
+  isActive     Boolean @default(true)
+  metadata     Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, key])
+  @@index([isActive])
+}
+
+model PartnerProductAccess {
+  id              String              @id @default(cuid())
+  partnerTenantId String
+  partnerTenant   Tenant              @relation("PartnerProductAccessTenant", fields: [partnerTenantId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  enabled         Boolean             @default(true)
+  limits          Json?
+  source          ProductAccessSource @default(SUPER_ADMIN)
+  expiresAt       DateTime?
+  createdByUserId String?
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([partnerTenantId, productId])
+  @@index([partnerTenantId, enabled])
+  @@index([productId, enabled])
+}
+
+model CustomerProductAccess {
+  id               String              @id @default(cuid())
+  customerTenantId String
+  customerTenant   Tenant              @relation("CustomerProductAccessTenant", fields: [customerTenantId], references: [id], onDelete: Cascade)
+  partnerTenantId  String?
+  partnerTenant    Tenant?             @relation("CustomerProductAccessPartner", fields: [partnerTenantId], references: [id], onDelete: SetNull)
+  productId        String
+  product          Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  enabled          Boolean             @default(true)
+  limits           Json?
+  source           ProductAccessSource @default(SUPER_ADMIN)
+  expiresAt        DateTime?
+  createdByUserId  String?
+  updatedByUserId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([customerTenantId, productId])
+  @@index([customerTenantId, enabled])
+  @@index([partnerTenantId, enabled])
+  @@index([productId, enabled])
 }
 
 // ProviderRoute (T-005b, ADR-018) — routes WhatsApp send traffic to a

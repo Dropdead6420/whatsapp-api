@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { prisma } from "@nexaflow/db";
+import { Prisma, prisma } from "@nexaflow/db";
 import {
   ApiError,
   ErrorCodes,
@@ -32,6 +32,7 @@ import {
   SupportTicketStatus,
   CreditSource,
   PartnerModel,
+  ProductAccessSource,
   ProviderOwnership,
   SubscriptionStatus,
 } from "@nexaflow/db";
@@ -61,6 +62,10 @@ import {
   summarizePartnerBilling,
 } from "../services/partnerDashboard.service";
 import { publicPlan } from "../services/planCatalog.service";
+import {
+  assertPartnerCanGrantProduct,
+  assertPartnerOwnsCustomer,
+} from "../services/productAccess.service";
 
 const router = Router();
 
@@ -95,6 +100,19 @@ function childTenantWhere(partnerTenantId: string) {
     parentTenantId: partnerTenantId,
     type: TenantType.BUSINESS,
   };
+}
+
+function accessStillActive(access: { expiresAt?: Date | null } | null | undefined) {
+  return !access?.expiresAt || access.expiresAt.getTime() > Date.now();
+}
+
+function jsonInput(value: unknown):
+  | Prisma.NullableJsonNullValueInput
+  | Prisma.InputJsonValue
+  | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return Prisma.JsonNull;
+  return value as Prisma.InputJsonValue;
 }
 
 function generateTemporaryPassword(): string {
@@ -1344,6 +1362,204 @@ router.get(
           },
         },
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/partner/products/access
+// Real product entitlement matrix: products allowed for this partner and
+// per-child-customer toggles. "Customer" is the public term; internally these
+// are child Tenant rows.
+router.get(
+  "/products/access",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const [products, partnerAccesses, children] = await Promise.all([
+        prisma.product.findMany({
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+          include: {
+            addOns: {
+              where: { isActive: true },
+              orderBy: { name: "asc" },
+              select: {
+                key: true,
+                name: true,
+                description: true,
+                priceInPaisa: true,
+                billingCycle: true,
+                isActive: true,
+              },
+            },
+          },
+        }),
+        prisma.partnerProductAccess.findMany({
+          where: { partnerTenantId: partner.id },
+          select: {
+            productId: true,
+            enabled: true,
+            limits: true,
+            source: true,
+            expiresAt: true,
+          },
+        }),
+        prisma.tenant.findMany({
+          where: childTenantWhere(partner.id),
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, status: true },
+        }),
+      ]);
+
+      const childIds = children.map((child) => child.id);
+      const customerAccesses = childIds.length
+        ? await prisma.customerProductAccess.findMany({
+            where: { customerTenantId: { in: childIds } },
+            select: {
+              customerTenantId: true,
+              productId: true,
+              enabled: true,
+              limits: true,
+              source: true,
+              expiresAt: true,
+            },
+          })
+        : [];
+
+      const partnerByProduct = new Map(
+        partnerAccesses.map((access) => [access.productId, access]),
+      );
+      const customerByTenantProduct = new Map(
+        customerAccesses.map((access) => [
+          `${access.customerTenantId}:${access.productId}`,
+          access,
+        ]),
+      );
+
+      const productRows = products.map((product) => {
+        const partnerAccess = partnerByProduct.get(product.id);
+        const enabledForPartner =
+          product.isGlobalEnabled &&
+          Boolean(partnerAccess?.enabled && accessStillActive(partnerAccess));
+        return {
+          id: product.id,
+          key: product.key,
+          name: product.name,
+          category: product.category,
+          description: product.description,
+          routeHref: product.routeHref,
+          featureKey: product.featureKey,
+          icon: product.icon,
+          enabledForPartner,
+          globalEnabled: product.isGlobalEnabled,
+          limits: partnerAccess?.limits ?? null,
+          source: partnerAccess?.source ?? ProductAccessSource.SUPER_ADMIN,
+          addOns: product.addOns,
+        };
+      });
+      const productRowsById = new Map(productRows.map((row) => [row.id, row]));
+
+      const customers = children.map((child) => ({
+        id: child.id,
+        name: child.name,
+        status: child.status,
+        products: Object.fromEntries(
+          products.map((product) => {
+            const partnerRow = productRowsById.get(product.id);
+            const access = customerByTenantProduct.get(`${child.id}:${product.id}`);
+            const explicitEnabled =
+              !access || (access.enabled && accessStillActive(access));
+            return [
+              product.key,
+              {
+                enabled: Boolean(partnerRow?.enabledForPartner && explicitEnabled),
+                explicitEnabled,
+                source: access?.source ?? ProductAccessSource.GLOBAL,
+                limits: access?.limits ?? partnerRow?.limits ?? null,
+              },
+            ];
+          }),
+        ),
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          partner,
+          products: productRows,
+          customers,
+          terminology: { public: "Customer", internal: "Tenant" },
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// PATCH /api/v1/partner/customers/:customerId/products/:productKey
+router.patch(
+  "/customers/:customerId/products/:productKey",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const body = z
+        .object({
+          enabled: z.boolean(),
+          limits: z.unknown().nullable().optional(),
+        })
+        .parse(req.body);
+      const partner = await assertPartnerTenant(req.tenantId!);
+      const customer = await assertPartnerOwnsCustomer(
+        partner.id,
+        req.params.customerId,
+      );
+      const { product } = await assertPartnerCanGrantProduct(
+        partner.id,
+        req.params.productKey,
+      );
+
+      const access = await prisma.customerProductAccess.upsert({
+        where: {
+          customerTenantId_productId: {
+            customerTenantId: customer.id,
+            productId: product.id,
+          },
+        },
+        update: {
+          enabled: body.enabled,
+          limits: jsonInput(body.limits),
+          partnerTenantId: partner.id,
+          source: ProductAccessSource.PARTNER,
+          updatedByUserId: req.userId,
+        },
+        create: {
+          customerTenantId: customer.id,
+          partnerTenantId: partner.id,
+          productId: product.id,
+          enabled: body.enabled,
+          limits: jsonInput(body.limits),
+          source: ProductAccessSource.PARTNER,
+          createdByUserId: req.userId,
+          updatedByUserId: req.userId,
+        },
+      });
+
+      await logAudit({
+        tenantId: partner.id,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "CustomerProductAccess",
+        resourceId: access.id,
+        newValues: {
+          customerTenantId: customer.id,
+          productKey: product.key,
+          enabled: access.enabled,
+        },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({ success: true, data: access });
     } catch (err) {
       next(err);
     }

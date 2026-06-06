@@ -1,4 +1,13 @@
-import { PrismaClient, PlanName, UserRole, UserStatus, TenantType, TenantStatus } from "@prisma/client";
+import {
+  PrismaClient,
+  PlanName,
+  ProductAccessSource,
+  ProductCategory,
+  TenantStatus,
+  TenantType,
+  UserRole,
+  UserStatus,
+} from "@prisma/client";
 import bcryptjs from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -100,6 +109,223 @@ const PLANS: Array<{
   },
 ];
 
+const PRODUCT_CATALOG: Array<{
+  key: string;
+  name: string;
+  category: ProductCategory;
+  description: string;
+  routeHref: string;
+  featureKey?: string;
+  icon: string;
+  sortOrder: number;
+  addOns?: Array<{
+    key: string;
+    name: string;
+    description: string;
+    priceInPaisa: number;
+    billingCycle?: string;
+  }>;
+}> = [
+  {
+    key: "inbox",
+    name: "Inbox",
+    category: ProductCategory.CORE,
+    description: "Team WhatsApp inbox, routing, notes, labels, and SLA workflow.",
+    routeHref: "/dashboard/inbox",
+    icon: "inbox",
+    sortOrder: 10,
+  },
+  {
+    key: "contacts",
+    name: "Contacts",
+    category: ProductCategory.CORE,
+    description: "Customer CRM, tags, imports, opt-out state, and segmentation base.",
+    routeHref: "/dashboard/contacts",
+    icon: "users",
+    sortOrder: 20,
+  },
+  {
+    key: "campaigns",
+    name: "Campaigns",
+    category: ProductCategory.MARKETING,
+    description: "WhatsApp broadcast campaigns with scheduling, compliance, and analytics.",
+    routeHref: "/dashboard/campaigns",
+    featureKey: "campaigns",
+    icon: "megaphone",
+    sortOrder: 30,
+  },
+  {
+    key: "templates",
+    name: "Templates",
+    category: ProductCategory.MARKETING,
+    description: "Meta template library, approval tracking, translation, and AI drafting.",
+    routeHref: "/dashboard/templates",
+    icon: "file-text",
+    sortOrder: 40,
+  },
+  {
+    key: "ai_studio",
+    name: "AI Studio",
+    category: ProductCategory.AI,
+    description: "AI copy generation, campaign variants, scoring, and creative assistance.",
+    routeHref: "/ai-studio",
+    featureKey: "aiStudio",
+    icon: "sparkles",
+    sortOrder: 50,
+    addOns: [
+      {
+        key: "extra_ai_credits",
+        name: "Extra AI credits",
+        description: "Additional monthly AI generation credits for high-volume teams.",
+        priceInPaisa: 99_900,
+      },
+    ],
+  },
+  {
+    key: "ai_agents",
+    name: "AI Agents",
+    category: ProductCategory.AI,
+    description: "Configurable AI agents with knowledge grounding, test runs, and auto-reply.",
+    routeHref: "/dashboard/ai-agents",
+    featureKey: "aiAgents",
+    icon: "bot",
+    sortOrder: 60,
+  },
+  {
+    key: "workflow_builder",
+    name: "Workflow Builder",
+    category: ProductCategory.AUTOMATION,
+    description: "Visual workflow builder, runtime, scheduler, and audited flow runs.",
+    routeHref: "/dashboard/workflow-builder",
+    featureKey: "flows",
+    icon: "workflow",
+    sortOrder: 70,
+  },
+  {
+    key: "chatbot_builder",
+    name: "Chatbot Builder",
+    category: ProductCategory.AUTOMATION,
+    description: "No-code WhatsApp chatbot flows with triggers and node-level configuration.",
+    routeHref: "/dashboard/chatbot-builder",
+    featureKey: "flows",
+    icon: "message-square",
+    sortOrder: 80,
+  },
+  {
+    key: "wallet",
+    name: "Wallet / Recharge",
+    category: ProductCategory.BILLING,
+    description: "Customer wallets, recharge, usage ledgers, and billing safety controls.",
+    routeHref: "/dashboard/wallet",
+    icon: "wallet",
+    sortOrder: 90,
+  },
+  {
+    key: "analytics",
+    name: "Analytics",
+    category: ProductCategory.CORE,
+    description: "Campaign, inbox, revenue, wallet, and customer health reporting.",
+    routeHref: "/dashboard/analytics",
+    icon: "bar-chart",
+    sortOrder: 100,
+  },
+  {
+    key: "developer_hub",
+    name: "Developer Hub",
+    category: ProductCategory.DEVELOPER,
+    description: "API keys, public API docs, webhooks, sandbox, and developer logs.",
+    routeHref: "/developer",
+    featureKey: "developerPortal",
+    icon: "code",
+    sortOrder: 110,
+    addOns: [
+      {
+        key: "developer_api",
+        name: "Developer API access",
+        description: "Higher API rate limits and advanced webhook tooling.",
+        priceInPaisa: 149_900,
+      },
+    ],
+  },
+  {
+    key: "compliance",
+    name: "Compliance Firewall",
+    category: ProductCategory.COMPLIANCE,
+    description: "AI-assisted WhatsApp policy checks, overrides, and audit trail.",
+    routeHref: "/compliance",
+    featureKey: "complianceFirewall",
+    icon: "shield",
+    sortOrder: 120,
+  },
+  {
+    key: "appointments",
+    name: "Appointments",
+    category: ProductCategory.CORE,
+    description: "Service catalog, customer booking links, reminders, and confirmations.",
+    routeHref: "/appointments",
+    featureKey: "appointments",
+    icon: "calendar",
+    sortOrder: 130,
+  },
+  {
+    key: "ads",
+    name: "Ads",
+    category: ProductCategory.MARKETING,
+    description: "Meta and Google Ads connections, lead sync, audiences, and reports.",
+    routeHref: "/meta-ads",
+    featureKey: "adsIntegration",
+    icon: "target",
+    sortOrder: 140,
+    addOns: [
+      {
+        key: "ads_assistant",
+        name: "Ads AI assistant",
+        description: "AI campaign copy, targeting prompts, and budget recommendations.",
+        priceInPaisa: 249_900,
+      },
+    ],
+  },
+  {
+    key: "retention",
+    name: "Retention Engine",
+    category: ProductCategory.AI,
+    description: "AI contact health scoring, win-back suggestions, and autopilot actions.",
+    routeHref: "/retention",
+    featureKey: "retentionEngine",
+    icon: "refresh",
+    sortOrder: 150,
+  },
+  {
+    key: "webhooks",
+    name: "Webhooks",
+    category: ProductCategory.INTEGRATION,
+    description: "Signed outbound webhooks with retries, delivery logs, and event registry.",
+    routeHref: "/webhooks",
+    featureKey: "webhooks",
+    icon: "plug",
+    sortOrder: 160,
+  },
+  {
+    key: "knowledge_base",
+    name: "Knowledge Base",
+    category: ProductCategory.AI,
+    description: "Tenant knowledge entries, categories, tags, embeddings, and retrieval.",
+    routeHref: "/knowledge-base",
+    featureKey: "knowledgeBase",
+    icon: "book-open",
+    sortOrder: 170,
+  },
+  {
+    key: "support",
+    name: "Support",
+    category: ProductCategory.SUPPORT,
+    description: "Support tickets, escalation workflow, and help center operations.",
+    routeHref: "/dashboard/support",
+    icon: "life-buoy",
+    sortOrder: 180,
+  },
+];
+
 const LAUNCH_CURRENCIES: Array<{
   code: string;
   name: string;
@@ -196,6 +422,104 @@ async function seedPlans() {
     }
   }
   console.log(`✓ Seeded ${PLANS.length} plans`);
+}
+
+async function seedProducts() {
+  for (const product of PRODUCT_CATALOG) {
+    const { addOns, ...data } = product;
+    const saved = await prisma.product.upsert({
+      where: { key: product.key },
+      update: {
+        ...data,
+        isGlobalEnabled: true,
+        metadata: {
+          seededFrom: "NexaFlow Complete Feature Implementation PDF",
+          publicTerminology: "Customer",
+          internalTerminology: "Tenant",
+        },
+      },
+      create: {
+        ...data,
+        isGlobalEnabled: true,
+        metadata: {
+          seededFrom: "NexaFlow Complete Feature Implementation PDF",
+          publicTerminology: "Customer",
+          internalTerminology: "Tenant",
+        },
+      },
+    });
+
+    for (const addOn of addOns ?? []) {
+      await prisma.productAddOn.upsert({
+        where: {
+          productId_key: {
+            productId: saved.id,
+            key: addOn.key,
+          },
+        },
+        update: {
+          name: addOn.name,
+          description: addOn.description,
+          priceInPaisa: addOn.priceInPaisa,
+          billingCycle: addOn.billingCycle ?? "monthly",
+          isActive: true,
+          metadata: { seeded: true },
+        },
+        create: {
+          productId: saved.id,
+          key: addOn.key,
+          name: addOn.name,
+          description: addOn.description,
+          priceInPaisa: addOn.priceInPaisa,
+          billingCycle: addOn.billingCycle ?? "monthly",
+          isActive: true,
+          metadata: { seeded: true },
+        },
+      });
+    }
+  }
+  console.log(`✓ Seeded ${PRODUCT_CATALOG.length} marketplace products`);
+}
+
+async function seedPartnerProductAccess() {
+  const [partners, products] = await Promise.all([
+    prisma.tenant.findMany({
+      where: {
+        type: TenantType.WHITE_LABEL,
+        status: { not: TenantStatus.DELETED },
+      },
+      select: { id: true },
+    }),
+    prisma.product.findMany({ select: { id: true } }),
+  ]);
+
+  for (const partner of partners) {
+    for (const product of products) {
+      await prisma.partnerProductAccess.upsert({
+        where: {
+          partnerTenantId_productId: {
+            partnerTenantId: partner.id,
+            productId: product.id,
+          },
+        },
+        update: {},
+        create: {
+          partnerTenantId: partner.id,
+          productId: product.id,
+          enabled: true,
+          source: ProductAccessSource.SUPER_ADMIN,
+          limits: {
+            seeded: true,
+            note: "Default launch entitlement for existing partners",
+          },
+        },
+      });
+    }
+  }
+
+  console.log(
+    `✓ Seeded ${partners.length * products.length} partner product entitlements`,
+  );
 }
 
 async function seedSuperAdmin() {
@@ -404,6 +728,8 @@ async function main() {
   await seedCurrencies();
   await seedLanguages();
   await seedPlans();
+  await seedProducts();
+  await seedPartnerProductAccess();
   await seedSuperAdmin();
   await seedFlowTemplates();
 }

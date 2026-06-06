@@ -7,9 +7,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AuthUserPublic } from "@nexaflow/shared";
 import {
   fetchCurrencySettings,
+  fetchCustomerProductAccess,
   fetchLanguageSettings,
   updateCurrencyPreference,
   updateLanguagePreference,
+  type CustomerProductAccessResponse,
   type TenantCurrencySettings,
   type TenantLanguageSettings,
 } from "../lib/api";
@@ -33,6 +35,7 @@ import {
   Megaphone,
   Menu,
   MessageSquare,
+  Package,
   Plug,
   Plus,
   Search,
@@ -64,6 +67,7 @@ export interface AppNavItem {
   icon: LucideIcon;
   roles: RoleName[];
   feature?: string;
+  product?: string;
   activeRoutes?: string[];
 }
 
@@ -103,6 +107,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         label: "Inbox",
         icon: Inbox,
         roles: INBOX_ROLES,
+        product: "inbox",
         activeRoutes: ["/inbox", "/agent/inbox"],
       },
       {
@@ -116,6 +121,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         label: "Contacts",
         icon: Users,
         roles: BUSINESS_ROLES,
+        product: "contacts",
         activeRoutes: ["/contacts"],
       },
       {
@@ -124,6 +130,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: Megaphone,
         roles: BUSINESS_ROLES,
         feature: "campaigns",
+        product: "campaigns",
         activeRoutes: ["/campaigns"],
       },
       {
@@ -131,6 +138,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         label: "Templates",
         icon: FileText,
         roles: BUSINESS_ROLES,
+        product: "templates",
         activeRoutes: ["/templates"],
       },
     ],
@@ -144,6 +152,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: MessageSquare,
         roles: BUSINESS_ROLES,
         feature: "flows",
+        product: "chatbot_builder",
         activeRoutes: ["/flows"],
       },
       {
@@ -151,6 +160,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         label: "Workflow Builder",
         icon: Workflow,
         roles: BUSINESS_ROLES,
+        product: "workflow_builder",
         activeRoutes: ["/drip-sequences"],
       },
       {
@@ -159,6 +169,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: Bot,
         roles: BUSINESS_ROLES,
         feature: "aiAgents",
+        product: "ai_agents",
         activeRoutes: ["/ai-agents"],
       },
       {
@@ -167,6 +178,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: Sparkles,
         roles: BUSINESS_ROLES,
         feature: "aiStudio",
+        product: "ai_studio",
       },
     ],
   },
@@ -178,6 +190,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         label: "Wallet / Recharge",
         icon: WalletCards,
         roles: ["SUPER_ADMIN", "WHITE_LABEL_ADMIN", "BUSINESS_ADMIN"],
+        product: "wallet",
         activeRoutes: ["/wallets"],
       },
       {
@@ -187,10 +200,17 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         roles: ["WHITE_LABEL_ADMIN", "BUSINESS_ADMIN"],
       },
       {
+        href: "/dashboard/products",
+        label: "My Products",
+        icon: Package,
+        roles: BUSINESS_ROLES,
+      },
+      {
         href: "/dashboard/analytics",
         label: "Analytics",
         icon: BarChart3,
         roles: ["SUPER_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD"],
+        product: "analytics",
       },
       {
         href: "/team-performance",
@@ -203,6 +223,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         label: "Integrations",
         icon: Plug,
         roles: BUSINESS_ROLES,
+        product: "developer_hub",
         activeRoutes: ["/developer", "/webhooks", "/whatsapp-settings"],
       },
       {
@@ -216,6 +237,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         label: "Support",
         icon: LifeBuoy,
         roles: ALL_DASHBOARD_ROLES,
+        product: "support",
       },
     ],
   },
@@ -240,6 +262,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: Headphones,
         roles: ["SUPER_ADMIN", "BUSINESS_ADMIN", "TEAM_LEAD"],
         feature: "complianceFirewall",
+        product: "compliance",
       },
     ],
   },
@@ -256,6 +279,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         href: "/billing",
         label: "Plans & Billing",
         icon: CreditCard,
+        roles: ["SUPER_ADMIN"],
+      },
+      {
+        href: "/products",
+        label: "Products",
+        icon: Package,
         roles: ["SUPER_ADMIN"],
       },
       {
@@ -360,15 +389,20 @@ function navKey(label: string): string {
 function filterSections(
   user: AuthUserPublic,
   features?: Record<string, boolean> | null,
+  products?: Record<string, boolean> | null,
 ) {
   const isFeatureOn = (key?: string) =>
     !key || !features || features[key] !== false;
+  const isProductOn = (key?: string) =>
+    !key || !products || products[key] !== false;
 
   return APP_NAV_SECTIONS.map((section) => ({
     ...section,
     items: section.items.filter(
       (item) =>
-        item.roles.includes(user.role as RoleName) && isFeatureOn(item.feature),
+        item.roles.includes(user.role as RoleName) &&
+        isFeatureOn(item.feature) &&
+        isProductOn(item.product),
     ),
   })).filter((section) => section.items.length > 0);
 }
@@ -867,11 +901,13 @@ export function BottomNav({
 export function AppShell({
   user,
   features,
+  products,
   signOut,
   children,
 }: {
   user: AuthUserPublic;
   features?: Record<string, boolean> | null;
+  products?: Record<string, boolean> | null;
   signOut: () => void;
   children: ReactNode;
 }) {
@@ -883,7 +919,20 @@ export function AppShell({
     useState<TenantLanguageSettings | null>(null);
   const [currencySettings, setCurrencySettings] =
     useState<TenantCurrencySettings | null>(null);
-  const sections = useMemo(() => filterSections(user, features), [features, user]);
+  const [productAccess, setProductAccess] =
+    useState<CustomerProductAccessResponse | null>(null);
+  const resolvedFeatures = useMemo(
+    () => ({
+      ...(features ?? {}),
+      ...(productAccess?.features ?? {}),
+    }),
+    [features, productAccess?.features],
+  );
+  const resolvedProducts = productAccess?.productsByKey ?? products;
+  const sections = useMemo(
+    () => filterSections(user, resolvedFeatures, resolvedProducts),
+    [resolvedFeatures, resolvedProducts, user],
+  );
   const flatItems = sections.flatMap((section) => section.items);
   const title = t(navKey(pageTitleFromPath(pathname, sections)));
   const activeHref = activeHrefFromPath(pathname, sections);
@@ -896,6 +945,22 @@ export function AppShell({
   const currencyLocked = currencySettings
     ? !currencySettings.setting.canUpdatePreference
     : false;
+
+  useEffect(() => {
+    if (!user.tenantId) return;
+    let cancelled = false;
+    void fetchCustomerProductAccess()
+      .then((access) => {
+        if (!cancelled) setProductAccess(access);
+      })
+      .catch(() => {
+        // Product access is a navigation enhancement; legacy feature flags
+        // still keep the shell usable if this endpoint is temporarily down.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.tenantId]);
 
   useEffect(() => {
     if (!user.tenantId) return;

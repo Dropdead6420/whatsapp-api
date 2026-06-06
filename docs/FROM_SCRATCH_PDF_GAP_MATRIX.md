@@ -11,7 +11,7 @@ Status date: 2026-06-05
 | Modular monolith + workers | Shipped | Next.js web, Express API, Prisma/Postgres, Redis, Docker, and worker processes are present. |
 | Auth, roles, audit logs | Shipped | JWT auth, RBAC, tenant scoping, and audit logging are implemented. OAuth/2FA remain backlog hardening. |
 | Customer, partner, SuperAdmin scoping | Shipped | Separate partner/customer/admin portals and tenant filters are present. Continue test coverage for cross-tenant isolation. |
-| Product marketplace/module access | Shipped | Product and feature gates exist, including partner/customer UI. |
+| Product marketplace/module access | Shipped | Product, ProductAddOn, PartnerProductAccess, and CustomerProductAccess tables now drive global/partner/customer access; legacy `Tenant.featuresEnabled` remains the compatibility fallback. Public copy says Customer while DB internals keep Tenant. |
 | API secret vault | Shipped | Provider credentials are backend-owned and kept out of frontend responses. Continue rotation polish. |
 | AI provider hub + cost/credit engine | Shipped | Provider routing, model mapping, credits, and AI usage are implemented. |
 | Wallet self-recharge + payment ledgers | Shipped | Split WhatsApp/AI wallets, payment orders, webhooks, recharge requests, and admin flows exist. |

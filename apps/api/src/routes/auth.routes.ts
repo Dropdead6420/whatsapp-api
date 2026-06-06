@@ -720,15 +720,46 @@ router.get(
       }
       // Resolve features lazily so /me stays light for SUPER_ADMIN (no tenant).
       let features: Record<string, boolean> | undefined;
+      let products: Record<string, boolean> | undefined;
+      let productAccess:
+        | Array<{
+            key: string;
+            name: string;
+            category: string;
+            routeHref: string | null;
+            featureKey: string | null;
+            enabled: boolean;
+            limits: unknown | null;
+          }>
+        | undefined;
       if (user.tenantId) {
         const { getTenantFeatures } = await import(
           "../services/features.service"
         );
-        features = await getTenantFeatures(user.tenantId);
+        const { listTenantProductAccess } = await import(
+          "../services/productAccess.service"
+        );
+        const [resolvedFeatures, resolvedProducts] = await Promise.all([
+          getTenantFeatures(user.tenantId),
+          listTenantProductAccess(user.tenantId),
+        ]);
+        features = resolvedFeatures;
+        products = Object.fromEntries(
+          resolvedProducts.map((product) => [product.key, product.enabled]),
+        );
+        productAccess = resolvedProducts.map((product) => ({
+          key: product.key,
+          name: product.name,
+          category: product.category,
+          routeHref: product.routeHref,
+          featureKey: product.featureKey,
+          enabled: product.enabled,
+          limits: product.limits,
+        }));
       }
       res.json({
         success: true,
-        data: { user: toPublicUser(user), features },
+        data: { user: toPublicUser(user), features, products, productAccess },
       });
     } catch (err) {
       next(err);

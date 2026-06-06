@@ -19,6 +19,7 @@ export function useAuth(opts: { required?: boolean; roles?: RoleName[] } = {}) {
   const rolesKey = roles?.join(",");
   const [user, setUser] = useState<AuthUserPublic | null>(null);
   const [features, setFeatures] = useState<Record<string, boolean> | null>(null);
+  const [products, setProducts] = useState<Record<string, boolean> | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export function useAuth(opts: { required?: boolean; roles?: RoleName[] } = {}) {
       }
       setUser(me.user);
       setFeatures(me.features ?? null);
+      setProducts(me.products ?? null);
       setLoading(false);
     })();
     return () => {
@@ -55,6 +57,7 @@ export function useAuth(opts: { required?: boolean; roles?: RoleName[] } = {}) {
   return {
     user,
     features,
+    products,
     loading,
     signOut: () => logout().then(() => router.push("/login")),
   };

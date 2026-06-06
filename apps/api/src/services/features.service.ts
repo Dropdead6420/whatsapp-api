@@ -2,6 +2,7 @@ import { Response, NextFunction } from "express";
 import { prisma } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import { RequestWithAuth } from "../middleware/auth";
+import { getTenantProductFeatureAccess } from "./productAccess.service";
 
 /**
  * Per-tenant feature flags.
@@ -93,9 +94,9 @@ function parseFeatures(raw: string | null): Partial<Record<FeatureKey, boolean>>
 }
 
 /**
- * Resolve all features for a tenant. Missing keys default to true.
+ * Resolve legacy JSON feature flags for a tenant. Missing keys default to true.
  */
-export async function getTenantFeatures(
+export async function getLegacyTenantFeatures(
   tenantId: string,
 ): Promise<Record<FeatureKey, boolean>> {
   const tenant = await prisma.tenant.findUnique({
@@ -110,11 +111,32 @@ export async function getTenantFeatures(
   return result;
 }
 
+/**
+ * Resolve all features for a tenant. The Product Marketplace is the new
+ * authority; Tenant.featuresEnabled remains the compatibility fallback for
+ * older tenants and for feature keys that do not yet have first-class products.
+ */
+export async function getTenantFeatures(
+  tenantId: string,
+): Promise<Record<FeatureKey, boolean>> {
+  const legacy = await getLegacyTenantFeatures(tenantId);
+  try {
+    const marketplace = await getTenantProductFeatureAccess(tenantId);
+    return {
+      ...legacy,
+      ...(marketplace as Partial<Record<FeatureKey, boolean>>),
+    };
+  } catch (err) {
+    console.warn("[features] product access fallback to legacy flags", err);
+    return legacy;
+  }
+}
+
 export async function setTenantFeatures(
   tenantId: string,
   updates: Partial<Record<FeatureKey, boolean>>,
 ): Promise<Record<FeatureKey, boolean>> {
-  const current = await getTenantFeatures(tenantId);
+  const current = await getLegacyTenantFeatures(tenantId);
   const merged = { ...current, ...updates };
   // Only store the keys that differ from default-true to keep JSON small.
   const stored: Partial<Record<FeatureKey, boolean>> = {};

@@ -30,7 +30,7 @@ Legend: ✅ done · 🟡 partial · ❌ missing
 | # | Scope item | Status | Evidence / gap |
 |---|-----------|--------|----------------|
 | 1 | SuperAdmin / Partner / Customer / Agent / White-Label portals | ✅ | `UserRole`, `/tenants`, `/partner/*`, `/dashboard/*`, `/agent/*` |
-| 2 | Product Marketplace, module enable/disable per partner/customer | 🟡 | `features.service.ts` (`featuresEnabled` JSON + SuperAdmin toggle), `/partner/products`, `/services`. Gap: no unified catalog + consistent API-block middleware across **all** products. |
+| 2 | Product Marketplace, module enable/disable per partner/customer | ✅ | First-class `Product`, `ProductAddOn`, `PartnerProductAccess`, and `CustomerProductAccess` tables with SuperAdmin catalog/access UI, partner customer-access matrix, customer nav resolver, and legacy `featuresEnabled` fallback. |
 | 3 | SuperAdmin editable pricing (plans, add-ons, WA rates, margins, AI credits, GMB/website/ads/calling) | 🟡 | Plans/rates/margins/AI credits done (`pricing`, `/rates`, `planCatalog`). Add-on pricing for GMB/website/ads/calling pends those modules. |
 | 4 | Partner models: Reseller / BYO-Meta / Hybrid | ✅ | `PartnerModel`, `partnerModel.service.ts` |
 | 5 | Customer self-recharge wallet | ✅ | `customer-wallets.routes.ts`, `/wallets`, Razorpay+Stripe |
@@ -72,8 +72,8 @@ concurrent Codex assistant (fetch + scoped `git add`).
    chain, cost manager on top of `AiUsage`. Consumes vault keys from #1.
 3. **2FA** (Phase 13 security, pulled early — small + high-value) — TOTP enrol/verify,
    recovery codes, enforced at login.
-4. **Product Marketplace hardening** (Phase 2) — unified product catalog + one
-   `requireProduct()` API guard + consistent UI hiding. Closes rule #3.
+4. **Product Marketplace hardening** (Phase 2) — ✅ shipped. Unified product
+   catalog/access tables plus marketplace-aware feature gates and UI hiding.
 5. **Landing Page + AI Website Builder** (Phase 10).
 6. **GMB AI Manager** (Phase 11).
 7. **Calling + Virtual Number** (Phase 11).
@@ -86,7 +86,7 @@ concurrent Codex assistant (fetch + scoped `git add`).
 - [ ] 1. API Secret Vault
 - [ ] 2. AI Provider Hub
 - [ ] 3. 2FA
-- [ ] 4. Product Marketplace hardening
+- [x] 4. Product Marketplace hardening
 - [ ] 5. Landing/Website Builder
 - [ ] 6. GMB AI Manager
 - [ ] 7. Calling + Virtual Number

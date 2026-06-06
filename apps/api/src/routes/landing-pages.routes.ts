@@ -18,6 +18,7 @@ import {
   publishPage,
   updatePage,
 } from "../services/landingPage.service";
+import { buildLandingBlueprint } from "../services/landingBlueprint.service";
 
 // Landing Page / AI Website Builder routes (Complete Planning PDF §2.16).
 // Tenant-scoped CRUD + draft→published lifecycle, gated by
@@ -40,6 +41,16 @@ const createSchema = z.object({
   theme: z.record(z.unknown()).optional(),
   seoTitle: z.string().trim().max(200).optional(),
   seoDescription: z.string().trim().max(400).optional(),
+});
+
+const generateSchema = z.object({
+  businessName: z.string().trim().min(1).max(120),
+  industry: z.string().trim().max(80).optional(),
+  description: z.string().trim().max(600).optional(),
+  primaryGoal: z.enum(["leads", "sales", "bookings", "awareness"]).optional(),
+  city: z.string().trim().max(80).optional(),
+  phone: z.string().trim().max(40).optional(),
+  slug: z.string().trim().max(120).optional(),
 });
 
 const updateSchema = z
@@ -76,6 +87,34 @@ router.post("/", async (req: RequestWithAuth, res: Response, next: NextFunction)
       resource: "LandingPage",
       resourceId: page.id,
       newValues: { slug: page.slug, title: page.title },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: page });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// AI Website Builder: generate a starter single-page site (draft) from a
+// few business inputs. Template-based today; AI copy enhancement layers on
+// via the AI gateway in a follow-up.
+router.post("/generate", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { slug, ...input } = generateSchema.parse(req.body);
+    const blueprint = buildLandingBlueprint(input);
+    const page = await createPage(req.tenantId!, {
+      title: blueprint.title,
+      slug,
+      blocks: blueprint.blocks,
+      createdByUserId: req.userId,
+    });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "LandingPage",
+      resourceId: page.id,
+      newValues: { slug: page.slug, generated: true, goal: input.primaryGoal ?? "leads" },
       ...extractRequestMeta(req),
     });
     res.status(201).json({ success: true, data: page });

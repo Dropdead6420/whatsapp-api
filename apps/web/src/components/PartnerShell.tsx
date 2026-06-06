@@ -131,7 +131,7 @@ export function PartnerShell({
     { key: "Domains", href: "/partner/domains", label: "Domain Health", icon: "🌐" },
     { key: "Theme", href: "/partner/theme", label: "Theme Builder", icon: "🎨" },
     { key: "Menu", href: "/partner/menu", label: "UI/Menu Manager", icon: "⚙️" },
-    { key: "Products", href: "/partner/products", label: "Portfolio Catalog", icon: "📦" },
+    { key: "Products", href: "/partner/products", label: "Product Access", icon: "📦" },
     { key: "Tickets", href: "/partner/tickets", label: "Support Tickets", icon: "🎫" },
     { key: "Channels", href: "/partner/channels", label: "WhatsApp Channels", icon: "💬" },
     { key: "AI", href: "/partner/ai", label: "AI overview", icon: "✦" },
