@@ -236,6 +236,8 @@ model Tenant {
   gmbPosts                 GmbPost[]
   gmbLocations             GmbLocation[]
   gmbReviews               GmbReview[]
+  gmbTrackedKeywords       GmbTrackedKeyword[]
+  gmbRankSnapshots         GmbRankSnapshot[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -3751,7 +3753,8 @@ model GmbLocation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  reviews GmbReview[]
+  reviews         GmbReview[]
+  trackedKeywords GmbTrackedKeyword[]
 
   @@index([tenantId, status])
   @@index([tenantId, placeId])
@@ -3792,4 +3795,48 @@ model GmbReview {
 
   @@index([tenantId, status])
   @@index([locationId])
+}
+
+// AdGrowly GMB — Local ranking tracker. Operators track keywords per location
+// and capture local-rank snapshots over time. A rank of null = the business
+// was not found in the checked result window. Live grid/SERP scraping wires
+// snapshots in via the same recordSnapshot path in a later slice.
+model GmbTrackedKeyword {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   GmbLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  keyword  String
+  isActive Boolean @default(true)
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  snapshots GmbRankSnapshot[]
+
+  @@unique([locationId, keyword])
+  @@index([tenantId, isActive])
+}
+
+model GmbRankSnapshot {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  keywordId String
+  keyword   GmbTrackedKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  rank      Int?
+  source    String?
+  checkedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([keywordId, checkedAt])
+  @@index([tenantId])
 }

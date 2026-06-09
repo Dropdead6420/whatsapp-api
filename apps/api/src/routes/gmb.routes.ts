@@ -35,6 +35,15 @@ import {
   replyToReview,
   updateReviewStatus,
 } from "../services/gmbReview.service";
+import {
+  addKeyword,
+  deleteKeyword,
+  getKeywordWithTrend,
+  listKeywords,
+  listSnapshots,
+  recordSnapshot,
+  setKeywordActive,
+} from "../services/gmbRanking.service";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -437,6 +446,130 @@ router.delete("/reviews/:id", async (req: RequestWithAuth, res: Response, next: 
       ...extractRequestMeta(req),
     });
     res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Local ranking tracker (AdGrowly GMB-first) ----------------------------
+
+const keywordListSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  activeOnly: z.coerce.boolean().optional(),
+});
+
+const addKeywordSchema = z.object({
+  locationId: z.string().cuid(),
+  keyword: z.string().trim().min(1).max(160),
+});
+
+const keywordActiveSchema = z.object({ isActive: z.boolean() });
+
+const snapshotSchema = z.object({
+  rank: z.number().int().min(1).max(1000).nullable().optional(),
+  source: z.string().trim().max(80).optional(),
+  checkedAt: z.string().datetime().optional(),
+});
+
+const snapshotListSchema = z.object({ limit: z.coerce.number().int().min(1).max(200).optional() });
+
+router.get("/keywords", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const filter = keywordListSchema.parse(req.query);
+    res.json({ success: true, data: await listKeywords(req.tenantId!, filter) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/keywords", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = addKeywordSchema.parse(req.body);
+    const keyword = await addKeyword(req.tenantId!, { ...body, createdByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbTrackedKeyword",
+      resourceId: keyword.id,
+      newValues: { locationId: keyword.locationId, keyword: keyword.keyword },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: keyword });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/keywords/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getKeywordWithTrend(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/keywords/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { isActive } = keywordActiveSchema.parse(req.body);
+    const keyword = await setKeywordActive(req.tenantId!, req.params.id, isActive);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbTrackedKeyword",
+      resourceId: keyword.id,
+      newValues: { isActive },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: keyword });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/keywords/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteKeyword(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbTrackedKeyword",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/keywords/:id/snapshots", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { limit } = snapshotListSchema.parse(req.query);
+    res.json({ success: true, data: await listSnapshots(req.tenantId!, req.params.id, limit) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Record a rank check (rank null = not found in window). Live grid/SERP
+// capture posts here in a later slice.
+router.post("/keywords/:id/snapshots", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = snapshotSchema.parse(req.body);
+    const snapshot = await recordSnapshot(req.tenantId!, req.params.id, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbRankSnapshot",
+      resourceId: snapshot.id,
+      newValues: { keywordId: snapshot.keywordId, rank: snapshot.rank },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: snapshot });
   } catch (err) {
     next(err);
   }
