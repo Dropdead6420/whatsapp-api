@@ -234,6 +234,7 @@ model Tenant {
   aiProviderConfigs        AiProviderConfig[]
   landingPages             LandingPage[]
   gmbPosts                 GmbPost[]
+  gmbLocations             GmbLocation[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -3702,4 +3703,53 @@ model VirtualNumber {
 
   @@unique([tenantId, phoneNumber])
   @@index([tenantId, status])
+}
+
+// =====================================================================
+// AdGrowly GMB-first — Business Profile / location (planning PDF). The
+// anchor entity for the GMB modules: reviews, insights, ranking and
+// citations all reference a location. Google credentials are referenced
+// by secretId in the Secret Vault; live GBP sync lands in a later slice.
+// =====================================================================
+
+enum GmbLocationStatus {
+  DRAFT
+  CONNECTED
+  SUSPENDED
+}
+
+model GmbLocation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name            String
+  storeCode       String?
+  placeId         String? // Google Business Profile location / place id
+  phone           String?
+  website         String?
+  primaryCategory String?
+
+  addressLine String?
+  city        String?
+  region      String?
+  postalCode  String?
+  country     String?
+
+  status            GmbLocationStatus @default(DRAFT)
+  verificationState String?
+  rating            Float?
+  reviewCount       Int               @default(0)
+
+  // Optional pointer to Google API credentials in the Secret Vault.
+  secretId     String?
+  lastSyncedAt DateTime?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, placeId])
 }

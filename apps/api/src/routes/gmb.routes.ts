@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { GmbPostStatus, GmbPostType } from "@nexaflow/db";
+import { GmbPostStatus, GmbPostType, GmbLocationStatus } from "@nexaflow/db";
 import { Permissions } from "@nexaflow/shared";
 import {
   requireAuth,
@@ -18,6 +18,13 @@ import {
   schedulePost,
   updatePost,
 } from "../services/gmb.service";
+import {
+  createLocation,
+  deleteLocation,
+  getLocation,
+  listLocations,
+  updateLocation,
+} from "../services/gmbLocation.service";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -171,6 +178,115 @@ router.delete("/posts/:id", async (req: RequestWithAuth, res: Response, next: Ne
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbPost",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Business Profile / locations (AdGrowly GMB-first) ---------------------
+
+const locationListSchema = z.object({ status: z.nativeEnum(GmbLocationStatus).optional() });
+
+const createLocationSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  storeCode: z.string().trim().max(60).optional(),
+  placeId: z.string().trim().max(120).optional(),
+  phone: z.string().trim().max(40).optional(),
+  website: z.string().url().max(300).optional(),
+  primaryCategory: z.string().trim().max(120).optional(),
+  addressLine: z.string().trim().max(240).optional(),
+  city: z.string().trim().max(120).optional(),
+  region: z.string().trim().max(120).optional(),
+  postalCode: z.string().trim().max(20).optional(),
+  country: z.string().trim().max(60).optional(),
+  secretId: z.string().cuid().nullable().optional(),
+});
+
+const updateLocationSchema = z
+  .object({
+    name: z.string().trim().min(1).max(160).optional(),
+    storeCode: z.string().trim().max(60).nullable().optional(),
+    placeId: z.string().trim().max(120).nullable().optional(),
+    phone: z.string().trim().max(40).nullable().optional(),
+    website: z.string().url().max(300).nullable().optional(),
+    primaryCategory: z.string().trim().max(120).nullable().optional(),
+    addressLine: z.string().trim().max(240).nullable().optional(),
+    city: z.string().trim().max(120).nullable().optional(),
+    region: z.string().trim().max(120).nullable().optional(),
+    postalCode: z.string().trim().max(20).nullable().optional(),
+    country: z.string().trim().max(60).nullable().optional(),
+    secretId: z.string().cuid().nullable().optional(),
+    status: z.nativeEnum(GmbLocationStatus).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: "PATCH body must include a field." });
+
+router.get("/locations", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { status } = locationListSchema.parse(req.query);
+    res.json({ success: true, data: await listLocations(req.tenantId!, status) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/locations", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = createLocationSchema.parse(req.body);
+    const location = await createLocation(req.tenantId!, { ...body, createdByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbLocation",
+      resourceId: location.id,
+      newValues: { name: location.name, status: location.status },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: location });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/locations/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getLocation(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/locations/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = updateLocationSchema.parse(req.body);
+    const location = await updateLocation(req.tenantId!, req.params.id, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbLocation",
+      resourceId: location.id,
+      newValues: { fieldsUpdated: Object.keys(body) },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: location });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/locations/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteLocation(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbLocation",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });
