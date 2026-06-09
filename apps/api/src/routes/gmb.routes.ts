@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { GmbPostStatus, GmbPostType, GmbLocationStatus } from "@nexaflow/db";
+import { GmbPostStatus, GmbPostType, GmbLocationStatus, GmbReviewStatus } from "@nexaflow/db";
 import { Permissions } from "@nexaflow/shared";
 import {
   requireAuth,
@@ -25,6 +25,16 @@ import {
   listLocations,
   updateLocation,
 } from "../services/gmbLocation.service";
+import {
+  deleteReview,
+  generateReplyDraft,
+  getReputationSummary,
+  getReview,
+  ingestReview,
+  listReviews,
+  replyToReview,
+  updateReviewStatus,
+} from "../services/gmbReview.service";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -287,6 +297,142 @@ router.delete("/locations/:id", async (req: RequestWithAuth, res: Response, next
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbLocation",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Reputation / reviews (AdGrowly GMB-first) -----------------------------
+
+const reviewListSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  status: z.nativeEnum(GmbReviewStatus).optional(),
+});
+
+const summarySchema = z.object({ locationId: z.string().cuid().optional() });
+
+const ingestReviewSchema = z.object({
+  locationId: z.string().cuid(),
+  rating: z.number().int().min(1).max(5),
+  authorName: z.string().trim().max(160).optional(),
+  comment: z.string().trim().max(4000).optional(),
+  reviewedAt: z.string().datetime().optional(),
+  externalReviewId: z.string().trim().max(200).optional(),
+});
+
+const draftReplySchema = z.object({
+  tone: z.enum(["warm", "professional"]).optional(),
+});
+
+const replySchema = z.object({ text: z.string().trim().min(1).max(1500) });
+
+const reviewStatusSchema = z.object({ status: z.nativeEnum(GmbReviewStatus) });
+
+router.get("/reviews", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const filter = reviewListSchema.parse(req.query);
+    res.json({ success: true, data: await listReviews(req.tenantId!, filter) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/reviews/summary", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { locationId } = summarySchema.parse(req.query);
+    res.json({ success: true, data: await getReputationSummary(req.tenantId!, locationId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/reviews", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = ingestReviewSchema.parse(req.body);
+    const review = await ingestReview(req.tenantId!, { ...body, createdByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbReview",
+      resourceId: review.id,
+      newValues: { locationId: review.locationId, rating: review.rating },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: review });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Build an AI-assisted reply draft (not saved/published).
+router.post("/reviews/:id/draft-reply", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { tone } = draftReplySchema.parse(req.body ?? {});
+    res.json({ success: true, data: await generateReplyDraft(req.tenantId!, req.params.id, tone) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Approve + record a reply (operator-reviewed; publish to Google is a later slice).
+router.post("/reviews/:id/reply", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { text } = replySchema.parse(req.body);
+    const review = await replyToReview(req.tenantId!, req.params.id, text);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "REPLY",
+      resource: "GmbReview",
+      resourceId: review.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: review });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/reviews/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getReview(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/reviews/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { status } = reviewStatusSchema.parse(req.body);
+    const review = await updateReviewStatus(req.tenantId!, req.params.id, status);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbReview",
+      resourceId: review.id,
+      newValues: { status },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: review });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/reviews/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteReview(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbReview",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });

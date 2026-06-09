@@ -235,6 +235,7 @@ model Tenant {
   landingPages             LandingPage[]
   gmbPosts                 GmbPost[]
   gmbLocations             GmbLocation[]
+  gmbReviews               GmbReview[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -3750,6 +3751,45 @@ model GmbLocation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  reviews GmbReview[]
+
   @@index([tenantId, status])
   @@index([tenantId, placeId])
+}
+
+// AdGrowly GMB — Reputation. Reviews ingested per location with AI-assisted
+// reply drafting (generate-then-approve). status: NEW until a reply is sent
+// (REPLIED) or the review is set aside (FLAGGED). Live Google Business Profile
+// review pull/push wires into the same rows in a later slice.
+enum GmbReviewStatus {
+  NEW
+  REPLIED
+  FLAGGED
+}
+
+model GmbReview {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   GmbLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  externalReviewId String?
+  authorName       String?
+  rating           Int
+  comment          String?
+  reviewedAt       DateTime?
+
+  status    GmbReviewStatus @default(NEW)
+  replyText String?
+  repliedAt DateTime?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([locationId])
 }
