@@ -44,6 +44,12 @@ import {
   recordSnapshot,
   setKeywordActive,
 } from "../services/gmbRanking.service";
+import {
+  deleteInsight,
+  getInsightsSummary,
+  listInsights,
+  recordInsight,
+} from "../services/gmbInsights.service";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -570,6 +576,89 @@ router.post("/keywords/:id/snapshots", async (req: RequestWithAuth, res: Respons
       ...extractRequestMeta(req),
     });
     res.status(201).json({ success: true, data: snapshot });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Insights / performance snapshots (AdGrowly GMB-first) -----------------
+
+const insightFilterSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+
+const metricCount = z.number().int().min(0).max(100_000_000).optional();
+
+const recordInsightSchema = z.object({
+  locationId: z.string().cuid(),
+  periodStart: z.string().datetime(),
+  periodEnd: z.string().datetime(),
+  source: z.string().trim().max(80).optional(),
+  mapsViews: metricCount,
+  searchViews: metricCount,
+  directSearches: metricCount,
+  discoverySearches: metricCount,
+  brandedSearches: metricCount,
+  callClicks: metricCount,
+  websiteClicks: metricCount,
+  directionRequests: metricCount,
+  messageClicks: metricCount,
+  bookingClicks: metricCount,
+  photoViews: metricCount,
+});
+
+router.get("/insights", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const filter = insightFilterSchema.parse(req.query);
+    res.json({ success: true, data: await listInsights(req.tenantId!, filter) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/insights/summary", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const filter = insightFilterSchema.parse(req.query);
+    res.json({ success: true, data: await getInsightsSummary(req.tenantId!, filter) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Record (or re-sync) a period snapshot. Upserts on location+period.
+router.post("/insights", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = recordInsightSchema.parse(req.body);
+    const insight = await recordInsight(req.tenantId!, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbInsightSnapshot",
+      resourceId: insight.id,
+      newValues: { locationId: insight.locationId, periodStart: insight.periodStart },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: insight });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/insights/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteInsight(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbInsightSnapshot",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
   } catch (err) {
     next(err);
   }

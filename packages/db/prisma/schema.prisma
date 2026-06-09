@@ -238,6 +238,7 @@ model Tenant {
   gmbReviews               GmbReview[]
   gmbTrackedKeywords       GmbTrackedKeyword[]
   gmbRankSnapshots         GmbRankSnapshot[]
+  gmbInsightSnapshots      GmbInsightSnapshot[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -3753,8 +3754,9 @@ model GmbLocation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  reviews         GmbReview[]
-  trackedKeywords GmbTrackedKeyword[]
+  reviews          GmbReview[]
+  trackedKeywords  GmbTrackedKeyword[]
+  insightSnapshots GmbInsightSnapshot[]
 
   @@index([tenantId, status])
   @@index([tenantId, placeId])
@@ -3839,4 +3841,43 @@ model GmbRankSnapshot {
 
   @@index([keywordId, checkedAt])
   @@index([tenantId])
+}
+
+// AdGrowly GMB — Insights. Periodic Business Profile performance snapshots per
+// location (one row per period). Metrics mirror the Google Business Profile
+// performance API; a re-sync of the same period upserts the row. Derived
+// totals (views/searches/actions) are computed in the service, not stored.
+model GmbInsightSnapshot {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   GmbLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  mapsViews    Int @default(0)
+  searchViews  Int @default(0)
+
+  directSearches    Int @default(0)
+  discoverySearches Int @default(0)
+  brandedSearches   Int @default(0)
+
+  callClicks        Int @default(0)
+  websiteClicks     Int @default(0)
+  directionRequests Int @default(0)
+  messageClicks     Int @default(0)
+  bookingClicks     Int @default(0)
+  photoViews        Int @default(0)
+
+  source String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([locationId, periodStart, periodEnd])
+  @@index([tenantId, periodStart])
+  @@index([locationId, periodStart])
 }
