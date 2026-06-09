@@ -1,6 +1,12 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
-import { GmbPostStatus, GmbPostType, GmbLocationStatus, GmbReviewStatus } from "@nexaflow/db";
+import {
+  GmbPostStatus,
+  GmbPostType,
+  GmbLocationStatus,
+  GmbReviewStatus,
+  GmbCitationStatus,
+} from "@nexaflow/db";
 import { Permissions } from "@nexaflow/shared";
 import {
   requireAuth,
@@ -50,6 +56,14 @@ import {
   listInsights,
   recordInsight,
 } from "../services/gmbInsights.service";
+import {
+  createCitation,
+  deleteCitation,
+  getCitation,
+  getCitationSummary,
+  listCitations,
+  updateCitation,
+} from "../services/gmbCitation.service";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -655,6 +669,117 @@ router.delete("/insights/:id", async (req: RequestWithAuth, res: Response, next:
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbInsightSnapshot",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Citations / NAP consistency (AdGrowly GMB-first) ----------------------
+
+const citationListSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  status: z.nativeEnum(GmbCitationStatus).optional(),
+});
+
+const citationSummarySchema = z.object({ locationId: z.string().cuid().optional() });
+
+const createCitationSchema = z.object({
+  locationId: z.string().cuid(),
+  directory: z.string().trim().min(1).max(120),
+  listingUrl: z.string().url().max(500).optional(),
+  napName: z.string().trim().max(200).optional(),
+  napAddress: z.string().trim().max(400).optional(),
+  napPhone: z.string().trim().max(60).optional(),
+  status: z.nativeEnum(GmbCitationStatus).optional(),
+});
+
+const updateCitationSchema = z
+  .object({
+    listingUrl: z.string().url().max(500).nullable().optional(),
+    napName: z.string().trim().max(200).nullable().optional(),
+    napAddress: z.string().trim().max(400).nullable().optional(),
+    napPhone: z.string().trim().max(60).nullable().optional(),
+    status: z.nativeEnum(GmbCitationStatus).optional(),
+    markChecked: z.boolean().optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: "PATCH body must include a field." });
+
+router.get("/citations", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const filter = citationListSchema.parse(req.query);
+    res.json({ success: true, data: await listCitations(req.tenantId!, filter) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/citations/summary", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { locationId } = citationSummarySchema.parse(req.query);
+    res.json({ success: true, data: await getCitationSummary(req.tenantId!, locationId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/citations", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = createCitationSchema.parse(req.body);
+    const citation = await createCitation(req.tenantId!, { ...body, createdByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbCitation",
+      resourceId: citation.id,
+      newValues: { locationId: citation.locationId, directory: citation.directory },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: citation });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/citations/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getCitation(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/citations/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = updateCitationSchema.parse(req.body);
+    const citation = await updateCitation(req.tenantId!, req.params.id, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbCitation",
+      resourceId: citation.id,
+      newValues: { fieldsUpdated: Object.keys(body) },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: citation });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/citations/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteCitation(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbCitation",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });

@@ -239,6 +239,7 @@ model Tenant {
   gmbTrackedKeywords       GmbTrackedKeyword[]
   gmbRankSnapshots         GmbRankSnapshot[]
   gmbInsightSnapshots      GmbInsightSnapshot[]
+  gmbCitations             GmbCitation[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -3757,6 +3758,7 @@ model GmbLocation {
   reviews          GmbReview[]
   trackedKeywords  GmbTrackedKeyword[]
   insightSnapshots GmbInsightSnapshot[]
+  citations        GmbCitation[]
 
   @@index([tenantId, status])
   @@index([tenantId, placeId])
@@ -3880,4 +3882,41 @@ model GmbInsightSnapshot {
   @@unique([locationId, periodStart, periodEnd])
   @@index([tenantId, periodStart])
   @@index([locationId, periodStart])
+}
+
+// AdGrowly GMB — Citations. A NAP (Name/Address/Phone) listing of a location
+// on an external directory (Google, Bing, Yelp, Apple Maps, Facebook, …).
+// Consistency vs the location's canonical NAP is computed in the service, not
+// stored. status tracks whether the listing exists; INCONSISTENT is derived.
+enum GmbCitationStatus {
+  LIVE
+  PENDING
+  MISSING
+}
+
+model GmbCitation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   GmbLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  directory  String
+  listingUrl String?
+
+  napName    String?
+  napAddress String?
+  napPhone   String?
+
+  status        GmbCitationStatus @default(PENDING)
+  lastCheckedAt DateTime?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([locationId, directory])
+  @@index([tenantId, status])
 }
