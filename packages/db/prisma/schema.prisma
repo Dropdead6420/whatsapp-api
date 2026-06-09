@@ -3920,3 +3920,29 @@ model GmbCitation {
   @@unique([locationId, directory])
   @@index([tenantId, status])
 }
+
+// AdGrowly / platform — AI prompt template management (planning PDF: AI prompt
+// management; "everything important must be manageable from Super Admin").
+// Global, SUPER_ADMIN-curated prompt templates consumed across AI features
+// (review replies, post captions, …). Partners/customers only consume the
+// active template; only Super Admin edits. `variables` lists the {{placeholders}}
+// the template expects. `version` bumps whenever the template body changes.
+model AiPromptTemplate {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  category    String?
+  template    String
+  variables   String[] @default([])
+  model       String?
+  isActive    Boolean  @default(true)
+  version     Int      @default(1)
+
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, isActive])
+}
