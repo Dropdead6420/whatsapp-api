@@ -7,6 +7,8 @@ import {
   GmbReviewStatus,
   GmbCitationStatus,
   GmbReportType,
+  GmbDescriptionTarget,
+  GmbDescriptionStatus,
 } from "@nexaflow/db";
 import { Permissions } from "@nexaflow/shared";
 import {
@@ -72,6 +74,14 @@ import {
   getIdeaSet,
   listIdeaSets,
 } from "../services/gmbKeyword.service";
+import {
+  createDescription,
+  deleteDescription,
+  getDescription,
+  listDescriptions,
+  optimizeDescription,
+  updateDescription,
+} from "../services/gmbDescription.service";
 import {
   deleteReport,
   generateReport,
@@ -942,6 +952,122 @@ router.delete("/keyword-ideas/:id", async (req: RequestWithAuth, res: Response, 
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbKeywordIdeaSet",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- AI Description Optimizer (AdGrowly GMB-first, Phase 2) ------------------
+
+const optimizeDescriptionSchema = z.object({
+  text: z.string().trim().min(1).max(20000),
+  keywords: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  maxLength: z.number().int().min(20).max(20000).optional(),
+  businessName: z.string().trim().max(160).optional(),
+  tone: z.enum(["professional", "friendly"]).optional(),
+});
+
+const createDescriptionSchema = z.object({
+  target: z.nativeEnum(GmbDescriptionTarget).optional(),
+  label: z.string().trim().max(160).optional(),
+  original: z.string().trim().min(1).max(20000),
+  keywords: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  maxLength: z.number().int().min(20).max(20000).optional(),
+  businessName: z.string().trim().max(160).optional(),
+  tone: z.enum(["professional", "friendly"]).optional(),
+  locationId: z.string().cuid().optional(),
+});
+
+const descriptionListSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  status: z.nativeEnum(GmbDescriptionStatus).optional(),
+  target: z.nativeEnum(GmbDescriptionTarget).optional(),
+});
+
+const updateDescriptionSchema = z
+  .object({
+    optimized: z.string().trim().min(1).max(20000).optional(),
+    label: z.string().trim().max(160).nullable().optional(),
+    status: z.nativeEnum(GmbDescriptionStatus).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: "PATCH body must include a field." });
+
+// Preview an optimized description without saving.
+router.post("/descriptions/optimize", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const input = optimizeDescriptionSchema.parse(req.body);
+    res.json({ success: true, data: optimizeDescription(input) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/descriptions", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = createDescriptionSchema.parse(req.body);
+    const description = await createDescription(req.tenantId!, { ...body, createdByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbDescription",
+      resourceId: description.id,
+      newValues: { target: description.target, status: description.status },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: description });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/descriptions", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await listDescriptions(req.tenantId!, descriptionListSchema.parse(req.query)) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/descriptions/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getDescription(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/descriptions/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = updateDescriptionSchema.parse(req.body);
+    const description = await updateDescription(req.tenantId!, req.params.id, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbDescription",
+      resourceId: description.id,
+      newValues: { fieldsUpdated: Object.keys(body), status: description.status },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: description });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/descriptions/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteDescription(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbDescription",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });
