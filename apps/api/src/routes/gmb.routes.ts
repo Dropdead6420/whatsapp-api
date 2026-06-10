@@ -97,6 +97,7 @@ import {
   listImageRequests,
   updateImageRequest,
 } from "../services/gmbImage.service";
+import { getDashboard } from "../services/gmbDashboard.service";
 import {
   deleteReport,
   generateReport,
@@ -1261,6 +1262,21 @@ router.delete("/images/:id", async (req: RequestWithAuth, res: Response, next: N
       ...extractRequestMeta(req),
     });
     res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Customer Dashboard (AdGrowly GMB-first, Phase 2) -----------------------
+
+const dashboardSchema = z.object({ locationId: z.string().cuid().optional() });
+
+// Aggregated dashboard: business score, reviews, ranking, citations, posts,
+// credits and alerts. Read-only (no audit).
+router.get("/dashboard", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { locationId } = dashboardSchema.parse(req.query);
+    res.json({ success: true, data: await getDashboard(req.tenantId!, locationId) });
   } catch (err) {
     next(err);
   }
