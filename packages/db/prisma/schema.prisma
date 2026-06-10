@@ -241,6 +241,7 @@ model Tenant {
   gmbInsightSnapshots      GmbInsightSnapshot[]
   gmbCitations             GmbCitation[]
   gmbReports               GmbReport[]
+  managedServiceEngagements ManagedServiceEngagement[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -4028,4 +4029,72 @@ model GmbReport {
 
   @@index([tenantId, type])
   @@index([locationId])
+}
+
+// AdGrowly — Managed Services (planning: agency service packages). Super-Admin
+// curates the package catalog; an engagement is one customer's subscription to
+// a package (optionally for a specific location), moving through a status
+// lifecycle the agency fulfils. Price is snapshotted onto the engagement so it
+// survives later catalog edits.
+enum ManagedServiceInterval {
+  ONE_TIME
+  MONTHLY
+  YEARLY
+}
+
+enum ManagedServiceStatus {
+  REQUESTED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+model ManagedServicePackage {
+  id          String                 @id @default(cuid())
+  key         String                 @unique
+  name        String
+  description String?
+  category    String?
+  priceCents  Int?
+  currency    String                 @default("USD")
+  interval    ManagedServiceInterval @default(MONTHLY)
+  deliverables String[]              @default([])
+  isActive    Boolean                @default(true)
+  sortOrder   Int                    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  engagements ManagedServiceEngagement[]
+
+  @@index([isActive, sortOrder])
+}
+
+model ManagedServiceEngagement {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  packageId String
+  package   ManagedServicePackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
+
+  // Soft reference to a GmbLocation (no hard FK to keep the catalog decoupled).
+  locationId String?
+
+  status             ManagedServiceStatus @default(REQUESTED)
+  notes              String?
+  priceCentsSnapshot Int?
+  currency           String?
+
+  startedAt        DateTime?
+  completedAt      DateTime?
+  assignedToUserId String?
+  createdByUserId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([packageId])
 }
