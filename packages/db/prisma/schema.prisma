@@ -245,6 +245,7 @@ model Tenant {
   gmbKeywordIdeaSets       GmbKeywordIdeaSet[]
   gmbDescriptions          GmbDescription[]
   gmbAdvisorReports        GmbAdvisorReport[]
+  googleApiLogs            GoogleApiLog[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -4215,4 +4216,36 @@ model CreditRule {
   updatedAt DateTime @updatedAt
 
   @@index([isActive])
+}
+
+// AdGrowly / platform — Google API Monitor (planning PDF §4). Records each
+// Google Business Profile API interaction (sync/fetch/publish) with status,
+// rate-limit headroom and error detail, so Super Admin can watch connected
+// accounts, token status, sync errors and rate limits across the platform.
+enum GoogleApiLogStatus {
+  OK
+  ERROR
+  RATE_LIMITED
+}
+
+model GoogleApiLog {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Soft reference to a GmbLocation (no hard FK).
+  locationId String?
+
+  operation           String
+  status              GoogleApiLogStatus @default(OK)
+  statusCode          Int?
+  message             String?
+  rateLimitRemaining  Int?
+  durationMs          Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([locationId])
+  @@index([status])
 }
