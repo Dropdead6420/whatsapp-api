@@ -98,6 +98,7 @@ import {
   updateImageRequest,
 } from "../services/gmbImage.service";
 import { getDashboard } from "../services/gmbDashboard.service";
+import { publishDuePosts } from "../services/gmbScheduler.service";
 import {
   deleteReport,
   generateReport,
@@ -1277,6 +1278,26 @@ router.get("/dashboard", async (req: RequestWithAuth, res: Response, next: NextF
   try {
     const { locationId } = dashboardSchema.parse(req.query);
     res.json({ success: true, data: await getDashboard(req.tenantId!, locationId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Scheduled-post publisher (AdGrowly GMB-first) --------------------------
+
+// Publish all due scheduled posts now (also callable from a cron/worker later).
+router.post("/posts/run-scheduled", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const result = await publishDuePosts(req.tenantId!);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbPost",
+      newValues: { publishedCount: result.published },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
