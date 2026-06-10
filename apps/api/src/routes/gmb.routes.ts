@@ -83,6 +83,12 @@ import {
   updateDescription,
 } from "../services/gmbDescription.service";
 import {
+  deleteAdvice,
+  generateAdvice,
+  getAdvice,
+  listAdvice,
+} from "../services/gmbAdvisor.service";
+import {
   deleteReport,
   generateReport,
   getReport,
@@ -1068,6 +1074,65 @@ router.delete("/descriptions/:id", async (req: RequestWithAuth, res: Response, n
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbDescription",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- AI Ranking Advisor (AdGrowly GMB-first, Phase 2) -----------------------
+
+const advisorListSchema = z.object({ locationId: z.string().cuid().optional() });
+const generateAdviceSchema = z.object({ locationId: z.string().cuid() });
+
+// Analyze a location's profile gaps → score + grade + weekly task list (saved).
+router.post("/advisor", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { locationId } = generateAdviceSchema.parse(req.body);
+    const advice = await generateAdvice(req.tenantId!, locationId, req.userId);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbAdvisorReport",
+      resourceId: advice.id,
+      newValues: { locationId, score: advice.score, grade: advice.grade },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: advice });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/advisor", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { locationId } = advisorListSchema.parse(req.query);
+    res.json({ success: true, data: await listAdvice(req.tenantId!, locationId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/advisor/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getAdvice(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/advisor/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteAdvice(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbAdvisorReport",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });
