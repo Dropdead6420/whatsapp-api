@@ -183,6 +183,22 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
     ],
   },
   {
+    label: "Local SEO (GMB)",
+    items: [
+      { href: "/gmb-dashboard", label: "Growth Dashboard", icon: LayoutDashboard, roles: BUSINESS_ROLES },
+      { href: "/gmb-locations", label: "Locations", icon: Plug, roles: BUSINESS_ROLES },
+      { href: "/gmb-reputation", label: "Reputation", icon: MessageSquare, roles: BUSINESS_ROLES },
+      { href: "/gmb-ranking", label: "Ranking", icon: Search, roles: BUSINESS_ROLES },
+      { href: "/gmb-insights", label: "Insights", icon: BarChart3, roles: BUSINESS_ROLES },
+      { href: "/gmb-citations", label: "Citations", icon: ClipboardList, roles: BUSINESS_ROLES },
+      { href: "/gmb-descriptions", label: "Descriptions", icon: FileText, roles: BUSINESS_ROLES },
+      { href: "/gmb-images", label: "Images", icon: Sparkles, roles: BUSINESS_ROLES },
+      { href: "/gmb-reports", label: "Reports", icon: FileText, roles: BUSINESS_ROLES },
+      { href: "/gmb-advisor", label: "Advisor", icon: Sparkles, roles: BUSINESS_ROLES },
+      { href: "/gmb", label: "GBP Posts", icon: Megaphone, roles: BUSINESS_ROLES },
+    ],
+  },
+  {
     label: "Operations",
     items: [
       {
@@ -335,6 +351,11 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         icon: ArrowRightLeft,
         roles: ["SUPER_ADMIN"],
       },
+      { href: "/cms", label: "CMS Manager", icon: FileText, roles: ["SUPER_ADMIN"] },
+      { href: "/ai-prompts", label: "AI Prompts", icon: Sparkles, roles: ["SUPER_ADMIN"] },
+      { href: "/credit-rules", label: "Credit Engine", icon: Coins, roles: ["SUPER_ADMIN"] },
+      { href: "/google-monitor", label: "Google API Monitor", icon: Plug, roles: ["SUPER_ADMIN"] },
+      { href: "/managed-services", label: "Managed Services", icon: Package, roles: ["SUPER_ADMIN"] },
     ],
   },
   {
