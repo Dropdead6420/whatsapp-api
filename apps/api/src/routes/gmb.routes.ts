@@ -6,6 +6,7 @@ import {
   GmbLocationStatus,
   GmbReviewStatus,
   GmbCitationStatus,
+  GmbReportType,
 } from "@nexaflow/db";
 import { Permissions } from "@nexaflow/shared";
 import {
@@ -64,6 +65,12 @@ import {
   listCitations,
   updateCitation,
 } from "../services/gmbCitation.service";
+import {
+  deleteReport,
+  generateReport,
+  getReport,
+  listReports,
+} from "../services/gmbReport.service";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -780,6 +787,75 @@ router.delete("/citations/:id", async (req: RequestWithAuth, res: Response, next
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbCitation",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Reports / AI monthly report (AdGrowly GMB-first) ----------------------
+
+const reportListSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  type: z.nativeEnum(GmbReportType).optional(),
+});
+
+const generateReportSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  type: z.nativeEnum(GmbReportType).optional(),
+  periodStart: z.string().datetime(),
+  periodEnd: z.string().datetime(),
+});
+
+router.get("/reports", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const filter = reportListSchema.parse(req.query);
+    res.json({ success: true, data: await listReports(req.tenantId!, filter) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Aggregate reputation/insights/ranking/citations/posts into a stored report
+// with a narrative summary and an action plan.
+router.post("/reports/generate", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = generateReportSchema.parse(req.body);
+    const report = await generateReport(req.tenantId!, { ...body, generatedByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbReport",
+      resourceId: report.id,
+      newValues: { type: report.type, locationId: report.locationId },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/reports/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getReport(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/reports/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteReport(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbReport",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });

@@ -240,6 +240,7 @@ model Tenant {
   gmbRankSnapshots         GmbRankSnapshot[]
   gmbInsightSnapshots      GmbInsightSnapshot[]
   gmbCitations             GmbCitation[]
+  gmbReports               GmbReport[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -3759,6 +3760,7 @@ model GmbLocation {
   trackedKeywords  GmbTrackedKeyword[]
   insightSnapshots GmbInsightSnapshot[]
   citations        GmbCitation[]
+  reports          GmbReport[]
 
   @@index([tenantId, status])
   @@index([tenantId, placeId])
@@ -3992,4 +3994,38 @@ model CmsContent {
 
   @@unique([type, slug, locale])
   @@index([type, status, sortOrder])
+}
+
+// AdGrowly GMB — Reports (planning PDF §3 Reports + §2 AI Monthly Report). A
+// generated report aggregates reputation / insights / ranking / citations /
+// posts for a period into a stored snapshot, with a narrative summary and an
+// action plan. locationId null = tenant-wide; kept on location delete (SetNull).
+enum GmbReportType {
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
+model GmbReport {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  locationId String?
+  location   GmbLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  type        GmbReportType @default(MONTHLY)
+  periodStart DateTime
+  periodEnd   DateTime
+
+  data       Json
+  summary    String?
+  actionPlan Json?
+
+  generatedByUserId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, type])
+  @@index([locationId])
 }
