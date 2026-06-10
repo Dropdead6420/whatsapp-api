@@ -45,9 +45,11 @@ work gated by `GMB_MANAGE`; Super-Admin work gated by `requireRole(SUPER_ADMIN)`
 - [x] 4. **Insights** — GBP performance snapshots + derived totals/action-rate (`97d2bdd`)
 - [x] 5. **Citations** — NAP directory listings + consistency scoring (`a1a5de4`)
 - [x] 6. **AI Prompt management** — Super-Admin prompt templates + engine (`9bfe84e`)
-- [ ] 7. **CMS control** — Super-Admin landing/pricing/blog/FAQ/legal/SEO content blocks
-- [ ] 8. **Reports** — GMB report aggregation + report templates + AI monthly report
-- [ ] 9. **Managed services** — agency service packages (reuse Product / add-ons)
+- [x] 7. **CMS control** — Super-Admin content blocks + public reader (`c8c8308`)
+- [x] 8. **Reports** — aggregation + narrative + action plan / AI monthly report (`9637b9f`)
+- [x] 9. **Managed services** — agency packages + engagement lifecycle (`cdd504a`)
+
+**✅ Phase 1 complete — all 9 GMB-first modules shipped and GHCR-green.**
 
 ## Phase 2 — new AI features + admin engines (from the final doc)
 
