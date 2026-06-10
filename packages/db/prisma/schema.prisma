@@ -242,6 +242,7 @@ model Tenant {
   gmbCitations             GmbCitation[]
   gmbReports               GmbReport[]
   managedServiceEngagements ManagedServiceEngagement[]
+  gmbKeywordIdeaSets       GmbKeywordIdeaSet[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -4097,4 +4098,32 @@ model ManagedServiceEngagement {
 
   @@index([tenantId, status])
   @@index([packageId])
+}
+
+// AdGrowly GMB — AI Keyword Finder (planning PDF §2). A saved set of generated
+// local-SEO keyword ideas for a location/business, from category + city +
+// services + competitors. Ideas are generated deterministically (LLM-swappable
+// later) and stored as JSON; chosen ideas feed the ranking tracker via the
+// existing tracked-keyword endpoint.
+model GmbKeywordIdeaSet {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Soft reference to a GmbLocation (no hard FK).
+  locationId String?
+
+  category    String?
+  city        String?
+  region      String?
+  services    String[] @default([])
+  competitors String[] @default([])
+
+  ideas Json
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
 }

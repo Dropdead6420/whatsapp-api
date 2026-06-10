@@ -66,6 +66,13 @@ import {
   updateCitation,
 } from "../services/gmbCitation.service";
 import {
+  createIdeaSet,
+  deleteIdeaSet,
+  generateKeywordIdeas,
+  getIdeaSet,
+  listIdeaSets,
+} from "../services/gmbKeyword.service";
+import {
   deleteReport,
   generateReport,
   getReport,
@@ -856,6 +863,85 @@ router.delete("/reports/:id", async (req: RequestWithAuth, res: Response, next: 
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbReport",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- AI Keyword Finder (AdGrowly GMB-first, Phase 2) ------------------------
+
+const keywordInputShape = {
+  category: z.string().trim().max(120).optional(),
+  city: z.string().trim().max(120).optional(),
+  region: z.string().trim().max(120).optional(),
+  services: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  competitors: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+  seedKeywords: z.array(z.string().trim().min(1).max(160)).max(50).optional(),
+  limit: z.number().int().min(1).max(200).optional(),
+};
+
+const generateIdeasSchema = z.object(keywordInputShape);
+const createIdeaSetSchema = z.object({ ...keywordInputShape, locationId: z.string().cuid().optional() });
+const ideaSetListSchema = z.object({ locationId: z.string().cuid().optional() });
+
+// Preview keyword ideas without saving.
+router.post("/keyword-ideas/generate", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const input = generateIdeasSchema.parse(req.body ?? {});
+    res.json({ success: true, data: { ideas: generateKeywordIdeas(input) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/keyword-ideas", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = createIdeaSetSchema.parse(req.body);
+    const set = await createIdeaSet(req.tenantId!, { ...body, createdByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbKeywordIdeaSet",
+      resourceId: set.id,
+      newValues: { count: set.count, city: set.city },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: set });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/keyword-ideas", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { locationId } = ideaSetListSchema.parse(req.query);
+    res.json({ success: true, data: await listIdeaSets(req.tenantId!, locationId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/keyword-ideas/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getIdeaSet(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/keyword-ideas/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteIdeaSet(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbKeywordIdeaSet",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });
