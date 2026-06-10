@@ -4196,3 +4196,23 @@ model GmbAdvisorReport {
 
   @@index([tenantId])
 }
+
+// AdGrowly / platform — Credit Engine (planning PDF §4). SUPER_ADMIN-defined
+// credit cost per AI/usage action (review reply, post, image, report, ranking
+// check, SMS/WhatsApp). No hardcoded credit rules — the app prices actions by
+// reading the active rules. `action` is a stable dotted key.
+model CreditRule {
+  id          String  @id @default(cuid())
+  action      String  @unique
+  label       String
+  description String?
+  cost        Int
+  isActive    Boolean @default(true)
+
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
