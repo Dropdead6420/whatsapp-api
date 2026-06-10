@@ -246,6 +246,7 @@ model Tenant {
   gmbDescriptions          GmbDescription[]
   gmbAdvisorReports        GmbAdvisorReport[]
   googleApiLogs            GoogleApiLog[]
+  gmbImageRequests         GmbImageRequest[]
   integrations             Integration[]
   callLogs                 CallLog[]
   virtualNumbers           VirtualNumber[]
@@ -4248,4 +4249,45 @@ model GoogleApiLog {
   @@index([tenantId, createdAt])
   @@index([locationId])
   @@index([status])
+}
+
+// AdGrowly GMB — AI Image Generator (planning PDF §2). A request to generate a
+// post/offer/creative image via the admin-configured image provider (key in
+// the Secret Vault). Generate-then-approve: a built prompt is stored PENDING;
+// a worker fills resultUrl + READY/FAILED; the operator APPROVES/REJECTS.
+enum GmbImageStatus {
+  PENDING
+  READY
+  FAILED
+  APPROVED
+  REJECTED
+}
+
+model GmbImageRequest {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Soft reference to a GmbLocation (no hard FK).
+  locationId String?
+
+  subject String
+  prompt  String
+  style   String?
+  palette String?
+  size    String  @default("1024x1024")
+  quality String?
+
+  provider  String?
+  secretId  String?
+  status    GmbImageStatus @default(PENDING)
+  resultUrl String?
+  error     String?
+
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
 }

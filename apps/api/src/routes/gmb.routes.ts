@@ -9,6 +9,7 @@ import {
   GmbReportType,
   GmbDescriptionTarget,
   GmbDescriptionStatus,
+  GmbImageStatus,
 } from "@nexaflow/db";
 import { Permissions } from "@nexaflow/shared";
 import {
@@ -88,6 +89,14 @@ import {
   getAdvice,
   listAdvice,
 } from "../services/gmbAdvisor.service";
+import {
+  buildImagePrompt,
+  createImageRequest,
+  deleteImageRequest,
+  getImageRequest,
+  listImageRequests,
+  updateImageRequest,
+} from "../services/gmbImage.service";
 import {
   deleteReport,
   generateReport,
@@ -1133,6 +1142,121 @@ router.delete("/advisor/:id", async (req: RequestWithAuth, res: Response, next: 
       userId: req.userId!,
       action: "DELETE",
       resource: "GmbAdvisorReport",
+      resourceId: req.params.id,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: { deleted: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- AI Image Generator (AdGrowly GMB-first, Phase 2) -----------------------
+
+const imagePromptShape = {
+  subject: z.string().trim().min(1).max(500),
+  businessName: z.string().trim().max(160).optional(),
+  style: z.string().trim().max(120).optional(),
+  palette: z.string().trim().max(120).optional(),
+  extras: z.array(z.string().trim().min(1).max(160)).max(20).optional(),
+};
+
+const buildPromptSchema = z.object(imagePromptShape);
+
+const createImageSchema = z.object({
+  ...imagePromptShape,
+  locationId: z.string().cuid().optional(),
+  size: z.string().trim().max(16).optional(),
+  quality: z.string().trim().max(40).optional(),
+  provider: z.string().trim().max(80).optional(),
+  secretId: z.string().cuid().nullable().optional(),
+});
+
+const imageListSchema = z.object({
+  locationId: z.string().cuid().optional(),
+  status: z.nativeEnum(GmbImageStatus).optional(),
+});
+
+const updateImageSchema = z
+  .object({
+    status: z.nativeEnum(GmbImageStatus).optional(),
+    resultUrl: z.string().url().max(1000).nullable().optional(),
+    error: z.string().trim().max(2000).nullable().optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: "PATCH body must include a field." });
+
+// Preview the built image prompt without creating a request.
+router.post("/images/prompt", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const input = buildPromptSchema.parse(req.body);
+    res.json({ success: true, data: { prompt: buildImagePrompt(input) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/images", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = createImageSchema.parse(req.body);
+    const image = await createImageRequest(req.tenantId!, { ...body, createdByUserId: req.userId });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbImageRequest",
+      resourceId: image.id,
+      newValues: { subject: image.subject, size: image.size },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: image });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/images", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await listImageRequests(req.tenantId!, imageListSchema.parse(req.query)) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/images/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getImageRequest(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/images/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = updateImageSchema.parse(req.body);
+    const image = await updateImageRequest(req.tenantId!, req.params.id, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbImageRequest",
+      resourceId: image.id,
+      newValues: { fieldsUpdated: Object.keys(body), status: image.status },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: image });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/images/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    await deleteImageRequest(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "DELETE",
+      resource: "GmbImageRequest",
       resourceId: req.params.id,
       ...extractRequestMeta(req),
     });
