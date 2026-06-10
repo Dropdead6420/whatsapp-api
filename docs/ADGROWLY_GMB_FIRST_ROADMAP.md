@@ -57,20 +57,15 @@ New items the final doc adds beyond Phase 1. Built slice-by-slice after Phase 1,
 loop. AI features are tenant-scoped (`GMB_MANAGE`) and pull prompts from module 6;
 admin engines are `SUPER_ADMIN`.
 
-- [ ] 10. **AI Keyword Finder** — generate local-SEO keyword ideas (category/city/
-      competitor/service); feeds the ranking tracker. Credit-metered.
-- [ ] 11. **AI Description Optimizer** — improve business/service/product descriptions
-      (keyword density, char limits, safety, approval).
-- [ ] 12. **AI Ranking Advisor** — analyze profile gaps → weekly local-SEO task list
-      with a scoring system.
-- [ ] 13. **Credit Engine** — Super-Admin credit cost per AI action (reply, post,
-      image, report, ranking check, SMS/WhatsApp). No hardcoded credit rules.
-- [ ] 14. **Google API Monitor** — Super-Admin view of connected accounts, token
-      status, sync errors, rate limits, API logs (per `GmbLocation`).
-- [ ] 15. **AI Image Generator** — generate post/offer/creative images via the
-      admin-configured image provider (size/style/quality/safety/credit cost).
-- [ ] 16. **Customer Dashboard aggregation** — business score + reviews/rating/ranking/
-      posts/credits/alerts/growth summary (read-model over modules 1–5).
+- [x] 10. **AI Keyword Finder** — local-SEO idea generator + saved sets (`64ed153`)
+- [x] 11. **AI Description Optimizer** — analyze + optimize, generate-then-approve (`5ccf61d`)
+- [x] 12. **AI Ranking Advisor** — profile-gap score/grade + weekly tasks (`8bdac04`)
+- [x] 13. **Credit Engine** — Super-Admin cost-per-action rules + cost map (`0948828`)
+- [x] 14. **Google API Monitor** — connection health + API log feed (`04897aa`)
+- [x] 15. **AI Image Generator** — prompt builder + request lifecycle (`a5ff452`)
+- [x] 16. **Customer Dashboard aggregation** — score + cards + alerts read-model (`960f1d9`)
+
+**✅ Phase 2 complete — all 7 new AI/admin modules shipped. AdGrowly roadmap 16/16.**
 
 ## Mapping: final-doc requirements → status
 
