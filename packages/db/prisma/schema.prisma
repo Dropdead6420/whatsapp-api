@@ -3946,3 +3946,50 @@ model AiPromptTemplate {
 
   @@index([category, isActive])
 }
+
+// AdGrowly / platform — CMS Manager (planning PDF §4: landing/pricing pages,
+// blogs, FAQs, testimonials, legal pages, SEO meta). Global, SUPER_ADMIN-
+// curated site content; the public marketing surface consumes only PUBLISHED
+// rows. `data` carries type-specific extras (testimonial author, FAQ group,
+// pricing tiers). No hardcoded site content — fully admin-managed.
+enum CmsContentType {
+  PAGE
+  BLOG
+  FAQ
+  TESTIMONIAL
+  LEGAL
+  SEO_META
+}
+
+enum CmsContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model CmsContent {
+  id     String @id @default(cuid())
+  type   CmsContentType
+  slug   String
+  locale String @default("en")
+
+  title   String
+  excerpt String?
+  body    String?
+  data    Json?
+
+  metaTitle       String?
+  metaDescription String?
+
+  status    CmsContentStatus @default(DRAFT)
+  sortOrder Int              @default(0)
+
+  publishedAt     DateTime?
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, slug, locale])
+  @@index([type, status, sortOrder])
+}
