@@ -4,6 +4,7 @@
 // Profile posts with AI captions and schedule them. Live publishing to
 // Google lands once the Business-Profile OAuth connection exists.
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { useAuth } from "../../src/hooks/useAuth";
@@ -101,6 +102,23 @@ export default function GmbPage() {
           Draft posts with AI captions and schedule them. Publishing to Google
           activates once your Business Profile is connected.
         </p>
+      </div>
+
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-slate-500">AI content tools:</span>
+        {[
+          { href: "/gmb-descriptions", label: "Descriptions" },
+          { href: "/gmb-images", label: "Images" },
+          { href: "/gmb-advisor", label: "Advisor" },
+        ].map((t) => (
+          <Link
+            key={t.href}
+            href={t.href}
+            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            {t.label}
+          </Link>
+        ))}
       </div>
 
       {err && (

@@ -116,4 +116,24 @@ describe("activeHrefFromPath", () => {
     ];
     expect(activeHrefFromPath("/inbox", multi)).toBe("/inbox");
   });
+
+  // Pins the GMB sidebar: the "Content" item (href /gmb) must NOT steal the
+  // highlight from sibling /gmb-* pages, and the AI-tool pages folded under
+  // Content (via activeRoutes) must light Content up.
+  it("keeps the GMB Content (/gmb) item from over-matching /gmb-* siblings", () => {
+    const gmb = [
+      {
+        items: [
+          { href: "/gmb-dashboard" }, // Home
+          { href: "/gmb-reputation" }, // Reputation
+          { href: "/gmb", activeRoutes: ["/gmb", "/gmb-descriptions", "/gmb-images", "/gmb-advisor"] }, // Content
+        ],
+      },
+    ];
+    expect(activeHrefFromPath("/gmb-dashboard", gmb)).toBe("/gmb-dashboard");
+    expect(activeHrefFromPath("/gmb-reputation", gmb)).toBe("/gmb-reputation");
+    expect(activeHrefFromPath("/gmb", gmb)).toBe("/gmb");
+    expect(activeHrefFromPath("/gmb-descriptions", gmb)).toBe("/gmb"); // folded tool → Content
+    expect(activeHrefFromPath("/gmb-images", gmb)).toBe("/gmb");
+  });
 });
