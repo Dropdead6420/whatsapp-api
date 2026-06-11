@@ -298,6 +298,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         roles: ["SUPER_ADMIN"],
       },
       {
+        href: "/partner-overview",
+        label: "Partners",
+        icon: Building2,
+        roles: ["SUPER_ADMIN"],
+      },
+      {
         href: "/billing",
         label: "Plans & Billing",
         icon: CreditCard,
