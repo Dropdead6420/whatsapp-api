@@ -92,6 +92,44 @@ export function actionRate(totalActions: number, totalViews: number): number {
   return Math.round((totalActions / totalViews) * 10000) / 10000;
 }
 
+export interface InsightDelta {
+  current: number;
+  previous: number;
+  /** current − previous (raw points). */
+  change: number;
+  /** Relative change vs previous, as a percent rounded to 1 dp; 0 when previous is 0. */
+  changePercent: number;
+}
+
+export interface InsightComparison {
+  totalViews: InsightDelta;
+  totalSearches: InsightDelta;
+  totalActions: InsightDelta;
+  actionRate: InsightDelta;
+}
+
+function delta(current: number, previous: number): InsightDelta {
+  const change = Math.round((current - previous) * 10000) / 10000;
+  const changePercent = previous > 0 ? Math.round((change / previous) * 1000) / 10 : 0;
+  return { current, previous, change, changePercent };
+}
+
+/**
+ * Period-over-period comparison of the headline insight totals (pure). Powers
+ * trend arrows on the Insights page: each field carries current, previous, the
+ * raw change and the percent change (guarded against divide-by-zero).
+ */
+export function compareInsightTotals(current: InsightMetrics, previous: InsightMetrics): InsightComparison {
+  const c = deriveInsightTotals(current);
+  const p = deriveInsightTotals(previous);
+  return {
+    totalViews: delta(c.totalViews, p.totalViews),
+    totalSearches: delta(c.totalSearches, p.totalSearches),
+    totalActions: delta(c.totalActions, p.totalActions),
+    actionRate: delta(actionRate(c.totalActions, c.totalViews), actionRate(p.totalActions, p.totalViews)),
+  };
+}
+
 export function toSafeInsight(row: InsightRow) {
   const metrics = pickMetrics(row);
   const totals = deriveInsightTotals(metrics);

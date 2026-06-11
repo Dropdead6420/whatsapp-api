@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   actionRate,
+  compareInsightTotals,
   deriveInsightTotals,
   summarizeInsights,
   toSafeInsight,
@@ -36,6 +37,44 @@ describe("actionRate", () => {
   });
   it("is zero when there are no views", () => {
     expect(actionRate(5, 0)).toBe(0);
+  });
+});
+
+describe("compareInsightTotals", () => {
+  const prevMetrics = {
+    mapsViews: 80,
+    searchViews: 120, // totalViews 200
+    directSearches: 30,
+    discoverySearches: 20,
+    brandedSearches: 10, // totalSearches 60
+    callClicks: 10,
+    websiteClicks: 10,
+    directionRequests: 5,
+    messageClicks: 0,
+    bookingClicks: 0, // totalActions 25
+    photoViews: 0,
+  };
+
+  it("computes raw + percent change for each headline total", () => {
+    const cmp = compareInsightTotals(metrics, prevMetrics);
+    expect(cmp.totalViews).toMatchObject({ current: 250, previous: 200, change: 50, changePercent: 25 });
+    expect(cmp.totalActions).toMatchObject({ current: 50, previous: 25, change: 25, changePercent: 100 });
+    expect(cmp.totalSearches.change).toBe(20); // 80 - 60
+  });
+
+  it("derives an action-rate delta (0.2 vs 0.125 → +60%)", () => {
+    const cmp = compareInsightTotals(metrics, prevMetrics);
+    expect(cmp.actionRate.current).toBe(0.2);
+    expect(cmp.actionRate.previous).toBe(0.125);
+    expect(cmp.actionRate.changePercent).toBe(60);
+  });
+
+  it("guards divide-by-zero: zero previous yields 0% (not Infinity/NaN)", () => {
+    const zero = { ...prevMetrics, mapsViews: 0, searchViews: 0, callClicks: 0, websiteClicks: 0, directionRequests: 0 };
+    const cmp = compareInsightTotals(metrics, zero);
+    expect(cmp.totalViews.changePercent).toBe(0);
+    expect(cmp.totalActions.changePercent).toBe(0);
+    expect(Number.isFinite(cmp.totalViews.changePercent)).toBe(true);
   });
 });
 
