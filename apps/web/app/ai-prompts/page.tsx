@@ -41,18 +41,21 @@ export default function AiPromptsPage() {
   const [previewResult, setPreviewResult] = useState<{ text: string; missing: string[] } | null>(null);
   const [seeds, setSeeds] = useState<{ key: string; template: string }[]>([]);
   const [coverage, setCoverage] = useState<{ key: string; hasActiveTemplate: boolean; source: string }[]>([]);
+  const [sampleVars, setSampleVars] = useState<Record<string, Record<string, unknown>>>({});
 
   async function refresh() {
     try {
       setErr(null);
-      const [list, seedList, coverageList] = await Promise.all([
+      const [list, seedList, coverageList, sampleList] = await Promise.all([
         api.get<Template[]>("/api/v1/admin/ai-prompts"),
         api.get<{ key: string; template: string }[]>("/api/v1/admin/ai-prompts/seeds"),
         api.get<{ key: string; hasActiveTemplate: boolean; source: string }[]>("/api/v1/admin/ai-prompts/coverage"),
+        api.get<{ key: string; variables: Record<string, unknown> }[]>("/api/v1/admin/ai-prompts/sample-vars"),
       ]);
       setItems(list);
       setSeeds(seedList);
       setCoverage(coverageList);
+      setSampleVars(Object.fromEntries(sampleList.map((s) => [s.key, s.variables])));
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to load prompts (Super Admin only).");
     }
@@ -271,7 +274,18 @@ export default function AiPromptsPage() {
                     Sample variables (JSON)
                     <textarea value={previewVars} onChange={(e) => setPreviewVars(e.target.value)} rows={2} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs" />
                   </label>
-                  <button onClick={() => void runPreview(t.id)} className="mt-2 rounded-md bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-900">Render</button>
+                  <div className="mt-2 flex gap-2">
+                    <button onClick={() => void runPreview(t.id)} className="rounded-md bg-slate-800 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-900">Render</button>
+                    {sampleVars[t.key.trim().toLowerCase()] && (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewVars(JSON.stringify(sampleVars[t.key.trim().toLowerCase()], null, 2))}
+                        className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Fill sample
+                      </button>
+                    )}
+                  </div>
                   {previewResult && (
                     <div className="mt-2">
                       <p className="whitespace-pre-wrap rounded-md bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">{previewResult.text}</p>

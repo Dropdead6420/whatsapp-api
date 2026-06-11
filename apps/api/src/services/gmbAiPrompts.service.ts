@@ -171,6 +171,45 @@ export async function resolveFeaturePrompt(key: GmbPromptKey, vars: PromptVars):
   return resolvePromptText(template, key, vars);
 }
 
+// Realistic sample variables per feature — derived through the same mappers the
+// runtime uses, so previewing a template with these fills exactly the
+// placeholders the seed declares. Powers a one-click "fill sample" in preview.
+const SAMPLE_VARS: Record<GmbPromptKey, PromptVars> = {
+  [GMB_PROMPT_KEYS.reviewReply]: reviewReplyVariables({
+    authorName: "Priya Sharma",
+    rating: 5,
+    businessName: "Acme Cafe",
+    comment: "Loved the coffee and the service!",
+  }),
+  [GMB_PROMPT_KEYS.postCaption]: postCaptionVariables({
+    businessName: "Acme Cafe",
+    topic: "Diwali weekend special",
+    tone: "friendly",
+  }),
+  [GMB_PROMPT_KEYS.description]: descriptionVariables({
+    businessName: "Acme Cafe",
+    keywords: ["espresso", "fresh pastries", "free wifi"],
+  }),
+  [GMB_PROMPT_KEYS.keywordIdeas]: keywordIdeasVariables({
+    category: "Cafe",
+    city: "Pune",
+    services: ["espresso", "cold brew", "pastries"],
+  }),
+  [GMB_PROMPT_KEYS.rankingAdvice]: { business: "Acme Cafe" },
+  [GMB_PROMPT_KEYS.image]: { subject: "a latte with leaf art", business: "Acme Cafe", style: "warm, natural-light" },
+  [GMB_PROMPT_KEYS.report]: { business: "Acme Cafe" },
+};
+
+/** Realistic sample variables for a feature key (for previewing templates). */
+export function sampleVarsFor(key: GmbPromptKey): PromptVars {
+  return SAMPLE_VARS[key];
+}
+
+/** Sample-variable catalog as a list for the admin UI: [{ key, variables }]. */
+export function listSampleVars(): { key: GmbPromptKey; variables: PromptVars }[] {
+  return (Object.keys(SAMPLE_VARS) as GmbPromptKey[]).map((key) => ({ key, variables: SAMPLE_VARS[key] }));
+}
+
 export interface PromptCoverageRow {
   key: GmbPromptKey;
   hasActiveTemplate: boolean;

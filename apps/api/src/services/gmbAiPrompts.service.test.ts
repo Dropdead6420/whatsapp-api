@@ -4,11 +4,13 @@ import {
   descriptionVariables,
   keywordIdeasVariables,
   listPromptSeeds,
+  listSampleVars,
   postCaptionVariables,
   promptCoverage,
   renderWithFallback,
   resolvePromptText,
   reviewReplyVariables,
+  sampleVarsFor,
   seedFor,
 } from "./gmbAiPrompts.service";
 import { renderPrompt } from "./aiPromptTemplate.service";
@@ -164,5 +166,22 @@ describe("promptCoverage", () => {
   it("ignores active keys that are not GMB feature keys", () => {
     const rows = promptCoverage(["some.other.key"]);
     expect(rows.every((r) => !r.hasActiveTemplate)).toBe(true);
+  });
+});
+
+describe("sample variables", () => {
+  it("provides sample variables for every feature key", () => {
+    const list = listSampleVars();
+    expect(list).toHaveLength(Object.keys(GMB_PROMPT_KEYS).length);
+    for (const { variables } of list) expect(Object.keys(variables).length).toBeGreaterThan(0);
+  });
+
+  it("every seed renders with no missing placeholders using its sample vars", () => {
+    for (const key of Object.values(GMB_PROMPT_KEYS)) {
+      const r = resolvePromptText(null, key, sampleVarsFor(key));
+      expect(r.source).toBe("fallback");
+      expect(r.text, `seed for ${key} left a placeholder unfilled`).not.toContain("{{");
+      expect(r.missing, `seed for ${key} reported missing vars`).toEqual([]);
+    }
   });
 });
