@@ -20,9 +20,9 @@ import {
 import { requirePermission } from "../middleware/rbac";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
-  buildGmbCaption,
   createPost,
   deletePost,
+  draftGmbCaption,
   getPost,
   listPosts,
   schedulePost,
@@ -191,7 +191,7 @@ router.post("/posts", async (req: RequestWithAuth, res: Response, next: NextFunc
 router.post("/posts/generate", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const body = generateSchema.parse(req.body);
-    const caption = buildGmbCaption(body);
+    const caption = await draftGmbCaption(req.tenantId!, body);
     const post = await createPost(req.tenantId!, {
       type: caption.type,
       summary: caption.summary,
@@ -206,7 +206,7 @@ router.post("/posts/generate", async (req: RequestWithAuth, res: Response, next:
       action: "CREATE",
       resource: "GmbPost",
       resourceId: post.id,
-      newValues: { generated: true, type: post.type },
+      newValues: { generated: true, type: post.type, source: caption.source },
       ...extractRequestMeta(req),
     });
     res.status(201).json({ success: true, data: post });

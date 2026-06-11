@@ -1,5 +1,7 @@
 import { prisma, GmbPostStatus, GmbPostType } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { GMB_PROMPT_KEYS, postCaptionVariables, resolveFeaturePrompt } from "./gmbAiPrompts.service";
+import { runTenantLlmJson } from "./ai.service";
 
 // =====================================================================
 // GMB AI Manager service (Complete Planning PDF §2.19, Phase 11).
@@ -65,6 +67,40 @@ export function buildGmbCaption(input: CaptionInput): CaptionDraft {
     summary: `${playful ? "✨ " : ""}News from ${name}: ${body}. Reach out to learn more.`,
     callToActionType: "LEARN_MORE",
   };
+}
+
+/**
+ * Draft a caption with the live LLM gateway, driven by the Super-Admin's
+ * `gmb.post_caption` prompt (or its seed) via resolveFeaturePrompt. Post type
+ * and CTA stay deterministic; only the summary text is AI-written. Any failure
+ * (no provider key, insufficient credits, provider/parse error) falls back to
+ * the deterministic template so the feature never breaks.
+ */
+export async function draftGmbCaption(
+  tenantId: string,
+  input: CaptionInput,
+): Promise<CaptionDraft & { source: "ai" | "template" }> {
+  const fallback = buildGmbCaption(input);
+  try {
+    const resolved = await resolveFeaturePrompt(
+      GMB_PROMPT_KEYS.postCaption,
+      postCaptionVariables({ businessName: input.businessName, topic: input.topic, tone: input.tone }),
+    );
+    const out = await runTenantLlmJson<{ summary: string }>({
+      tenantId,
+      feature: "gmb_post_caption",
+      system:
+        "You write concise Google Business Profile posts. Under 1500 characters, no hashtag walls, end with a clear invitation to act.",
+      prompt: `${resolved.text}\n\nPost type: ${fallback.type}.\nReturn JSON: {"summary":"..."}`,
+      maxTokens: 400,
+      temperature: 0.7,
+    });
+    const summary = out?.summary?.trim();
+    if (!summary) return { ...fallback, source: "template" };
+    return { ...fallback, summary: summary.slice(0, 1500), source: "ai" };
+  } catch {
+    return { ...fallback, source: "template" };
+  }
 }
 
 interface PostRow {
