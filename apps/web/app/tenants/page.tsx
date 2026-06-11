@@ -38,7 +38,7 @@ export default function TenantsPage() {
     <DashboardShell user={user} signOut={signOut}>
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Tenants</h1>
+          <h1 className="text-2xl font-semibold">Customers</h1>
           <p className="text-sm text-slate-500">{tenants.length} accounts</p>
         </div>
         <Link

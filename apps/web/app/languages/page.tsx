@@ -501,7 +501,7 @@ export default function LanguagesPage() {
           </section>
 
           <section className="rounded-lg border border-slate-200 bg-white p-5">
-            <h2 className="text-sm font-semibold text-slate-950">Tenant defaults</h2>
+            <h2 className="text-sm font-semibold text-slate-950">Customer defaults</h2>
             <div className="mt-4 space-y-3">
               <Input label="Customer tenant ID" value={tenantForm.tenantId} onChange={(value) => setTenantForm((form) => ({ ...form, tenantId: value }))} placeholder="tenant cuid" />
               <div className="grid grid-cols-2 gap-3">

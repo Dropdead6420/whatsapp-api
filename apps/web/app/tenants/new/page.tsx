@@ -82,10 +82,10 @@ export default function NewTenantPage() {
       <form onSubmit={submit} className="max-w-3xl space-y-6">
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-slate-500">
-            Tenant details
+            Customer details
           </h2>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Tenant name" required>
+            <Field label="Customer name" required>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}

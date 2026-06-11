@@ -457,7 +457,7 @@ export default function PartnerDashboardPage() {
           <table className="w-full text-xs">
             <thead className="bg-slate-900/80 text-left text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
               <tr>
-                <th className="px-4 py-3 font-semibold">Tenant Account</th>
+                <th className="px-4 py-3 font-semibold">Customer Account</th>
                 <th className="px-4 py-3 font-semibold">Alert Condition</th>
                 <th className="px-4 py-3 font-semibold">Days Remaining</th>
                 <th className="px-4 py-3 font-semibold">Action Trigger</th>
