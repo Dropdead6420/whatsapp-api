@@ -377,6 +377,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
       { href: "/credit-rules", label: "Credit Engine", icon: Coins, roles: ["SUPER_ADMIN"] },
       { href: "/google-monitor", label: "Google API Monitor", icon: Plug, roles: ["SUPER_ADMIN"] },
       { href: "/secret-vault", label: "API Keys", icon: Settings, roles: ["SUPER_ADMIN"] },
+      { href: "/google-config", label: "Google API Config", icon: Globe, roles: ["SUPER_ADMIN"] },
       { href: "/managed-services", label: "Managed Services", icon: Package, roles: ["SUPER_ADMIN"] },
     ],
   },

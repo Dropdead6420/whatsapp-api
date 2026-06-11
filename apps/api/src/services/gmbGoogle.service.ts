@@ -12,6 +12,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { captureLast4 } from "./secretVault.service";
 import { decryptToken, encryptToken } from "../lib/tokenCrypto";
 import { recordLog } from "./googleApiMonitor.service";
+import { getCachedGoogleClientConfig } from "./googleOAuthConfig.service";
 
 // Google Business Profile integration (AdGrowly GMB-first PDF).
 //
@@ -59,6 +60,10 @@ export interface SafeGoogleConnection {
 }
 
 function readClientConfig() {
+  // Prefer the SuperAdmin-managed config (when enabled) — see
+  // googleOAuthConfig.service; fall back to environment variables.
+  const stored = getCachedGoogleClientConfig();
+  if (stored) return stored;
   return {
     clientId:
       process.env.GOOGLE_BUSINESS_PROFILE_CLIENT_ID ??

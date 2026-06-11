@@ -4322,3 +4322,22 @@ model PlanPricingDefault {
 
   @@unique([scope, planName])
 }
+
+// SuperAdmin "Google Business Profile — API Configuration": the platform's
+// Google OAuth app credentials used to connect customers' GMB accounts. Single
+// row (id "default"). The client secret is envelope-encrypted at rest and never
+// returned raw. gmbGoogle.readClientConfig() prefers this (when enabled) and
+// falls back to env vars.
+model GoogleOAuthConfig {
+  id                 String  @id @default(cuid())
+  clientId           String  @default("")
+  clientSecretCipher String?
+  clientSecretLast4  String?
+  redirectUri        String  @default("")
+  scope              String  @default("https://www.googleapis.com/auth/business.manage")
+  enabled            Boolean @default(false)
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

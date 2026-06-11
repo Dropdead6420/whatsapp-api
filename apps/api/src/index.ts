@@ -84,6 +84,8 @@ import adminAiPromptsRoutes from "./routes/admin-ai-prompts.routes";
 import adminLanguagesRoutes from "./routes/admin-languages.routes";
 import adminPartnerOverviewRoutes from "./routes/admin-partner-overview.routes";
 import adminPlanPricingRoutes from "./routes/admin-plan-pricing.routes";
+import adminGoogleConfigRoutes from "./routes/admin-google-config.routes";
+import { primeGoogleOAuthCache } from "./services/googleOAuthConfig.service";
 import currencySettingsRoutes from "./routes/currency-settings.routes";
 import languageSettingsRoutes from "./routes/language-settings.routes";
 import numberMigrationsRoutes from "./routes/number-migrations.routes";
@@ -343,6 +345,10 @@ app.use("/api/v1/admin/currency-rates", adminCurrencyRatesRoutes);
 app.use("/api/v1/admin/ai-prompts", adminAiPromptsRoutes);
 app.use("/api/v1/admin/partner-overview", adminPartnerOverviewRoutes);
 app.use("/api/v1/admin/plan-pricing", adminPlanPricingRoutes);
+app.use("/api/v1/admin/google-config", adminGoogleConfigRoutes);
+// Best-effort: warm the Google OAuth config cache so gmbGoogle prefers stored
+// creds over env. Never blocks startup (falls back to env on failure).
+void primeGoogleOAuthCache();
 app.use("/api/v1/admin/languages", adminLanguagesRoutes);
 app.use("/api/v1/currency-settings", currencySettingsRoutes);
 app.use("/api/v1/language-settings", languageSettingsRoutes);
