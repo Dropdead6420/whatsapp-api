@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   GMB_PROMPT_KEYS,
+  descriptionVariables,
+  keywordIdeasVariables,
+  listPromptSeeds,
   postCaptionVariables,
   renderWithFallback,
   reviewReplyVariables,
+  seedFor,
 } from "./gmbAiPrompts.service";
 
 describe("GMB_PROMPT_KEYS", () => {
@@ -60,5 +64,40 @@ describe("renderWithFallback", () => {
   it("uses the fallback when the template is inactive or empty", () => {
     expect(renderWithFallback({ template: "x", isActive: false }, vars, "FB").source).toBe("fallback");
     expect(renderWithFallback({ template: "   ", isActive: true }, vars, "FB").source).toBe("fallback");
+  });
+});
+
+describe("descriptionVariables / keywordIdeasVariables", () => {
+  it("joins keywords for the description template", () => {
+    expect(descriptionVariables({ businessName: "Acme", keywords: [" coffee ", "", "pastries"] })).toEqual({
+      business: "Acme",
+      keywords: "coffee, pastries",
+    });
+  });
+  it("joins services and trims category/city", () => {
+    expect(keywordIdeasVariables({ category: " Cafe ", city: "Pune", services: ["espresso", " "] })).toEqual({
+      category: "Cafe",
+      city: "Pune",
+      services: "espresso",
+    });
+  });
+});
+
+describe("prompt seeds", () => {
+  it("provides a starter template for every feature key", () => {
+    const seeds = listPromptSeeds();
+    expect(seeds).toHaveLength(Object.keys(GMB_PROMPT_KEYS).length);
+    for (const { template } of seeds) expect(template.length).toBeGreaterThan(0);
+  });
+  it("review-reply seed references author and business placeholders", () => {
+    const seed = seedFor(GMB_PROMPT_KEYS.reviewReply);
+    expect(seed).toContain("{{author}}");
+    expect(seed).toContain("{{business}}");
+  });
+  it("a seed renders cleanly with its feature variables (no missing)", () => {
+    const seed = seedFor(GMB_PROMPT_KEYS.reviewReply);
+    const r = renderWithFallback({ template: seed, isActive: true }, reviewReplyVariables({ authorName: "Sam", rating: 5, businessName: "Acme" }), "FB");
+    expect(r.source).toBe("template");
+    expect(r.missing).toEqual([]);
   });
 });

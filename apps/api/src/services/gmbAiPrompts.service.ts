@@ -78,3 +78,58 @@ export function renderWithFallback(
   }
   return { text: fallback, source: "fallback", missing: [] };
 }
+
+/** Variables for the `gmb.description_optimizer` template. */
+export function descriptionVariables(input: {
+  businessName: string;
+  keywords?: string[];
+}): PromptVars {
+  return {
+    business: input.businessName.trim() || "our business",
+    keywords: (input.keywords ?? []).map((k) => k.trim()).filter(Boolean).join(", "),
+  };
+}
+
+/** Variables for the `gmb.keyword_finder` template. */
+export function keywordIdeasVariables(input: {
+  category?: string | null;
+  city?: string | null;
+  services?: string[];
+}): PromptVars {
+  return {
+    category: (input.category ?? "").trim(),
+    city: (input.city ?? "").trim(),
+    services: (input.services ?? []).map((s) => s.trim()).filter(Boolean).join(", "),
+  };
+}
+
+// Suggested starter templates per feature. Super Admin can adopt + edit these
+// in AI Prompt Management — they are suggestions, not hardcoded runtime prompts
+// (runtime still reads the admin's active AiPromptTemplate). Mirror the
+// KNOWN_CREDIT_ACTIONS catalog pattern.
+export const GMB_PROMPT_SEEDS: Record<GmbPromptKey, string> = {
+  [GMB_PROMPT_KEYS.reviewReply]:
+    "Hi {{author}}, thank you for your {{rating}}-star review of {{business}}. We appreciate your feedback and hope to welcome you again soon.",
+  [GMB_PROMPT_KEYS.postCaption]:
+    "{{topic}} at {{business}} — visit us today! Written in a {{tone}} tone.",
+  [GMB_PROMPT_KEYS.description]:
+    "Write a compelling Google Business Profile description for {{business}}, naturally including: {{keywords}}.",
+  [GMB_PROMPT_KEYS.keywordIdeas]:
+    "List high-intent local SEO keywords for a {{category}} in {{city}} offering {{services}}.",
+  [GMB_PROMPT_KEYS.rankingAdvice]:
+    "Given this profile's gaps, suggest a prioritized weekly local-SEO task list for {{business}}.",
+  [GMB_PROMPT_KEYS.image]:
+    "A professional, brand-safe photo of {{subject}} for {{business}} in a {{style}} style.",
+  [GMB_PROMPT_KEYS.report]:
+    "Summarize this period's Google Business Profile performance for {{business}} with an action plan.",
+};
+
+/** The suggested starter template for a feature key. */
+export function seedFor(key: GmbPromptKey): string {
+  return GMB_PROMPT_SEEDS[key];
+}
+
+/** Seed catalog as a list for the admin UI: [{ key, template }]. */
+export function listPromptSeeds(): { key: GmbPromptKey; template: string }[] {
+  return (Object.keys(GMB_PROMPT_SEEDS) as GmbPromptKey[]).map((key) => ({ key, template: GMB_PROMPT_SEEDS[key] }));
+}

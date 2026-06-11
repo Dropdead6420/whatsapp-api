@@ -20,6 +20,7 @@ import {
   previewTemplate,
   updateTemplate,
 } from "../services/aiPromptTemplate.service";
+import { listPromptSeeds } from "../services/gmbAiPrompts.service";
 
 const router = Router();
 router.use(requireAuth, requireRole(UserRole.SUPER_ADMIN));
@@ -89,6 +90,11 @@ router.post("/", async (req: RequestWithAuth, res: Response, next: NextFunction)
   } catch (err) {
     next(err);
   }
+});
+
+// Suggested starter prompt templates the admin can adopt per AI feature.
+router.get("/seeds", async (_req: RequestWithAuth, res: Response) => {
+  res.json({ success: true, data: listPromptSeeds() });
 });
 
 router.get("/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
