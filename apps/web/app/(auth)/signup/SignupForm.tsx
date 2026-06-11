@@ -76,10 +76,11 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700">
+          <label className="block text-sm font-medium text-slate-700" htmlFor="signup-name">
             {t("auth.signup.name")}
           </label>
           <input
+            id="signup-name"
             type="text"
             required
             value={name}
@@ -88,10 +89,11 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">
+          <label className="block text-sm font-medium text-slate-700" htmlFor="signup-company">
             {t("auth.signup.company")}
           </label>
           <input
+            id="signup-company"
             type="text"
             required
             value={companyName}
@@ -100,10 +102,11 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">
+          <label className="block text-sm font-medium text-slate-700" htmlFor="signup-email">
             {t("auth.signup.email")}
           </label>
           <input
+            id="signup-email"
             type="email"
             required
             value={email}
@@ -112,10 +115,11 @@ export function SignupForm({ billingIntent }: { billingIntent: BillingIntent }) 
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700">
+          <label className="block text-sm font-medium text-slate-700" htmlFor="signup-password">
             {t("auth.common.password")}
           </label>
           <input
+            id="signup-password"
             type="password"
             required
             minLength={8}

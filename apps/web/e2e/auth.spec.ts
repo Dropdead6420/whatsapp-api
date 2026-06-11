@@ -12,6 +12,7 @@ import { expect, test } from "@playwright/test";
 
 const testEmail = process.env.PLAYWRIGHT_TEST_EMAIL;
 const testPassword = process.env.PLAYWRIGHT_TEST_PASSWORD;
+const loginButton = /log in|sign in/i;
 
 test.describe("/login", () => {
   test("renders the sign-in form", async ({ page }) => {
@@ -22,13 +23,13 @@ test.describe("/login", () => {
     await expect(page.getByLabel(/email/i)).toBeVisible();
     await expect(page.getByLabel(/password/i)).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /sign in/i }),
+      page.getByRole("button", { name: loginButton }),
     ).toBeVisible();
   });
 
   test("blocks submission with empty fields", async ({ page }) => {
     await page.goto("/login");
-    const submit = page.getByRole("button", { name: /sign in/i });
+    const submit = page.getByRole("button", { name: loginButton });
     // Browser-side validation: required attribute prevents submit and
     // keeps us on /login. We assert by URL rather than checking a
     // specific error string (those vary by browser locale).
@@ -40,7 +41,7 @@ test.describe("/login", () => {
     await page.goto("/login");
     await page.getByLabel(/email/i).fill("nobody@nexaflow.test");
     await page.getByLabel(/password/i).fill("definitely-wrong-password");
-    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.getByRole("button", { name: loginButton }).click();
     // The login page surfaces server errors inline rather than redirecting.
     // We don't bind to a specific message string — just that we stay on
     // /login and either an error region appears or the URL still matches.
@@ -53,7 +54,7 @@ test.describe("/signup", () => {
     await page.goto("/signup");
     // The page uses input labels for name, email, password, and company —
     // we just verify the first two render so the route is reachable.
-    await expect(page.getByLabel(/email/i)).toBeVisible();
+    await expect(page.getByLabel(/work email|email/i)).toBeVisible();
     await expect(page.getByLabel(/password/i)).toBeVisible();
   });
 });
@@ -68,7 +69,7 @@ test.describe("happy-path login (requires test creds)", () => {
     await page.goto("/login");
     await page.getByLabel(/email/i).fill(testEmail!);
     await page.getByLabel(/password/i).fill(testPassword!);
-    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.getByRole("button", { name: loginButton }).click();
     // The auth client redirects to a dashboard route — exact path depends
     // on the user's role, so we match the broad set rather than pinning
     // to /dashboard.

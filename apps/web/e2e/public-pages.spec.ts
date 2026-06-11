@@ -27,11 +27,10 @@ test.describe("public pages render without auth", () => {
 
   test("landing page shows the AI feature copy", async ({ page }) => {
     await page.goto("/");
-    // The landing page has FEATURES content; check for one of the
-    // distinctive phrases. We use a regex so a future copy tweak doesn't
-    // break the test on whitespace alone.
+    // The landing page has product-positioning content; check for the
+    // current hero heading rather than an older feature-card phrase.
     await expect(
-      page.getByText(/AI Campaign Autopilot/i).first(),
+      page.getByRole("heading", { name: /AI WhatsApp Growth Platform/i }),
     ).toBeVisible();
   });
 });
