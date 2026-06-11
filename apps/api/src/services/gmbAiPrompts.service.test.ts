@@ -6,9 +6,11 @@ import {
   listPromptSeeds,
   postCaptionVariables,
   renderWithFallback,
+  resolvePromptText,
   reviewReplyVariables,
   seedFor,
 } from "./gmbAiPrompts.service";
+import { renderPrompt } from "./aiPromptTemplate.service";
 
 describe("GMB_PROMPT_KEYS", () => {
   it("defines a stable key per AI feature", () => {
@@ -99,5 +101,42 @@ describe("prompt seeds", () => {
     const r = renderWithFallback({ template: seed, isActive: true }, reviewReplyVariables({ authorName: "Sam", rating: 5, businessName: "Acme" }), "FB");
     expect(r.source).toBe("template");
     expect(r.missing).toEqual([]);
+  });
+});
+
+describe("resolvePromptText", () => {
+  const vars = reviewReplyVariables({ authorName: "Sam", rating: 5, businessName: "Acme" });
+
+  it("renders the admin template when present + active", () => {
+    const r = resolvePromptText(
+      { template: "Reply to {{author}} for {{business}}.", isActive: true },
+      GMB_PROMPT_KEYS.reviewReply,
+      vars,
+    );
+    expect(r.source).toBe("template");
+    expect(r.text).toBe("Reply to Sam for Acme.");
+    expect(r.missing).toEqual([]);
+  });
+
+  it("falls back to the rendered seed when no template is configured", () => {
+    const r = resolvePromptText(null, GMB_PROMPT_KEYS.reviewReply, vars);
+    expect(r.source).toBe("fallback");
+    expect(r.text).toBe(renderPrompt(seedFor(GMB_PROMPT_KEYS.reviewReply), vars).text);
+    expect(r.text).not.toContain("{{");
+    expect(r.missing).toEqual([]);
+  });
+
+  it("falls back to the seed when the template is inactive or empty", () => {
+    expect(resolvePromptText({ template: "x", isActive: false }, GMB_PROMPT_KEYS.postCaption, vars).source).toBe("fallback");
+    expect(resolvePromptText({ template: "   ", isActive: true }, GMB_PROMPT_KEYS.postCaption, vars).source).toBe("fallback");
+  });
+
+  it("surfaces missing placeholders left unfilled by the template", () => {
+    const r = resolvePromptText(
+      { template: "Hi {{author}} — ref {{ticket}}", isActive: true },
+      GMB_PROMPT_KEYS.reviewReply,
+      vars,
+    );
+    expect(r.missing).toEqual(["ticket"]);
   });
 });

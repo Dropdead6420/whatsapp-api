@@ -1,4 +1,5 @@
-import { renderPrompt, type PromptVars } from "./aiPromptTemplate.service";
+import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { getTemplateByKey, renderPrompt, type PromptVars } from "./aiPromptTemplate.service";
 
 // =====================================================================
 // AdGrowly GMB — AI prompt binding (planning PDF: "no hardcoded AI prompts").
@@ -132,4 +133,40 @@ export function seedFor(key: GmbPromptKey): string {
 /** Seed catalog as a list for the admin UI: [{ key, template }]. */
 export function listPromptSeeds(): { key: GmbPromptKey; template: string }[] {
   return (Object.keys(GMB_PROMPT_SEEDS) as GmbPromptKey[]).map((key) => ({ key, template: GMB_PROMPT_SEEDS[key] }));
+}
+
+/**
+ * Pure prompt resolution: render the admin's active template when present and
+ * non-empty, otherwise render the feature's seed with the same variables. The
+ * fallback is the *rendered seed* (deterministic) — never a hardcoded runtime
+ * string — and `missing` always reflects whichever text was chosen, so callers
+ * can decide whether the prompt is complete enough to send. Separated from the
+ * DB read below to keep it unit-testable.
+ */
+export function resolvePromptText(
+  template: PromptTemplateLike | null | undefined,
+  key: GmbPromptKey,
+  vars: PromptVars,
+): RenderedPrompt {
+  if (template && template.isActive && template.template.trim()) {
+    const rendered = renderPrompt(template.template, vars);
+    return { text: rendered.text, source: "template", missing: rendered.missing };
+  }
+  const rendered = renderPrompt(seedFor(key), vars);
+  return { text: rendered.text, source: "fallback", missing: rendered.missing };
+}
+
+/**
+ * Resolve the final prompt for a GMB AI feature: load the Super-Admin's active
+ * AiPromptTemplate for `key` (module 6) and render it with `vars`, falling back
+ * to the rendered seed when none is configured. This is the seam an AI feature
+ * calls before handing the prompt to the LLM gateway — honoring "no hardcoded
+ * prompts" while never failing just because an admin hasn't curated one yet.
+ */
+export async function resolveFeaturePrompt(key: GmbPromptKey, vars: PromptVars): Promise<RenderedPrompt> {
+  const template = await getTemplateByKey(key).catch((err) => {
+    if (err instanceof ApiError && err.code === ErrorCodes.NOT_FOUND) return null;
+    throw err;
+  });
+  return resolvePromptText(template, key, vars);
 }
