@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { useAuth } from "../../src/hooks/useAuth";
 import { api, ApiClientError } from "../../src/lib/api";
+import { standardPlanRows } from "../../src/lib/standardPlans";
 
 type Scope = "PARTNER" | "SELF";
 
@@ -177,7 +178,11 @@ export default function PlanPricingPage() {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={FIELDS.length + 1} className="px-4 py-8 text-center text-sm text-slate-500">
-                  No plans yet — add one to set default pricing.
+                  No plans yet.{" "}
+                  <button onClick={() => setRows(standardPlanRows())} className="font-medium text-blue-600 hover:underline">
+                    Load standard plans
+                  </button>{" "}
+                  or add one below.
                 </td>
               </tr>
             )}
