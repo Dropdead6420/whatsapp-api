@@ -40,7 +40,7 @@ pathspec-committed + pushed, GHCR build part of the deliverable. Tenant-scoped G
 work gated by `GMB_MANAGE`; Super-Admin work gated by `requireRole(SUPER_ADMIN)`.
 
 - [x] 1. **GMB Location / Business Profile** — anchor entity + encrypted Google OAuth/refresh-token connection, Google location import, live review/stat sync (`661cb36`, `20260611`)
-- [x] 2. **Reputation** — `GmbReview` + AI review replies, generate-then-approve (`cadb106`)
+- [x] 2. **Reputation** — `GmbReview` + AI review replies, generate-then-approve, live Google review reply publishing for synced reviews (`cadb106`, `20260611`)
 - [x] 3. **Ranking tracker** — tracked keywords + local-rank snapshots + trend (`c14137a`)
 - [x] 4. **Insights** — GBP performance snapshots + derived totals/action-rate (`97d2bdd`)
 - [x] 5. **Citations** — NAP directory listings + consistency scoring (`a1a5de4`)

@@ -16,6 +16,8 @@ interface Review {
   comment: string | null;
   status: "NEW" | "REPLIED" | "FLAGGED";
   replyText: string | null;
+  repliedAt?: string | null;
+  isGoogleSynced: boolean;
 }
 
 interface Summary {
@@ -102,13 +104,16 @@ export default function GmbReputationPage() {
     if (!text) return;
     setErr(null);
     try {
-      await api.post(`/api/v1/gmb/reviews/${id}/reply`, { text });
+      const res = await api.post<Review & { publishedToGoogle?: boolean }>(
+        `/api/v1/gmb/reviews/${id}/reply`,
+        { text },
+      );
       setDrafts((d) => {
         const next = { ...d };
         delete next[id];
         return next;
       });
-      setNotice("Reply sent.");
+      setNotice(res.publishedToGoogle ? "Reply published to Google." : "Reply saved locally.");
       await refresh();
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to send reply.");
@@ -125,7 +130,7 @@ export default function GmbReputationPage() {
         <p className="text-sm font-medium text-emerald-700">Google Business</p>
         <h1 className="text-2xl font-semibold text-slate-950">Reputation</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Read reviews, generate an AI reply draft, edit it and send. Replies are always reviewed before sending.
+          Read Google-synced and manually logged reviews, generate a reply draft, edit it and publish after review.
         </p>
       </div>
 
@@ -152,7 +157,9 @@ export default function GmbReputationPage() {
       <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
         <form onSubmit={addReview} className="h-fit rounded-md border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-base font-semibold text-slate-950">Log a review</h2>
-          <p className="mt-1 text-xs text-slate-500">Until live Google sync is connected, add reviews manually.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Use this for offline/manual reviews. Google reviews should be imported from Locations.
+          </p>
           <label className="mt-3 block text-sm font-medium text-slate-700">
             Location ID
             <input value={locationId} onChange={(e) => setLocationId(e.target.value)} required className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
@@ -178,11 +185,22 @@ export default function GmbReputationPage() {
           {reviews.length === 0 && <p className="text-sm text-slate-500">No reviews yet.</p>}
           {reviews.map((r) => (
             <div key={r.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm">
                   <Stars n={r.rating} /> <span className="font-medium text-slate-800">{r.authorName ?? "Anonymous"}</span>
                 </div>
-                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[r.status]}`}>{r.status}</span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                      r.isGoogleSynced
+                        ? "border-sky-200 bg-sky-50 text-sky-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {r.isGoogleSynced ? "Google" : "Manual"}
+                  </span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[r.status]}`}>{r.status}</span>
+                </div>
               </div>
               {r.comment && <p className="mt-2 text-sm text-slate-600">{r.comment}</p>}
 
@@ -205,7 +223,9 @@ export default function GmbReputationPage() {
                         className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                       />
                       <div className="mt-2 flex gap-2">
-                        <button onClick={() => void send(r.id)} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">Send reply</button>
+                        <button onClick={() => void send(r.id)} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">
+                          {r.isGoogleSynced ? "Publish to Google" : "Save reply"}
+                        </button>
                         <button onClick={() => void draft(r.id)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Regenerate</button>
                       </div>
                     </div>

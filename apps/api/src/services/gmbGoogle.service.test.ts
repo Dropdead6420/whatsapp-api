@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   buildGoogleBusinessProfileOAuthUrl,
+  buildGoogleReviewResourceName,
   mapGoogleStarRating,
   normalizeGoogleLocation,
   signGoogleOAuthState,
@@ -82,5 +83,22 @@ describe("Google Business Profile normalizers", () => {
       reviewCount: 3,
       rating: 3.33,
     });
+  });
+
+  it("builds review reply resource names without leaking malformed paths", () => {
+    expect(
+      buildGoogleReviewResourceName("accounts/123/locations/987", "review-abc"),
+    ).toBe("accounts/123/locations/987/reviews/review-abc");
+    expect(
+      buildGoogleReviewResourceName("accounts/123/locations/987", "reviews/review-abc"),
+    ).toBe("accounts/123/locations/987/reviews/review-abc");
+    expect(
+      buildGoogleReviewResourceName(
+        "accounts/ignored/locations/ignored",
+        "accounts/123/locations/987/reviews/review-abc",
+      ),
+    ).toBe("accounts/123/locations/987/reviews/review-abc");
+    expect(buildGoogleReviewResourceName("locations/987", "review-abc")).toBeNull();
+    expect(buildGoogleReviewResourceName("accounts/123/locations/987", "")).toBeNull();
   });
 });

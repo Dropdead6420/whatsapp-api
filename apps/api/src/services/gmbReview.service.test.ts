@@ -29,6 +29,7 @@ describe("toSafeReview", () => {
     expect(safe.id).toBe("rev1");
     expect(safe.locationId).toBe("loc1");
     expect(safe.rating).toBe(5);
+    expect(safe.isGoogleSynced).toBe(true);
     expect((safe as Record<string, unknown>).tenantId).toBeUndefined();
     expect((safe as Record<string, unknown>).externalReviewId).toBeUndefined();
   });

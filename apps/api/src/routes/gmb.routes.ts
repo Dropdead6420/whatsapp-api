@@ -613,7 +613,8 @@ router.post("/reviews/:id/draft-reply", async (req: RequestWithAuth, res: Respon
   }
 });
 
-// Approve + record a reply (operator-reviewed; publish to Google is a later slice).
+// Approve + record a reply. Google-synced reviews publish to Business Profile;
+// manually logged reviews remain local-only.
 router.post("/reviews/:id/reply", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const { text } = replySchema.parse(req.body);
@@ -624,6 +625,7 @@ router.post("/reviews/:id/reply", async (req: RequestWithAuth, res: Response, ne
       action: "REPLY",
       resource: "GmbReview",
       resourceId: review.id,
+      newValues: { publishedToGoogle: review.publishedToGoogle },
       ...extractRequestMeta(req),
     });
     res.json({ success: true, data: review });

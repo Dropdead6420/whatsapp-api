@@ -445,12 +445,20 @@ async function googleJson<T>(args: {
   secretId?: string | null;
   operation: string;
   url: string;
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  body?: unknown;
 }): Promise<T> {
   const started = Date.now();
   try {
     const { accessToken } = await refreshAccessToken(args.tenantId, args.secretId);
     const response = await fetch(args.url, {
-      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      method: args.method ?? "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        ...(args.body != null ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(args.body != null ? { body: JSON.stringify(args.body) } : {}),
     });
     const text = await response.text();
     const body = text ? JSON.parse(text) : {};
@@ -489,6 +497,20 @@ async function googleJson<T>(args: {
     });
     throw error;
   }
+}
+
+export function buildGoogleReviewResourceName(
+  locationResourceName: string | null | undefined,
+  externalReviewId: string | null | undefined,
+): string | null {
+  const review = externalReviewId?.trim();
+  if (!review) return null;
+  if (/^accounts\/[^/]+\/locations\/[^/]+\/reviews\/[^/]+/.test(review)) return review;
+
+  const location = locationResourceName?.trim().replace(/\/+$/, "");
+  if (!location || !/^accounts\/[^/]+\/locations\/[^/]+/.test(location)) return null;
+  const reviewId = review.startsWith("reviews/") ? review.slice("reviews/".length) : review;
+  return `${location}/reviews/${reviewId}`;
 }
 
 export interface GoogleLocationApiRow {
@@ -717,5 +739,39 @@ export async function syncGoogleReviewsForLocation(tenantId: string, locationId:
     imported,
     updated,
     source: "GOOGLE" as const,
+  };
+}
+
+export async function updateGoogleReviewReply(input: {
+  tenantId: string;
+  locationId: string;
+  locationResourceName: string;
+  secretId: string;
+  externalReviewId: string;
+  comment: string;
+}) {
+  const reviewName = buildGoogleReviewResourceName(input.locationResourceName, input.externalReviewId);
+  if (!reviewName) {
+    throw new ApiError(
+      ErrorCodes.BAD_REQUEST,
+      400,
+      "This review is missing a Google review resource name.",
+    );
+  }
+
+  const body = await googleJson<{ comment?: string; updateTime?: string }>({
+    tenantId: input.tenantId,
+    locationId: input.locationId,
+    secretId: input.secretId,
+    operation: "GBP_UPDATE_REVIEW_REPLY",
+    method: "PUT",
+    url: `${MY_BUSINESS_BASE}/${reviewName}/reply`,
+    body: { comment: input.comment },
+  });
+
+  return {
+    comment: body.comment ?? input.comment,
+    updateTime: body.updateTime ?? new Date().toISOString(),
+    reviewName,
   };
 }

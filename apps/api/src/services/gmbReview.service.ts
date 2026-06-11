@@ -1,5 +1,6 @@
 import { prisma, GmbReviewStatus } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { updateGoogleReviewReply } from "./gmbGoogle.service";
 
 // =====================================================================
 // AdGrowly GMB — Reputation service (planning PDF). Reviews are anchored to
@@ -37,6 +38,7 @@ export function toSafeReview(row: ReviewRow) {
     status: row.status,
     replyText: row.replyText,
     repliedAt: row.repliedAt,
+    isGoogleSynced: Boolean(row.externalReviewId),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -213,12 +215,32 @@ export async function replyToReview(tenantId: string, id: string, text: string) 
   if (!reply) {
     throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "Reply text is required.");
   }
-  await findReviewOrThrow(tenantId, id);
+  const review = await findReviewOrThrow(tenantId, id);
+  const location = await prisma.gmbLocation.findFirst({
+    where: { id: review.locationId, tenantId },
+    select: { id: true, placeId: true, secretId: true },
+  });
+  let publishedToGoogle = false;
+  let repliedAt = new Date();
+
+  if (review.externalReviewId && location?.placeId && location.secretId) {
+    const googleReply = await updateGoogleReviewReply({
+      tenantId,
+      locationId: location.id,
+      locationResourceName: location.placeId,
+      secretId: location.secretId,
+      externalReviewId: review.externalReviewId,
+      comment: reply,
+    });
+    publishedToGoogle = true;
+    repliedAt = new Date(googleReply.updateTime);
+  }
+
   const row = await prisma.gmbReview.update({
     where: { id },
-    data: { replyText: reply, status: GmbReviewStatus.REPLIED, repliedAt: new Date() },
+    data: { replyText: reply, status: GmbReviewStatus.REPLIED, repliedAt },
   });
-  return toSafeReview(row);
+  return { ...toSafeReview(row), publishedToGoogle };
 }
 
 export async function updateReviewStatus(tenantId: string, id: string, status: GmbReviewStatus) {
