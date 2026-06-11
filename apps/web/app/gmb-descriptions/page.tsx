@@ -25,6 +25,7 @@ interface OptimizeResult {
   optimized: string;
   analysis: Analysis;
   changes: string[];
+  score?: { score: number; keywordCoverage: number; lengthOk: boolean; issues: number };
 }
 
 interface Description {
@@ -199,7 +200,23 @@ export default function GmbDescriptionsPage() {
         <div className="space-y-4">
           {preview && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-4">
-              <h3 className="text-sm font-semibold text-slate-800">Preview</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-800">Preview</h3>
+                {preview.score && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      preview.score.score >= 80
+                        ? "bg-emerald-100 text-emerald-700"
+                        : preview.score.score >= 50
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-red-100 text-red-700"
+                    }`}
+                    title={`${Math.round(preview.score.keywordCoverage * 100)}% keyword coverage · ${preview.score.lengthOk ? "length ok" : "length issue"} · ${preview.score.issues} issue(s)`}
+                  >
+                    Quality {preview.score.score}/100
+                  </span>
+                )}
+              </div>
               <p className="mt-2 whitespace-pre-wrap rounded-md bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">{preview.optimized}</p>
               <p className="mt-2 text-xs text-slate-500">
                 {preview.analysis.length} chars · {preview.analysis.wordCount} words · {preview.analysis.withinLimit ? "within limit" : "over limit"}

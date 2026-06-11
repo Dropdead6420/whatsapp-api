@@ -120,6 +120,7 @@ export function optimizeDescription(input: OptimizeInput): {
   optimized: string;
   analysis: DescriptionAnalysis;
   changes: string[];
+  score: DescriptionScore;
 } {
   const changes: string[] = [];
   let out = collapse(input.text);
@@ -150,10 +151,12 @@ export function optimizeDescription(input: OptimizeInput): {
     changes.push(`Trimmed to the ${input.maxLength}-character limit.`);
   }
 
+  const analysis = analyzeDescription(out, { keywords: input.keywords, maxLength: input.maxLength });
   return {
     optimized: out,
-    analysis: analyzeDescription(out, { keywords: input.keywords, maxLength: input.maxLength }),
+    analysis,
     changes,
+    score: scoreDescription(analysis),
   };
 }
 
