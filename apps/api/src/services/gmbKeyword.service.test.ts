@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateKeywordIdeas, toSafeIdeaSet } from "./gmbKeyword.service";
+import { clusterKeywordIdeas, generateKeywordIdeas, toSafeIdeaSet } from "./gmbKeyword.service";
 
 describe("generateKeywordIdeas", () => {
   it("produces local-intent combinations and ranks city+service highest", () => {
@@ -67,5 +67,36 @@ describe("toSafeIdeaSet", () => {
     expect(safe.ideas).toEqual(ideas);
     expect(safe.services).toEqual(["espresso"]);
     expect((safe as Record<string, unknown>).tenantId).toBeUndefined();
+    expect(safe.clusters).toEqual([{ kind: "city", count: 1, topKeywords: ["cafe in pune"] }]);
+  });
+});
+
+describe("clusterKeywordIdeas", () => {
+  it("groups by kind, counts, and lists the top-scoring examples", () => {
+    const ideas = generateKeywordIdeas({ category: "Cafe", city: "Pune", services: ["espresso", "cold brew"], competitors: ["Blue Tokai"] });
+    const clusters = clusterKeywordIdeas(ideas);
+    // every idea is accounted for in exactly one cluster
+    expect(clusters.reduce((sum, c) => sum + c.count, 0)).toBe(ideas.length);
+    for (const c of clusters) {
+      expect(c.topKeywords.length).toBeGreaterThan(0);
+      expect(c.topKeywords.length).toBeLessThanOrEqual(5);
+    }
+    // a competitor seed yields a competitor cluster
+    expect(clusters.some((c) => c.kind === "competitor")).toBe(true);
+  });
+
+  it("orders clusters by local-SEO priority (service/city before category)", () => {
+    const clusters = clusterKeywordIdeas(generateKeywordIdeas({ category: "Cafe", city: "Pune", services: ["espresso"] }));
+    const kinds = clusters.map((c) => c.kind);
+    if (kinds.includes("service") && kinds.includes("category")) {
+      expect(kinds.indexOf("service")).toBeLessThan(kinds.indexOf("category"));
+    }
+    if (kinds.includes("city") && kinds.includes("category")) {
+      expect(kinds.indexOf("city")).toBeLessThan(kinds.indexOf("category"));
+    }
+  });
+
+  it("returns no clusters for an empty idea list", () => {
+    expect(clusterKeywordIdeas([])).toEqual([]);
   });
 });

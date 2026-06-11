@@ -105,6 +105,40 @@ interface IdeaSetRow {
   createdAt: Date;
 }
 
+export interface KeywordCluster {
+  kind: KeywordKind;
+  count: number;
+  topKeywords: string[];
+}
+
+// Order clusters by local-SEO priority (service/city intent first, bare category last).
+const CLUSTER_ORDER: KeywordKind[] = ["service", "city", "long_tail", "competitor", "category"];
+
+/**
+ * Group keyword ideas by kind with a count and the highest-scoring examples
+ * (up to 5 each). Turns a flat list of 50 keywords into an at-a-glance strategy
+ * view — "12 city-targeted, 8 long-tail, 5 competitor". Pure + deterministic.
+ */
+export function clusterKeywordIdeas(ideas: KeywordIdea[]): KeywordCluster[] {
+  const byKind = new Map<KeywordKind, KeywordIdea[]>();
+  for (const idea of ideas) {
+    const list = byKind.get(idea.kind);
+    if (list) list.push(idea);
+    else byKind.set(idea.kind, [idea]);
+  }
+  const clusters: KeywordCluster[] = [];
+  for (const kind of CLUSTER_ORDER) {
+    const list = byKind.get(kind);
+    if (!list || list.length === 0) continue;
+    const topKeywords = [...list]
+      .sort((a, b) => b.score - a.score || a.keyword.localeCompare(b.keyword))
+      .slice(0, 5)
+      .map((i) => i.keyword);
+    clusters.push({ kind, count: list.length, topKeywords });
+  }
+  return clusters;
+}
+
 export function toSafeIdeaSet(row: IdeaSetRow) {
   const ideas = Array.isArray(row.ideas) ? (row.ideas as unknown as KeywordIdea[]) : [];
   return {
@@ -117,6 +151,7 @@ export function toSafeIdeaSet(row: IdeaSetRow) {
     competitors: row.competitors,
     ideas,
     count: ideas.length,
+    clusters: clusterKeywordIdeas(ideas),
     createdAt: row.createdAt,
   };
 }
