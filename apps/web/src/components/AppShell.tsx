@@ -375,6 +375,7 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
       { href: "/cms", label: "CMS Manager", icon: FileText, roles: ["SUPER_ADMIN"] },
       { href: "/ai-prompts", label: "AI Prompts", icon: Sparkles, roles: ["SUPER_ADMIN"] },
       { href: "/ai-template-categories", label: "AI Categories", icon: ClipboardList, roles: ["SUPER_ADMIN"] },
+      { href: "/ai-routing", label: "AI Routing", icon: Workflow, roles: ["SUPER_ADMIN"] },
       { href: "/credit-rules", label: "Credit Engine", icon: Coins, roles: ["SUPER_ADMIN"] },
       { href: "/google-monitor", label: "Google API Monitor", icon: Plug, roles: ["SUPER_ADMIN"] },
       { href: "/secret-vault", label: "API Keys", icon: Settings, roles: ["SUPER_ADMIN"] },

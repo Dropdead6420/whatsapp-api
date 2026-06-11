@@ -4361,3 +4361,20 @@ model AiTemplateCategory {
 
   @@index([enabled, sortOrder])
 }
+
+// SuperAdmin "AI Settings" workload routing matrix (AI Control Center). Per
+// workload (content/text/chat/code/image/video/voice/qr/embeddings), which
+// provider + model handles it and whether it's enabled. Admin-managed config;
+// the AI gateway reads this to route each workload (wiring is incremental).
+model AiWorkloadRoute {
+  id        String  @id @default(cuid())
+  workload  String  @unique
+  enabled   Boolean @default(true)
+  provider  String  @default("OpenAI")
+  model     String  @default("")
+  sortOrder Int     @default(0)
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
