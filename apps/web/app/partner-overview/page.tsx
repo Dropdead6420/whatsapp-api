@@ -28,7 +28,12 @@ export default function PartnerOverviewPage() {
   const { user, features, loading, signOut } = useAuth({ required: true });
   const [rows, setRows] = useState<PartnerRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [creditTarget, setCreditTarget] = useState<PartnerRow | null>(null);
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -57,6 +62,36 @@ export default function PartnerOverviewPage() {
     [rows],
   );
 
+  async function submitCredit() {
+    if (!creditTarget) return;
+    const n = Number(amount);
+    if (!Number.isInteger(n) || n <= 0) {
+      setErr("Enter a positive whole number of credits.");
+      return;
+    }
+    if (!reason.trim()) {
+      setErr("Enter a reason for the adjustment.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post<{ balanceCredits: number }>(
+        `/api/v1/admin/partner-overview/${creditTarget.id}/credit`,
+        { amountCredits: n, reason: reason.trim() },
+      );
+      setRows((prev) => prev.map((row) => (row.id === creditTarget.id ? { ...row, walletBalance: r.balanceCredits } : row)));
+      setNotice(`Added ${n.toLocaleString()} credits to ${creditTarget.name}.`);
+      setCreditTarget(null);
+      setAmount("");
+      setReason("");
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to add credits.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading || !user) {
     return <div className="p-8 text-sm text-slate-500">Loading...</div>;
   }
@@ -72,6 +107,7 @@ export default function PartnerOverviewPage() {
       </div>
 
       {err && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
+      {notice && <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
 
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
@@ -107,6 +143,7 @@ export default function PartnerOverviewPage() {
                 <th className="px-4 py-3 text-right">Wallet balance</th>
                 <th className="px-4 py-3 text-right">Total orgs</th>
                 <th className="px-4 py-3 text-right">GMB orgs</th>
+                <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -117,12 +154,67 @@ export default function PartnerOverviewPage() {
                   <td className="px-4 py-3 text-right font-semibold text-slate-900">{r.walletBalance.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-slate-700">{r.totalOrgs}</td>
                   <td className="px-4 py-3 text-right text-slate-700">{r.gmbOrgs}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => { setCreditTarget(r); setAmount(""); setReason(""); setErr(null); }}
+                      className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Add credits
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {creditTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+            <h2 className="text-base font-semibold text-slate-950">Add credits</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Top up <span className="font-medium text-slate-700">{creditTarget.name}</span> (partner wallet, current{" "}
+              {creditTarget.walletBalance.toLocaleString()} credits).
+            </p>
+            <label className="mt-4 block text-sm font-medium text-slate-700">
+              Credits to add
+              <input
+                type="number"
+                min={1}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="mt-3 block text-sm font-medium text-slate-700">
+              Reason
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. goodwill credit, manual top-up"
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setCreditTarget(null)}
+                disabled={busy}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void submitCredit()}
+                disabled={busy}
+                className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {busy ? "Adding..." : "Add credits"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardShell>
   );
 }
