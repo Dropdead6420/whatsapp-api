@@ -43,6 +43,7 @@ export default function AiPromptsPage() {
   const [coverage, setCoverage] = useState<{ key: string; hasActiveTemplate: boolean; source: string }[]>([]);
   const [sampleVars, setSampleVars] = useState<Record<string, Record<string, unknown>>>({});
   const [resolved, setResolved] = useState<{ key: string; text: string; source: string; missing: string[] } | null>(null);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
 
   async function refresh() {
     try {
@@ -57,6 +58,13 @@ export default function AiPromptsPage() {
       setSeeds(seedList);
       setCoverage(coverageList);
       setSampleVars(Object.fromEntries(sampleList.map((s) => [s.key, s.variables])));
+      // Managed AI Template Categories power the category picker (best-effort).
+      try {
+        const cats = await api.get<{ name: string; enabled: boolean }[]>("/api/v1/admin/ai-template-categories");
+        setCategoryOptions(cats.filter((c) => c.enabled).map((c) => c.name));
+      } catch {
+        /* categories are optional — fall back to free-text entry */
+      }
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to load prompts (Super Admin only).");
     }
@@ -245,7 +253,18 @@ export default function AiPromptsPage() {
           <div className="mt-3 grid grid-cols-2 gap-3">
             <label className="block text-sm font-medium text-slate-700">
               Category
-              <input value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+              <input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                list="ai-template-categories"
+                placeholder={categoryOptions.length ? "Pick or type…" : "optional"}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+              <datalist id="ai-template-categories">
+                {categoryOptions.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
             </label>
             <label className="block text-sm font-medium text-slate-700">
               Model
