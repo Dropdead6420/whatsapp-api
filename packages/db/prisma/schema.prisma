@@ -4341,3 +4341,23 @@ model GoogleOAuthConfig {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+// SuperAdmin "AI Template Categories" (AI Center): managed category groups for
+// reusable AI prompt templates. Distinct from the free-form
+// AiPromptTemplate.category string — these carry an icon, description and an
+// enable toggle for governance. `key` is the stable slug templates reference.
+model AiTemplateCategory {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  name        String
+  icon        String?
+  description String?
+  enabled     Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+}
