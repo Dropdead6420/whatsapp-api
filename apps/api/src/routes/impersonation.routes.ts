@@ -50,7 +50,7 @@ router.post(
       // Resolve the target user — explicit if provided, otherwise the
       // first active BUSINESS_ADMIN of the tenant (deterministic
       // ordering for repeatable behavior).
-      let target = body.targetUserId
+      const target = body.targetUserId
         ? await prisma.user.findFirst({
             where: {
               id: body.targetUserId,

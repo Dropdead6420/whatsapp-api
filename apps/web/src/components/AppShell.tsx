@@ -31,7 +31,6 @@ import {
   Globe,
   Headphones,
   Inbox,
-  KeyRound,
   Languages,
   LayoutDashboard,
   LayoutGrid,
@@ -48,8 +47,6 @@ import {
   Settings,
   Sparkles,
   Star,
-  Store,
-  Receipt,
   UserCircle,
   Users,
   WalletCards,
@@ -384,43 +381,6 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
     ],
   },
   {
-    label: "Google My Business",
-    items: [
-      {
-        href: "/partner-overview",
-        label: "Partners",
-        icon: Store,
-        roles: ["SUPER_ADMIN"],
-      },
-      {
-        href: "/gmb-admin/customers",
-        label: "Customers",
-        icon: Users,
-        roles: ["SUPER_ADMIN"],
-        activeRoutes: ["/tenants"],
-      },
-      {
-        href: "/payments",
-        label: "Transactions",
-        icon: CreditCard,
-        roles: ["SUPER_ADMIN"],
-      },
-      {
-        href: "/gmb-admin/invoices",
-        label: "Transaction Invoice",
-        icon: Receipt,
-        roles: ["SUPER_ADMIN"],
-      },
-      {
-        href: "/gmb-admin/api-key",
-        label: "Setup API Key",
-        icon: KeyRound,
-        roles: ["SUPER_ADMIN"],
-        activeRoutes: ["/developer"],
-      },
-    ],
-  },
-  {
     label: "Partner",
     items: [
       {
@@ -463,6 +423,12 @@ function cn(...classes: Array<string | false | null | undefined>) {
 // the nav structure itself untouched (i18n lives only at the render sites).
 function navKey(label: string): string {
   return "nav." + label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function translatedNavLabel(t: (key: string) => string, label: string): string {
+  const key = navKey(label);
+  const translated = t(key);
+  return translated === key ? label : translated;
 }
 
 // Route-match scoring lives in src/lib/navActive.ts so it can be
@@ -511,7 +477,7 @@ export function NavItem({
 }) {
   const { t } = useI18n();
   const Icon = item.icon;
-  const label = t(navKey(item.label));
+  const label = translatedNavLabel(t, item.label);
   return (
     <Link
       href={item.href}
@@ -606,7 +572,7 @@ export function Sidebar({
           <div key={section.label ?? sectionIndex}>
             {section.label && !collapsed && (
               <div className="px-3 pb-2 text-[11px] font-bold uppercase text-slate-400">
-                {t(navKey(section.label))}
+                {translatedNavLabel(t, section.label)}
               </div>
             )}
             <div className="space-y-1">

@@ -55,13 +55,20 @@ async function renderWithPdfkit(input: InvoiceRenderInput): Promise<Buffer> {
   const PDFDocument = mod.default;
 
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const inv = input.invoice;
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 50,
+      info: {
+        Title: `Invoice ${inv.invoiceNumber}`,
+        Subject: "Wallet recharge invoice",
+      },
+    });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", (e: Error) => reject(e));
 
-    const inv = input.invoice;
     const issuer = input.issuerName ?? "NexaFlow AI";
     const tenant = input.tenantName ?? inv.tenantId;
     const major = inv.amountInPaisa / 100;

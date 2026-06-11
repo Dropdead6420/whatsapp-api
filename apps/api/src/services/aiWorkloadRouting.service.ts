@@ -21,6 +21,31 @@ export interface WorkloadRoute {
   model: string;
 }
 
+export interface AiGlobalSettings {
+  enabled: boolean;
+  defaultProvider: string;
+  textModel: string;
+  embeddingsModel: string;
+  defaultLanguage: string;
+  defaultTone: string;
+  creativity: string;
+  maxInputLength: number;
+  maxOutputLength: number;
+  updatedAt?: Date;
+}
+
+export const DEFAULT_GLOBAL_AI_SETTINGS: AiGlobalSettings = {
+  enabled: true,
+  defaultProvider: "OpenAI",
+  textModel: "gpt-5.4",
+  embeddingsModel: "text-embedding-3-small",
+  defaultLanguage: "English",
+  defaultTone: "Friendly",
+  creativity: "Economic",
+  maxInputLength: 100,
+  maxOutputLength: 2000,
+};
+
 // Sensible starting matrix (admin-editable, not hardcoded at runtime — the
 // saved AiWorkloadRoute rows override these).
 export const DEFAULT_WORKLOADS: WorkloadRoute[] = [
@@ -36,6 +61,46 @@ export const DEFAULT_WORKLOADS: WorkloadRoute[] = [
 ];
 
 const WORKLOAD_KEYS = new Set(DEFAULT_WORKLOADS.map((w) => w.workload));
+
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+export function normalizeGlobalAiSettings(
+  input: Partial<AiGlobalSettings>,
+): AiGlobalSettings {
+  return {
+    ...DEFAULT_GLOBAL_AI_SETTINGS,
+    ...input,
+    defaultProvider:
+      input.defaultProvider?.trim() ||
+      DEFAULT_GLOBAL_AI_SETTINGS.defaultProvider,
+    textModel: input.textModel?.trim() || DEFAULT_GLOBAL_AI_SETTINGS.textModel,
+    embeddingsModel:
+      input.embeddingsModel?.trim() ||
+      DEFAULT_GLOBAL_AI_SETTINGS.embeddingsModel,
+    defaultLanguage:
+      input.defaultLanguage?.trim() ||
+      DEFAULT_GLOBAL_AI_SETTINGS.defaultLanguage,
+    defaultTone:
+      input.defaultTone?.trim() || DEFAULT_GLOBAL_AI_SETTINGS.defaultTone,
+    creativity:
+      input.creativity?.trim() || DEFAULT_GLOBAL_AI_SETTINGS.creativity,
+    maxInputLength: clampInt(
+      Number(input.maxInputLength ?? DEFAULT_GLOBAL_AI_SETTINGS.maxInputLength),
+      1,
+      200_000,
+    ),
+    maxOutputLength: clampInt(
+      Number(
+        input.maxOutputLength ?? DEFAULT_GLOBAL_AI_SETTINGS.maxOutputLength,
+      ),
+      1,
+      200_000,
+    ),
+  };
+}
 
 export interface StoredRoute {
   workload: string;
@@ -64,6 +129,56 @@ export async function listWorkloadRoutes(): Promise<WorkloadRoute[]> {
     select: { workload: true, enabled: true, provider: true, model: true },
   });
   return mergeRoutesWithDefaults(rows);
+}
+
+export async function getGlobalAiSettings(): Promise<AiGlobalSettings> {
+  const row = await prisma.aiGlobalSetting.findUnique({
+    where: { id: "global" },
+  });
+  if (!row) return DEFAULT_GLOBAL_AI_SETTINGS;
+  return normalizeGlobalAiSettings({
+    enabled: row.enabled,
+    defaultProvider: row.defaultProvider,
+    textModel: row.textModel,
+    embeddingsModel: row.embeddingsModel,
+    defaultLanguage: row.defaultLanguage,
+    defaultTone: row.defaultTone,
+    creativity: row.creativity,
+    maxInputLength: row.maxInputLength,
+    maxOutputLength: row.maxOutputLength,
+    updatedAt: row.updatedAt,
+  });
+}
+
+export async function updateGlobalAiSettings(
+  input: Partial<AiGlobalSettings>,
+  updatedByUserId?: string,
+): Promise<AiGlobalSettings> {
+  const normalized = normalizeGlobalAiSettings(input);
+  const row = await prisma.aiGlobalSetting.upsert({
+    where: { id: "global" },
+    create: {
+      id: "global",
+      ...normalized,
+      updatedByUserId: updatedByUserId ?? null,
+    },
+    update: {
+      ...normalized,
+      updatedByUserId: updatedByUserId ?? null,
+    },
+  });
+  return normalizeGlobalAiSettings({
+    enabled: row.enabled,
+    defaultProvider: row.defaultProvider,
+    textModel: row.textModel,
+    embeddingsModel: row.embeddingsModel,
+    defaultLanguage: row.defaultLanguage,
+    defaultTone: row.defaultTone,
+    creativity: row.creativity,
+    maxInputLength: row.maxInputLength,
+    maxOutputLength: row.maxOutputLength,
+    updatedAt: row.updatedAt,
+  });
 }
 
 export interface WorkloadRouteInput {

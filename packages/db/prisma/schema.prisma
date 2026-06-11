@@ -4378,3 +4378,59 @@ model AiWorkloadRoute {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+// SuperAdmin "AI Settings" global defaults. This is deliberately separate
+// from AiProviderConfig (credential/fallback registry) and AiWorkloadRoute
+// (per-workload overrides): it stores the platform-wide enable switch and
+// default request shaping controls shown in the AI Control Center.
+model AiGlobalSetting {
+  id              String  @id @default("global")
+  enabled         Boolean @default(true)
+  defaultProvider String  @default("OpenAI")
+  textModel       String  @default("gpt-5.4")
+  embeddingsModel String  @default("text-embedding-3-small")
+  defaultLanguage String  @default("English")
+  defaultTone     String  @default("Friendly")
+  creativity      String  @default("Economic")
+  maxInputLength  Int     @default(100)
+  maxOutputLength Int     @default(2000)
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// SuperAdmin payment settings UI. Credentials remain in SecretVault/env and
+// the live Razorpay/Stripe payment services; these rows track enablement,
+// display copy, and operator-facing connection notes for each gateway.
+model PaymentGatewaySetting {
+  id              String  @id @default(cuid())
+  gateway         String  @unique
+  label           String
+  description     String
+  enabled         Boolean @default(false)
+  mode            String  @default("test")
+  credentialHint  String?
+  instructions    String?
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Email notification templates for payment lifecycle events. The payment
+// webhook pipeline can consume these templates when transactional delivery is
+// wired; meanwhile SuperAdmin can configure copy and status in one place.
+model PaymentNotificationTemplate {
+  id              String  @id @default(cuid())
+  event           String  @unique
+  label           String
+  description     String
+  enabled         Boolean @default(true)
+  subject         String
+  message         String
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

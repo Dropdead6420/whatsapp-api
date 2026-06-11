@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_PAYMENT_GATEWAYS,
+  DEFAULT_PAYMENT_NOTIFICATIONS,
+  mergeGatewaySettings,
+  mergeNotificationTemplates,
   parsePaymentOrderFilters,
   parsePaymentWebhookFilters,
 } from "./paymentOps.service";
@@ -82,5 +86,53 @@ describe("parsePaymentWebhookFilters", () => {
 
   it("clamps limit", () => {
     expect(parsePaymentWebhookFilters({ limit: "500" }).limit).toBe(200);
+  });
+});
+
+describe("payment settings defaults", () => {
+  it("ships all screenshot gateway rows and overlays stored values", () => {
+    const merged = mergeGatewaySettings([
+      {
+        gateway: "RAZORPAY",
+        label: "Razorpay",
+        description: "custom",
+        enabled: true,
+        mode: "live",
+        credentialHint: "hint",
+        instructions: "ready",
+      },
+    ]);
+
+    expect(merged.map((item) => item.gateway)).toEqual(
+      DEFAULT_PAYMENT_GATEWAYS.map((item) => item.gateway),
+    );
+    expect(merged.find((item) => item.gateway === "RAZORPAY")).toMatchObject({
+      enabled: true,
+      mode: "live",
+      instructions: "ready",
+    });
+    expect(merged.find((item) => item.gateway === "STRIPE")?.enabled).toBe(false);
+  });
+
+  it("ships payment notification templates and overlays stored copy", () => {
+    const merged = mergeNotificationTemplates([
+      {
+        event: "PAYMENT_SUCCESS",
+        label: "Payment success",
+        description: "saved",
+        enabled: false,
+        subject: "Saved subject",
+        message: "Saved body",
+      },
+    ]);
+
+    expect(merged.map((item) => item.event)).toEqual(
+      DEFAULT_PAYMENT_NOTIFICATIONS.map((item) => item.event),
+    );
+    expect(merged.find((item) => item.event === "PAYMENT_SUCCESS")).toMatchObject({
+      enabled: false,
+      subject: "Saved subject",
+      message: "Saved body",
+    });
   });
 });

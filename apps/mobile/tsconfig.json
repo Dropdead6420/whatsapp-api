@@ -4,7 +4,10 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["DOM", "ESNext"],
+    "lib": [
+      "DOM",
+      "ESNext"
+    ],
     "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
@@ -16,9 +19,16 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
-  "include": ["app/**/*", "src/**/*", "expo-env.d.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "app/**/*",
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
