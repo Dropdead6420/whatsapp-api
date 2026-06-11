@@ -5,6 +5,7 @@ import {
   keywordIdeasVariables,
   listPromptSeeds,
   postCaptionVariables,
+  promptCoverage,
   renderWithFallback,
   resolvePromptText,
   reviewReplyVariables,
@@ -138,5 +139,30 @@ describe("resolvePromptText", () => {
       vars,
     );
     expect(r.missing).toEqual(["ticket"]);
+  });
+});
+
+describe("promptCoverage", () => {
+  it("reports every feature as fallback when no template is active", () => {
+    const rows = promptCoverage([]);
+    expect(rows).toHaveLength(Object.keys(GMB_PROMPT_KEYS).length);
+    expect(rows.every((r) => r.source === "fallback" && !r.hasActiveTemplate)).toBe(true);
+  });
+
+  it("marks a feature as template-backed when its key is active", () => {
+    const rows = promptCoverage([GMB_PROMPT_KEYS.reviewReply]);
+    const review = rows.find((r) => r.key === GMB_PROMPT_KEYS.reviewReply);
+    expect(review).toMatchObject({ hasActiveTemplate: true, source: "template" });
+    expect(rows.filter((r) => r.hasActiveTemplate)).toHaveLength(1);
+  });
+
+  it("matches keys case-insensitively and trimmed (mirrors getTemplateByKey)", () => {
+    const rows = promptCoverage([`  ${GMB_PROMPT_KEYS.description.toUpperCase()}  `]);
+    expect(rows.find((r) => r.key === GMB_PROMPT_KEYS.description)?.hasActiveTemplate).toBe(true);
+  });
+
+  it("ignores active keys that are not GMB feature keys", () => {
+    const rows = promptCoverage(["some.other.key"]);
+    expect(rows.every((r) => !r.hasActiveTemplate)).toBe(true);
   });
 });

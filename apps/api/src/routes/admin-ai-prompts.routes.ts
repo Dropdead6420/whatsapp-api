@@ -20,7 +20,7 @@ import {
   previewTemplate,
   updateTemplate,
 } from "../services/aiPromptTemplate.service";
-import { listPromptSeeds } from "../services/gmbAiPrompts.service";
+import { listPromptSeeds, promptCoverage } from "../services/gmbAiPrompts.service";
 
 const router = Router();
 router.use(requireAuth, requireRole(UserRole.SUPER_ADMIN));
@@ -95,6 +95,16 @@ router.post("/", async (req: RequestWithAuth, res: Response, next: NextFunction)
 // Suggested starter prompt templates the admin can adopt per AI feature.
 router.get("/seeds", async (_req: RequestWithAuth, res: Response) => {
   res.json({ success: true, data: listPromptSeeds() });
+});
+
+// Prompt coverage per GMB AI feature: admin-curated template vs built-in seed.
+router.get("/coverage", async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const active = await listTemplates({ activeOnly: true });
+    res.json({ success: true, data: promptCoverage(active.map((t) => t.key)) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {

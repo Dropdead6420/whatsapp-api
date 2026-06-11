@@ -40,16 +40,19 @@ export default function AiPromptsPage() {
   const [previewVars, setPreviewVars] = useState("{}");
   const [previewResult, setPreviewResult] = useState<{ text: string; missing: string[] } | null>(null);
   const [seeds, setSeeds] = useState<{ key: string; template: string }[]>([]);
+  const [coverage, setCoverage] = useState<{ key: string; hasActiveTemplate: boolean; source: string }[]>([]);
 
   async function refresh() {
     try {
       setErr(null);
-      const [list, seedList] = await Promise.all([
+      const [list, seedList, coverageList] = await Promise.all([
         api.get<Template[]>("/api/v1/admin/ai-prompts"),
         api.get<{ key: string; template: string }[]>("/api/v1/admin/ai-prompts/seeds"),
+        api.get<{ key: string; hasActiveTemplate: boolean; source: string }[]>("/api/v1/admin/ai-prompts/coverage"),
       ]);
       setItems(list);
       setSeeds(seedList);
+      setCoverage(coverageList);
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to load prompts (Super Admin only).");
     }
@@ -152,6 +155,32 @@ export default function AiPromptsPage() {
 
       {err && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
       {notice && <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
+
+      {coverage.length > 0 && (
+        <div className="mb-6 rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-950">Prompt coverage</h2>
+            <span className="text-xs text-slate-400">
+              {coverage.filter((c) => c.hasActiveTemplate).length}/{coverage.length} features on a curated template
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Features without an active template fall back to the built-in seed.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {coverage.map((c) => (
+              <span
+                key={c.key}
+                title={c.hasActiveTemplate ? "Uses an active admin template" : "Falls back to the built-in seed"}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                  c.hasActiveTemplate ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500"
+                }`}
+              >
+                {c.key.replace(/^gmb\./, "")}
+                <span className="opacity-70">· {c.hasActiveTemplate ? "template" : "seed"}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[340px,1fr]">
         <form onSubmit={create} className="h-fit rounded-md border border-slate-200 bg-white p-4 shadow-sm">

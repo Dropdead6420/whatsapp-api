@@ -170,3 +170,24 @@ export async function resolveFeaturePrompt(key: GmbPromptKey, vars: PromptVars):
   });
   return resolvePromptText(template, key, vars);
 }
+
+export interface PromptCoverageRow {
+  key: GmbPromptKey;
+  hasActiveTemplate: boolean;
+  source: "template" | "fallback";
+}
+
+/**
+ * Pure: given the keys that currently have an active admin template, report per
+ * GMB feature whether resolveFeaturePrompt would use the admin template
+ * ("template") or fall back to the built-in seed ("fallback"). Lets Super Admin
+ * see prompt coverage at a glance. Key matching mirrors getTemplateByKey
+ * (trim + lowercase).
+ */
+export function promptCoverage(activeKeys: Iterable<string>): PromptCoverageRow[] {
+  const active = new Set(Array.from(activeKeys, (k) => k.trim().toLowerCase()));
+  return (Object.values(GMB_PROMPT_KEYS) as GmbPromptKey[]).map((key) => {
+    const hasActiveTemplate = active.has(key);
+    return { key, hasActiveTemplate, source: hasActiveTemplate ? "template" : "fallback" };
+  });
+}
