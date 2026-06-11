@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GmbReportType } from "@nexaflow/db";
-import { buildActionPlan, buildReportNarrative, toSafeReport, type ReportSnapshot } from "./gmbReport.service";
+import { buildActionPlan, buildReportNarrative, compareReportSnapshots, toSafeReport, type ReportSnapshot } from "./gmbReport.service";
 
 const healthy: ReportSnapshot = {
   reviews: { count: 20, average: 4.6, unanswered: 0 },
@@ -66,5 +66,29 @@ describe("toSafeReport", () => {
     expect(safe.summary).toBe("All good");
     expect((safe as Record<string, unknown>).tenantId).toBeUndefined();
     expect((safe as Record<string, unknown>).generatedByUserId).toBeUndefined();
+  });
+});
+
+describe("compareReportSnapshots", () => {
+  it("computes positive deltas and 'improving' momentum (struggling → healthy)", () => {
+    const t = compareReportSnapshots(healthy, struggling);
+    expect(t.reviewsCount).toBe(10); // 20 - 10
+    expect(t.averageRating).toBe(1.4); // 4.6 - 3.2, 1dp
+    expect(t.totalViews).toBe(700);
+    expect(t.top3).toBe(4);
+    expect(t.momentum).toBe("improving");
+  });
+
+  it("computes negative deltas and 'declining' momentum (healthy → struggling)", () => {
+    const t = compareReportSnapshots(struggling, healthy);
+    expect(t.reviewsCount).toBe(-10);
+    expect(t.averageRating).toBe(-1.4);
+    expect(t.momentum).toBe("declining");
+  });
+
+  it("reports 'steady' when nothing changed", () => {
+    const t = compareReportSnapshots(healthy, healthy);
+    expect([t.reviewsCount, t.averageRating, t.totalViews, t.totalActions, t.top3, t.postsCreated]).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(t.momentum).toBe("steady");
   });
 });

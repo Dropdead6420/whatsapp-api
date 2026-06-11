@@ -63,6 +63,46 @@ export function buildActionPlan(s: ReportSnapshot): ActionItem[] {
   return plan;
 }
 
+export interface ReportTrend {
+  reviewsCount: number;
+  averageRating: number;
+  totalViews: number;
+  totalActions: number;
+  top3: number;
+  consistentCitations: number;
+  postsCreated: number;
+  /** Net direction across the headline metrics. */
+  momentum: "improving" | "declining" | "steady";
+}
+
+/**
+ * Period-over-period deltas between two report snapshots (current − previous).
+ * Pure — powers a "vs last period" section in monthly reports. `momentum` is the
+ * net sign across the headline metrics (rating weighted as whole steps).
+ */
+export function compareReportSnapshots(current: ReportSnapshot, previous: ReportSnapshot): ReportTrend {
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const reviewsCount = current.reviews.count - previous.reviews.count;
+  const averageRating = round1(current.reviews.average - previous.reviews.average);
+  const totalViews = current.insights.totalViews - previous.insights.totalViews;
+  const totalActions = current.insights.totalActions - previous.insights.totalActions;
+  const top3 = current.ranking.top3 - previous.ranking.top3;
+  const consistentCitations = current.citations.consistent - previous.citations.consistent;
+  const postsCreated = current.posts.created - previous.posts.created;
+
+  const net =
+    Math.sign(reviewsCount) +
+    Math.sign(averageRating) +
+    Math.sign(totalViews) +
+    Math.sign(totalActions) +
+    Math.sign(top3) +
+    Math.sign(consistentCitations) +
+    Math.sign(postsCreated);
+  const momentum = net > 0 ? "improving" : net < 0 ? "declining" : "steady";
+
+  return { reviewsCount, averageRating, totalViews, totalActions, top3, consistentCitations, postsCreated, momentum };
+}
+
 interface ReportRow {
   id: string;
   tenantId: string;
