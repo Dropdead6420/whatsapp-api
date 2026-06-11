@@ -4292,3 +4292,33 @@ model GmbImageRequest {
 
   @@index([tenantId, status])
 }
+
+// SuperAdmin "Manage Defaults" pricing matrix. Default subscription pricing the
+// platform offers, separately for partner-facing (PARTNER) and direct (SELF)
+// catalogs. Plan names are free-form so the catalog isn't hardcoded. Prices are
+// stored in paise (smallest INR unit), matching Plan.priceInPaisa.
+enum PricingScope {
+  PARTNER
+  SELF
+}
+
+model PlanPricingDefault {
+  id        String       @id @default(cuid())
+  scope     PricingScope
+  planName  String
+  sortOrder Int          @default(0)
+
+  monthlyPaisa   Int @default(0)
+  quarterlyPaisa Int @default(0)
+  yearlyPaisa    Int @default(0)
+
+  addLocationMonthlyPaisa   Int @default(0)
+  addLocationQuarterlyPaisa Int @default(0)
+  addLocationYearlyPaisa    Int @default(0)
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([scope, planName])
+}

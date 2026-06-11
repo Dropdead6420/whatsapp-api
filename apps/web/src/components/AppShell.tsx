@@ -304,6 +304,12 @@ export const APP_NAV_SECTIONS: AppNavSection[] = [
         roles: ["SUPER_ADMIN"],
       },
       {
+        href: "/plan-pricing",
+        label: "Pricing Defaults",
+        icon: CreditCard,
+        roles: ["SUPER_ADMIN"],
+      },
+      {
         href: "/billing",
         label: "Plans & Billing",
         icon: CreditCard,
