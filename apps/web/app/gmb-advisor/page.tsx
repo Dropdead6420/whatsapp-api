@@ -21,12 +21,21 @@ interface ScoreArea {
   weight: number;
 }
 
+interface FocusArea {
+  area: string;
+  points: number;
+  weight: number;
+  gap: number;
+  gapPercent: number;
+}
+
 interface Advice {
   id: string;
   locationId: string | null;
   score: number;
   grade: string;
   breakdown: ScoreArea[];
+  focusAreas?: FocusArea[];
   tasks: Task[];
   createdAt: string;
 }
@@ -130,6 +139,12 @@ export default function GmbAdvisorPage() {
               </div>
               <button onClick={() => void remove(a.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>
             </div>
+            {a.focusAreas && a.focusAreas.length > 0 && (
+              <p className="mt-3 text-xs text-slate-500">
+                <span className="font-medium text-slate-700">Focus first:</span>{" "}
+                {a.focusAreas.slice(0, 3).map((f) => `${f.area} (+${f.gap} pts)`).join(" · ")}
+              </p>
+            )}
             {a.tasks.length > 0 ? (
               <ul className="mt-3 space-y-1">
                 {a.tasks.map((t, i) => (

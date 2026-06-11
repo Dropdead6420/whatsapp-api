@@ -187,6 +187,7 @@ interface AdvisorRow {
 }
 
 export function toSafeAdvisor(row: AdvisorRow) {
+  const breakdown = Array.isArray(row.breakdown) ? (row.breakdown as unknown as ScoreArea[]) : [];
   return {
     id: row.id,
     locationId: row.locationId,
@@ -195,6 +196,8 @@ export function toSafeAdvisor(row: AdvisorRow) {
     signals: row.signals,
     breakdown: row.breakdown,
     tasks: row.tasks,
+    // Where the most score points are recoverable (biggest opportunity first).
+    focusAreas: rankFocusAreas({ score: row.score, grade: row.grade, breakdown }),
     createdAt: row.createdAt,
   };
 }
