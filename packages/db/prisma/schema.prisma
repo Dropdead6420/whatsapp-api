@@ -3354,6 +3354,7 @@ enum SecretScope {
 
 enum SecretProvider {
   META
+  GOOGLE_BUSINESS_PROFILE
   OPENAI
   ANTHROPIC
   GEMINI

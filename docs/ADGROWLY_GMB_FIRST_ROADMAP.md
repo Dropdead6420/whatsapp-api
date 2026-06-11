@@ -39,7 +39,7 @@ Each module: schema → service → routes → tests (→ UI later), one slice p
 pathspec-committed + pushed, GHCR build part of the deliverable. Tenant-scoped GMB
 work gated by `GMB_MANAGE`; Super-Admin work gated by `requireRole(SUPER_ADMIN)`.
 
-- [x] 1. **GMB Location / Business Profile** — anchor entity (`661cb36`)
+- [x] 1. **GMB Location / Business Profile** — anchor entity + encrypted Google OAuth/refresh-token connection, Google location import, live review/stat sync (`661cb36`, `20260611`)
 - [x] 2. **Reputation** — `GmbReview` + AI review replies, generate-then-approve (`cadb106`)
 - [x] 3. **Ranking tracker** — tracked keywords + local-rank snapshots + trend (`c14137a`)
 - [x] 4. **Insights** — GBP performance snapshots + derived totals/action-rate (`97d2bdd`)
@@ -73,7 +73,7 @@ admin engines are `SUPER_ADMIN`.
 Generator ✅(reuse) · Keyword Finder ⏳(10) · Description Optimizer ⏳(11) · Ranking
 Advisor ⏳(12) · Image Generator ⏳(15) · Monthly Report ⏳(8).
 
-**§3 Customer modules:** Dashboard ⏳(16) · Connect GMB ✅(1) · Review Mgmt ✅(2) ·
+**§3 Customer modules:** Dashboard ✅(16) · Connect GMB ✅(1 + live OAuth/sync) · Review Mgmt ✅(2) ·
 Keyword Finder ⏳(10) · Content Studio ✅/⏳(posts done; image 15) · Image Generator
 ⏳(15) · Post Scheduler ✅(reuse) · Ranking Tracker ✅(3) · Reports ⏳(8) ·
 Wallet/Credits ✅(reuse) · Subscription ✅(reuse) · Support ✅(reuse) · Settings ✅(1).

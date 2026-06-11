@@ -11,7 +11,7 @@ import {
   GmbDescriptionStatus,
   GmbImageStatus,
 } from "@nexaflow/db";
-import { Permissions } from "@nexaflow/shared";
+import { ApiError, ErrorCodes, Permissions } from "@nexaflow/shared";
 import {
   requireAuth,
   requireTenantScope,
@@ -100,6 +100,16 @@ import {
 import { getDashboard } from "../services/gmbDashboard.service";
 import { publishDuePosts } from "../services/gmbScheduler.service";
 import { listSyncStatus, syncLocation } from "../services/gmbSync.service";
+import {
+  buildGoogleBusinessProfileOAuthUrl,
+  disconnectGoogleBusinessProfile,
+  exchangeGoogleOAuthCode,
+  getGoogleConnectionStatus,
+  saveManualGoogleRefreshToken,
+  signGoogleOAuthState,
+  syncGoogleLocations,
+  verifyGoogleOAuthState,
+} from "../services/gmbGoogle.service";
 import {
   deleteReport,
   generateReport,
@@ -268,7 +278,160 @@ router.delete("/posts/:id", async (req: RequestWithAuth, res: Response, next: Ne
   }
 });
 
+// --- Google Business Profile connection (AdGrowly GMB-first) ---------------
+
+const oauthUrlSchema = z.object({
+  redirectUri: z.string().url().max(800),
+});
+
+const oauthExchangeSchema = z.object({
+  code: z.string().trim().min(1).max(5000),
+  redirectUri: z.string().url().max(800),
+  state: z.string().trim().max(2000).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
+});
+
+const manualGoogleTokenSchema = z.object({
+  refreshToken: z.string().trim().min(1).max(20_000),
+  accessToken: z.string().trim().max(20_000).optional(),
+  expiresIn: z.number().int().min(60).max(31_536_000).optional(),
+  scope: z.string().trim().max(1000).optional(),
+  accountName: z.string().trim().max(240).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
+});
+
+const googleLocationSyncSchema = z.object({
+  secretId: z.string().cuid().optional(),
+});
+
+router.get("/google/connection", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getGoogleConnectionStatus(req.tenantId!) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/google/oauth-url", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { redirectUri } = oauthUrlSchema.parse(req.query);
+    const state = signGoogleOAuthState({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      iat: Date.now(),
+      nonce: Math.random().toString(36).slice(2),
+    });
+    res.json({
+      success: true,
+      data: {
+        authorizationUrl: buildGoogleBusinessProfileOAuthUrl({ redirectUri, state }),
+        state,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/google/oauth/exchange", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = oauthExchangeSchema.parse(req.body);
+    if (body.state) {
+      const state = verifyGoogleOAuthState(body.state);
+      if (state.tenantId !== req.tenantId! || state.userId !== req.userId!) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "Google OAuth state does not match the current session.",
+        );
+      }
+    }
+    const secret = await exchangeGoogleOAuthCode({
+      tenantId: req.tenantId!,
+      code: body.code,
+      redirectUri: body.redirectUri,
+      label: body.label,
+      createdByUserId: req.userId,
+    });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GoogleBusinessProfileConnection",
+      resourceId: secret.id,
+      newValues: { connected: true, scopes: secret.scopes },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: secret });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/google/manual-token", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = manualGoogleTokenSchema.parse(req.body);
+    const secret = await saveManualGoogleRefreshToken({
+      tenantId: req.tenantId!,
+      ...body,
+      createdByUserId: req.userId,
+    });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GoogleBusinessProfileConnection",
+      resourceId: secret.id,
+      newValues: { manualTokenSaved: true, scopes: secret.scopes },
+      ...extractRequestMeta(req),
+    });
+    res.status(201).json({ success: true, data: secret });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/google/disconnect", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const result = await disconnectGoogleBusinessProfile(req.tenantId!);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GoogleBusinessProfileConnection",
+      newValues: result,
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/google/sync-locations", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = googleLocationSyncSchema.parse(req.body ?? {});
+    const result = await syncGoogleLocations({
+      tenantId: req.tenantId!,
+      secretId: body.secretId,
+      createdByUserId: req.userId,
+    });
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbLocation",
+      newValues: { googleSyncLocations: result },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // --- Business Profile / locations (AdGrowly GMB-first) ---------------------
+
 
 const locationListSchema = z.object({ status: z.nativeEnum(GmbLocationStatus).optional() });
 
@@ -1290,6 +1453,7 @@ const syncSchema = z.object({
   rating: z.number().min(0).max(5).optional(),
   reviewCount: z.number().int().min(0).max(10_000_000).optional(),
   verificationState: z.string().trim().max(60).optional(),
+  source: z.enum(["MANUAL", "GOOGLE"]).optional(),
 });
 
 // Which locations are due for a sync (read-only).
@@ -1301,8 +1465,8 @@ router.get("/sync-status", async (req: RequestWithAuth, res: Response, next: Nex
   }
 });
 
-// Record a sync for a location (stamps lastSyncedAt + refreshes stats). Live
-// Google Business Profile fetch wires into syncLocation later.
+// Sync a location. `source=GOOGLE` pulls reviews via the encrypted GBP
+// credential; manual values remain supported for dev/test/back-office entry.
 router.post("/locations/:id/sync", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const body = syncSchema.parse(req.body ?? {});

@@ -1,6 +1,7 @@
 import { prisma } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import { recordLocationSync } from "./gmbLocation.service";
+import { syncGoogleReviewsForLocation } from "./gmbGoogle.service";
 
 // =====================================================================
 // AdGrowly GMB — Business Profile sync (planning PDF §3 Connect GMB). Records a
@@ -56,18 +57,28 @@ export interface SyncInput {
   rating?: number;
   reviewCount?: number;
   verificationState?: string;
+  source?: "MANUAL" | "GOOGLE";
 }
 
 export async function syncLocation(tenantId: string, locationId: string, incoming: SyncInput = {}) {
   const current = await findStatsOrThrow(tenantId, locationId);
-  const merged = mergeLocationStats(current, incoming);
+  const liveIncoming = incoming.source === "GOOGLE"
+    ? await syncGoogleReviewsForLocation(tenantId, locationId)
+    : incoming;
+  const merged = mergeLocationStats(current, liveIncoming);
 
   // recordLocationSync takes only defined scalar fields; map the merged view.
   const data: SyncInput = { reviewCount: merged.reviewCount };
   if (merged.rating != null) data.rating = merged.rating;
   if (merged.verificationState != null) data.verificationState = merged.verificationState;
 
-  return recordLocationSync(tenantId, locationId, data);
+  const location = await recordLocationSync(tenantId, locationId, data);
+  return {
+    ...location,
+    syncSource: liveIncoming.source ?? "MANUAL",
+    importedReviews: "imported" in liveIncoming ? liveIncoming.imported : 0,
+    updatedReviews: "updated" in liveIncoming ? liveIncoming.updated : 0,
+  };
 }
 
 export async function listSyncStatus(tenantId: string, now: Date = new Date()) {
