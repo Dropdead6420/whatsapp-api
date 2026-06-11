@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   rankBucket,
+  rankDistribution,
   summarizeRankTrend,
   toSafeKeyword,
   toSafeSnapshot,
@@ -15,6 +16,23 @@ describe("rankBucket", () => {
     expect(rankBucket(4)).toBe("top10");
     expect(rankBucket(10)).toBe("top10");
     expect(rankBucket(11)).toBe("beyond");
+  });
+});
+
+describe("rankDistribution", () => {
+  it("counts buckets and weights a visibility score (top3=1, top10=0.5)", () => {
+    // 2 top3, 1 top10, 1 beyond, 1 not_found over 5 → (2 + 0.5)/5 = 50
+    const d = rankDistribution([1, 2, 7, 25, null]);
+    expect(d).toEqual({ total: 5, top3: 2, top10: 1, beyond: 1, notFound: 1, ranking: 4, visibilityScore: 50 });
+  });
+
+  it("scores all-top3 as 100 and all-not-found as 0", () => {
+    expect(rankDistribution([1, 2, 3]).visibilityScore).toBe(100);
+    expect(rankDistribution([null, null]).visibilityScore).toBe(0);
+  });
+
+  it("returns a zeroed distribution for no keywords", () => {
+    expect(rankDistribution([])).toEqual({ total: 0, top3: 0, top10: 0, beyond: 0, notFound: 0, ranking: 0, visibilityScore: 0 });
   });
 });
 

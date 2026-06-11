@@ -74,6 +74,48 @@ export function summarizeRankTrend(
   return { latest, previous, delta, best, average, checks: sorted.length, bucket: rankBucket(latest) };
 }
 
+export interface RankDistribution {
+  total: number;
+  top3: number;
+  top10: number; // ranks 4–10
+  beyond: number;
+  notFound: number;
+  /** Keywords with any known rank (top3 + top10 + beyond). */
+  ranking: number;
+  /** 0–100 weighted visibility score: top3 = 1.0, top10 = 0.5, else 0. */
+  visibilityScore: number;
+}
+
+/**
+ * Aggregate many keywords' latest ranks into a bucket distribution plus a
+ * weighted 0–100 visibility score for the Rankings dashboard. Pure; buckets via
+ * rankBucket so the thresholds stay in one place.
+ */
+export function rankDistribution(ranks: Array<number | null | undefined>): RankDistribution {
+  let top3 = 0;
+  let top10 = 0;
+  let beyond = 0;
+  let notFound = 0;
+  for (const r of ranks) {
+    switch (rankBucket(r)) {
+      case "top3":
+        top3 += 1;
+        break;
+      case "top10":
+        top10 += 1;
+        break;
+      case "beyond":
+        beyond += 1;
+        break;
+      default:
+        notFound += 1;
+    }
+  }
+  const total = ranks.length;
+  const visibilityScore = total > 0 ? Math.round(((top3 + top10 * 0.5) / total) * 100) : 0;
+  return { total, top3, top10, beyond, notFound, ranking: top3 + top10 + beyond, visibilityScore };
+}
+
 export function toSafeKeyword(row: KeywordRow) {
   return {
     id: row.id,
