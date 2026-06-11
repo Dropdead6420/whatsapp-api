@@ -11,6 +11,7 @@ import { api, ApiClientError } from "../../src/lib/api";
 
 interface Review {
   id: string;
+  locationId: string;
   authorName: string | null;
   rating: number;
   comment: string | null;
@@ -20,12 +21,25 @@ interface Review {
   isGoogleSynced: boolean;
 }
 
+interface Location {
+  id: string;
+  name: string;
+  placeId: string | null;
+  status: "DRAFT" | "CONNECTED" | "SUSPENDED";
+  rating: number | null;
+  reviewCount: number;
+  hasCredential: boolean;
+  lastSyncedAt: string | null;
+}
+
 interface Summary {
   count: number;
   average: number;
   unanswered: number;
   distribution: Record<string, number>;
 }
+
+type ReviewStatusFilter = "" | Review["status"];
 
 const STATUS_STYLES: Record<string, string> = {
   NEW: "bg-amber-50 text-amber-700 border-amber-200",
@@ -40,13 +54,16 @@ function Stars({ n }: { n: number }) {
 export default function GmbReputationPage() {
   const { user, features, loading, signOut } = useAuth({ required: true });
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ReviewStatusFilter>("");
 
-  // compact "log a review" form (no live Google sync yet)
-  const [locationId, setLocationId] = useState("");
+  const [manualLocationId, setManualLocationId] = useState("");
   const [rating, setRating] = useState(5);
   const [author, setAuthor] = useState("");
   const [comment, setComment] = useState("");
@@ -54,12 +71,22 @@ export default function GmbReputationPage() {
   async function refresh() {
     try {
       setErr(null);
-      const [list, sum] = await Promise.all([
-        api.get<Review[]>("/api/v1/gmb/reviews"),
-        api.get<Summary>("/api/v1/gmb/reviews/summary"),
+      const reviewParams = new URLSearchParams();
+      if (selectedLocationId) reviewParams.set("locationId", selectedLocationId);
+      if (statusFilter) reviewParams.set("status", statusFilter);
+      const summaryParams = new URLSearchParams();
+      if (selectedLocationId) summaryParams.set("locationId", selectedLocationId);
+      const [nextLocations, nextReviews, nextSummary] = await Promise.all([
+        api.get<Location[]>("/api/v1/gmb/locations"),
+        api.get<Review[]>(`/api/v1/gmb/reviews${reviewParams.size ? `?${reviewParams}` : ""}`),
+        api.get<Summary>(`/api/v1/gmb/reviews/summary${summaryParams.size ? `?${summaryParams}` : ""}`),
       ]);
-      setReviews(list);
-      setSummary(sum);
+      setLocations(nextLocations);
+      setReviews(nextReviews);
+      setSummary(nextSummary);
+      if (!manualLocationId && nextLocations.length > 0) {
+        setManualLocationId(nextLocations[0].id);
+      }
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to load reviews.");
     }
@@ -67,7 +94,7 @@ export default function GmbReputationPage() {
 
   useEffect(() => {
     if (user) void refresh();
-  }, [user]);
+  }, [user, selectedLocationId, statusFilter]);
 
   async function addReview(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -75,7 +102,7 @@ export default function GmbReputationPage() {
     setNotice(null);
     try {
       await api.post("/api/v1/gmb/reviews", {
-        locationId: locationId.trim(),
+        locationId: manualLocationId.trim(),
         rating,
         authorName: author.trim() || undefined,
         comment: comment.trim() || undefined,
@@ -86,6 +113,38 @@ export default function GmbReputationPage() {
       await refresh();
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to log review.");
+    }
+  }
+
+  async function syncSelectedLocation() {
+    if (!selectedLocationId) {
+      setErr("Choose one location before syncing reviews.");
+      return;
+    }
+    const location = locations.find((item) => item.id === selectedLocationId);
+    if (!location) {
+      setErr("Selected location was not found.");
+      return;
+    }
+    setBusy("sync");
+    setErr(null);
+    setNotice(null);
+    try {
+      const source = location.hasCredential && location.placeId ? "GOOGLE" : "MANUAL";
+      const res = await api.post<Location & { importedReviews?: number; updatedReviews?: number; syncSource?: string }>(
+        `/api/v1/gmb/locations/${location.id}/sync`,
+        { source },
+      );
+      const detail =
+        res.syncSource === "GOOGLE"
+          ? ` Imported ${res.importedReviews ?? 0}, updated ${res.updatedReviews ?? 0} reviews.`
+          : " Refreshed local stats.";
+      setNotice(`${location.name} synced.${detail}`);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to sync reviews.");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -124,6 +183,11 @@ export default function GmbReputationPage() {
     return <div className="p-8 text-sm text-slate-500">Loading...</div>;
   }
 
+  const selectedLocation = locations.find((item) => item.id === selectedLocationId) ?? null;
+  const manualLocation = locations.find((item) => item.id === manualLocationId) ?? null;
+  const locationNameById = new Map(locations.map((item) => [item.id, item.name]));
+  const selectedCanSyncFromGoogle = Boolean(selectedLocation?.hasCredential && selectedLocation.placeId);
+
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
       <div className="mb-6">
@@ -136,6 +200,67 @@ export default function GmbReputationPage() {
 
       {err && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
       {notice && <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
+
+      <section className="mb-6 rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto] lg:items-end">
+          <label className="block text-sm font-medium text-slate-700">
+            Location
+            <select
+              value={selectedLocationId}
+              onChange={(e) => setSelectedLocationId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">All locations</option>
+              {locations.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}{item.rating != null ? ` · ${item.rating}★` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Status
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as ReviewStatusFilter)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">All statuses</option>
+              <option value="NEW">Awaiting reply</option>
+              <option value="REPLIED">Replied</option>
+              <option value="FLAGGED">Flagged</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => void syncSelectedLocation()}
+            disabled={!selectedLocationId || busy === "sync"}
+            className="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "sync" ? "Syncing..." : selectedCanSyncFromGoogle ? "Sync Google reviews" : "Refresh stats"}
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+          {selectedLocation ? (
+            <>
+              <span className="rounded-full bg-slate-100 px-2 py-1">{selectedLocation.status}</span>
+              <span className="rounded-full bg-slate-100 px-2 py-1">
+                {selectedCanSyncFromGoogle ? "Google-connected" : "Manual stats"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-1">
+                {selectedLocation.reviewCount} reviews{selectedLocation.rating != null ? ` · ${selectedLocation.rating}★` : ""}
+              </span>
+              {selectedLocation.lastSyncedAt && (
+                <span className="rounded-full bg-slate-100 px-2 py-1">
+                  Last sync {new Date(selectedLocation.lastSyncedAt).toLocaleString()}
+                </span>
+              )}
+            </>
+          ) : (
+            <span>Choose a location to sync Google reviews directly from this page.</span>
+          )}
+        </div>
+      </section>
 
       {summary && (
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
@@ -158,12 +283,31 @@ export default function GmbReputationPage() {
         <form onSubmit={addReview} className="h-fit rounded-md border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-base font-semibold text-slate-950">Log a review</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Use this for offline/manual reviews. Google reviews should be imported from Locations.
+            Use this for offline/manual reviews. Google reviews should be imported with the sync control above.
           </p>
           <label className="mt-3 block text-sm font-medium text-slate-700">
-            Location ID
-            <input value={locationId} onChange={(e) => setLocationId(e.target.value)} required className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            Location
+            <select
+              value={manualLocationId}
+              onChange={(e) => setManualLocationId(e.target.value)}
+              required
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="" disabled>
+                Select a location
+              </option>
+              {locations.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
           </label>
+          {manualLocation && (
+            <p className="mt-1 text-xs text-slate-500">
+              Saving manual review under {manualLocation.name}.
+            </p>
+          )}
           <label className="mt-3 block text-sm font-medium text-slate-700">
             Rating
             <select value={rating} onChange={(e) => setRating(Number(e.target.value))} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
@@ -182,12 +326,17 @@ export default function GmbReputationPage() {
         </form>
 
         <div className="space-y-3">
-          {reviews.length === 0 && <p className="text-sm text-slate-500">No reviews yet.</p>}
+          {reviews.length === 0 && (
+            <div className="rounded-md border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
+              No reviews match these filters yet.
+            </div>
+          )}
           {reviews.map((r) => (
             <div key={r.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm">
                   <Stars n={r.rating} /> <span className="font-medium text-slate-800">{r.authorName ?? "Anonymous"}</span>
+                  <span className="text-slate-400"> · {locationNameById.get(r.locationId) ?? "Unknown location"}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span
