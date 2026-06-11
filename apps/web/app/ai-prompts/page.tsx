@@ -39,11 +39,17 @@ export default function AiPromptsPage() {
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewVars, setPreviewVars] = useState("{}");
   const [previewResult, setPreviewResult] = useState<{ text: string; missing: string[] } | null>(null);
+  const [seeds, setSeeds] = useState<{ key: string; template: string }[]>([]);
 
   async function refresh() {
     try {
       setErr(null);
-      setItems(await api.get<Template[]>("/api/v1/admin/ai-prompts"));
+      const [list, seedList] = await Promise.all([
+        api.get<Template[]>("/api/v1/admin/ai-prompts"),
+        api.get<{ key: string; template: string }[]>("/api/v1/admin/ai-prompts/seeds"),
+      ]);
+      setItems(list);
+      setSeeds(seedList);
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to load prompts (Super Admin only).");
     }
@@ -52,6 +58,13 @@ export default function AiPromptsPage() {
   useEffect(() => {
     if (user) void refresh();
   }, [user]);
+
+  function adoptSeed(seed: { key: string; template: string }) {
+    setKey(seed.key);
+    setTemplate(seed.template);
+    if (!name.trim()) setName(seed.key.replace(/^gmb\./, "").replace(/[_.]/g, " "));
+    setNotice(`Loaded starter template for ${seed.key} — edit and create.`);
+  }
 
   async function create(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -143,6 +156,23 @@ export default function AiPromptsPage() {
       <div className="grid gap-6 lg:grid-cols-[340px,1fr]">
         <form onSubmit={create} className="h-fit rounded-md border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-base font-semibold text-slate-950">New template</h2>
+          {seeds.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-slate-500">Adopt a starter template:</p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {seeds.map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    onClick={() => adoptSeed(s)}
+                    className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    {s.key.replace(/^gmb\./, "")}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <label className="mt-3 block text-sm font-medium text-slate-700">
             Key
             <input value={key} onChange={(e) => setKey(e.target.value)} required placeholder="gmb.review_reply" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
