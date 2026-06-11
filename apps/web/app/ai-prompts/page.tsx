@@ -42,6 +42,7 @@ export default function AiPromptsPage() {
   const [seeds, setSeeds] = useState<{ key: string; template: string }[]>([]);
   const [coverage, setCoverage] = useState<{ key: string; hasActiveTemplate: boolean; source: string }[]>([]);
   const [sampleVars, setSampleVars] = useState<Record<string, Record<string, unknown>>>({});
+  const [resolved, setResolved] = useState<{ key: string; text: string; source: string; missing: string[] } | null>(null);
 
   async function refresh() {
     try {
@@ -64,6 +65,16 @@ export default function AiPromptsPage() {
   useEffect(() => {
     if (user) void refresh();
   }, [user]);
+
+  async function resolveLive(key: string) {
+    setErr(null);
+    try {
+      const r = await api.post<{ text: string; source: string; missing: string[] }>("/api/v1/admin/ai-prompts/resolve", { key });
+      setResolved({ key, ...r });
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to resolve prompt.");
+    }
+  }
 
   function adoptSeed(seed: { key: string; template: string }) {
     setKey(seed.key);
@@ -167,21 +178,39 @@ export default function AiPromptsPage() {
               {coverage.filter((c) => c.hasActiveTemplate).length}/{coverage.length} features on a curated template
             </span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">Features without an active template fall back to the built-in seed.</p>
+          <p className="mt-1 text-xs text-slate-500">Click a feature to preview the live prompt it would send (active template or built-in seed) with sample data.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {coverage.map((c) => (
-              <span
+              <button
                 key={c.key}
-                title={c.hasActiveTemplate ? "Uses an active admin template" : "Falls back to the built-in seed"}
-                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
-                  c.hasActiveTemplate ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500"
-                }`}
+                type="button"
+                onClick={() => void resolveLive(c.key)}
+                title={c.hasActiveTemplate ? "Uses an active admin template — click to preview" : "Falls back to the built-in seed — click to preview"}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium hover:ring-2 hover:ring-offset-1 ${
+                  c.hasActiveTemplate
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:ring-emerald-200"
+                    : "border-slate-200 bg-slate-50 text-slate-500 hover:ring-slate-200"
+                } ${resolved?.key === c.key ? "ring-2 ring-offset-1" : ""}`}
               >
                 {c.key.replace(/^gmb\./, "")}
                 <span className="opacity-70">· {c.hasActiveTemplate ? "template" : "seed"}</span>
-              </span>
+              </button>
             ))}
           </div>
+          {resolved && (
+            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-600">
+                Live prompt for <code className="rounded bg-white px-1">{resolved.key}</code> ·{" "}
+                <span className={resolved.source === "template" ? "text-emerald-700" : "text-slate-500"}>
+                  {resolved.source === "template" ? "active admin template" : "built-in seed"}
+                </span>
+              </p>
+              <p className="mt-2 whitespace-pre-wrap rounded-md bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">{resolved.text}</p>
+              {resolved.missing.length > 0 && (
+                <p className="mt-1 text-xs text-amber-700">unfilled placeholders: {resolved.missing.join(", ")}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

@@ -20,7 +20,15 @@ import {
   previewTemplate,
   updateTemplate,
 } from "../services/aiPromptTemplate.service";
-import { listPromptSeeds, listSampleVars, promptCoverage } from "../services/gmbAiPrompts.service";
+import {
+  GMB_PROMPT_KEYS,
+  type GmbPromptKey,
+  listPromptSeeds,
+  listSampleVars,
+  promptCoverage,
+  resolveFeaturePrompt,
+  sampleVarsFor,
+} from "../services/gmbAiPrompts.service";
 
 const router = Router();
 router.use(requireAuth, requireRole(UserRole.SUPER_ADMIN));
@@ -110,6 +118,27 @@ router.get("/coverage", async (_req: RequestWithAuth, res: Response, next: NextF
 // Realistic sample variables per GMB feature, for one-click template preview.
 router.get("/sample-vars", async (_req: RequestWithAuth, res: Response) => {
   res.json({ success: true, data: listSampleVars() });
+});
+
+const gmbKeyValues = Object.values(GMB_PROMPT_KEYS) as [string, ...string[]];
+const resolveSchema = z.object({
+  key: z.enum(gmbKeyValues),
+  variables: z.record(z.union([z.string(), z.number()])).optional(),
+});
+
+// Resolve the *live* prompt a GMB AI feature would use right now: the active
+// admin template if one is configured, else the built-in seed — rendered with
+// the supplied variables (or the feature's sample vars). Lets Super Admin verify
+// exactly what each feature will send, the same path the runtime takes.
+router.post("/resolve", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { key, variables } = resolveSchema.parse(req.body ?? {});
+    const featureKey = key as GmbPromptKey;
+    const vars = variables ?? sampleVarsFor(featureKey);
+    res.json({ success: true, data: await resolveFeaturePrompt(featureKey, vars) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
