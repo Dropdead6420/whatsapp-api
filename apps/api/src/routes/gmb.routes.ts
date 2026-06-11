@@ -99,6 +99,7 @@ import {
 } from "../services/gmbImage.service";
 import { getDashboard } from "../services/gmbDashboard.service";
 import { publishDuePosts } from "../services/gmbScheduler.service";
+import { listSyncStatus, syncLocation } from "../services/gmbSync.service";
 import {
   deleteReport,
   generateReport,
@@ -1278,6 +1279,44 @@ router.get("/dashboard", async (req: RequestWithAuth, res: Response, next: NextF
   try {
     const { locationId } = dashboardSchema.parse(req.query);
     res.json({ success: true, data: await getDashboard(req.tenantId!, locationId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Business Profile sync (AdGrowly GMB-first) -----------------------------
+
+const syncSchema = z.object({
+  rating: z.number().min(0).max(5).optional(),
+  reviewCount: z.number().int().min(0).max(10_000_000).optional(),
+  verificationState: z.string().trim().max(60).optional(),
+});
+
+// Which locations are due for a sync (read-only).
+router.get("/sync-status", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await listSyncStatus(req.tenantId!) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Record a sync for a location (stamps lastSyncedAt + refreshes stats). Live
+// Google Business Profile fetch wires into syncLocation later.
+router.post("/locations/:id/sync", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = syncSchema.parse(req.body ?? {});
+    const location = await syncLocation(req.tenantId!, req.params.id, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbLocation",
+      resourceId: req.params.id,
+      newValues: { synced: true },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: location });
   } catch (err) {
     next(err);
   }
