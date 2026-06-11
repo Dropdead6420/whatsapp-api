@@ -68,6 +68,33 @@ export function analyzeDescription(
   };
 }
 
+export interface DescriptionScore {
+  score: number;
+  /** Share of tracked keywords present, 0–1 (1 when none are tracked). */
+  keywordCoverage: number;
+  lengthOk: boolean;
+  issues: number;
+}
+
+/**
+ * 0–100 quality score for a description analysis: keyword coverage (60),
+ * a healthy length within the limit (25), and being issue-free (15). Pure —
+ * gives the optimizer UI a single headline number.
+ */
+export function scoreDescription(a: DescriptionAnalysis): DescriptionScore {
+  const total = a.keywords.length;
+  const present = a.keywords.filter((k) => k.present).length;
+  const keywordCoverage = total > 0 ? present / total : 1;
+  const lengthOk = a.length >= 50 && a.withinLimit;
+  const raw = keywordCoverage * 60 + (lengthOk ? 25 : 0) + (a.issues.length === 0 ? 15 : 0);
+  return {
+    score: Math.max(0, Math.min(100, Math.round(raw))),
+    keywordCoverage: Math.round(keywordCoverage * 100) / 100,
+    lengthOk,
+    issues: a.issues.length,
+  };
+}
+
 export interface OptimizeInput {
   text: string;
   keywords?: string[];

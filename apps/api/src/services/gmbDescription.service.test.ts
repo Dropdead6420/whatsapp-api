@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GmbDescriptionStatus, GmbDescriptionTarget } from "@nexaflow/db";
-import { analyzeDescription, optimizeDescription, toSafeDescription } from "./gmbDescription.service";
+import { analyzeDescription, optimizeDescription, scoreDescription, toSafeDescription } from "./gmbDescription.service";
 
 describe("analyzeDescription", () => {
   it("computes length, word count and keyword presence/density", () => {
@@ -69,5 +69,35 @@ describe("toSafeDescription", () => {
     expect(safe.optimized).toBe("We whiten teeth.");
     expect(safe.analysis).toEqual({ length: 16 });
     expect((safe as Record<string, unknown>).tenantId).toBeUndefined();
+  });
+});
+
+describe("scoreDescription", () => {
+  const keywords = ["espresso", "latte"];
+
+  it("scores 100 for full coverage, healthy length, and no issues", () => {
+    const a = analyzeDescription("Our friendly cafe serves the best espresso and a smooth latte every day.", { keywords });
+    expect(scoreDescription(a)).toEqual({ score: 100, keywordCoverage: 1, lengthOk: true, issues: 0 });
+  });
+
+  it("drops to 55 with one missing keyword (coverage 0.5, length ok, has an issue)", () => {
+    const a = analyzeDescription("Our friendly cafe serves the very best espresso every single day here.", { keywords });
+    const s = scoreDescription(a);
+    expect(s.keywordCoverage).toBe(0.5);
+    expect(s.lengthOk).toBe(true);
+    expect(s.score).toBe(55); // 0.5*60 + 25 + 0
+  });
+
+  it("scores 0 for a too-short description missing its keyword", () => {
+    const s = scoreDescription(analyzeDescription("tiny", { keywords: ["espresso"] }));
+    expect(s.lengthOk).toBe(false);
+    expect(s.score).toBe(0);
+  });
+
+  it("treats no tracked keywords as full coverage on that axis", () => {
+    const a = analyzeDescription("A clean, professional description that is comfortably over fifty characters long.", {});
+    const s = scoreDescription(a);
+    expect(s.keywordCoverage).toBe(1);
+    expect(s.score).toBe(100);
   });
 });
