@@ -103,6 +103,40 @@ export function compareReportSnapshots(current: ReportSnapshot, previous: Report
   return { reviewsCount, averageRating, totalViews, totalActions, top3, consistentCitations, postsCreated, momentum };
 }
 
+function num(obj: unknown, ...path: string[]): number {
+  let cur: unknown = obj;
+  for (const key of path) {
+    if (!cur || typeof cur !== "object") return 0;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return typeof cur === "number" && Number.isFinite(cur) ? cur : 0;
+}
+
+/**
+ * Pure: best-effort reconstruct a ReportSnapshot from a previously stored report
+ * `data` blob (used to compare a new report against the prior period). Returns
+ * null when the blob is missing the expected sections.
+ */
+export function snapshotFromReportData(data: unknown): ReportSnapshot | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  if (!("reviews" in d) || !("insights" in d) || !("ranking" in d) || !("citations" in d) || !("posts" in d)) {
+    return null;
+  }
+  return {
+    reviews: { count: num(d, "reviews", "count"), average: num(d, "reviews", "average"), unanswered: num(d, "reviews", "unanswered") },
+    insights: { totalViews: num(d, "insights", "totalViews"), totalActions: num(d, "insights", "totalActions"), actionRate: num(d, "insights", "actionRate") },
+    ranking: {
+      trackedKeywords: num(d, "ranking", "trackedKeywords"),
+      top3: num(d, "ranking", "top3"),
+      top10: num(d, "ranking", "top10"),
+      notFound: num(d, "ranking", "notFound"),
+    },
+    citations: { total: num(d, "citations", "total"), consistent: num(d, "citations", "consistent") },
+    posts: { created: num(d, "posts", "created") },
+  };
+}
+
 interface ReportRow {
   id: string;
   tenantId: string;
@@ -196,8 +230,22 @@ export async function generateReport(tenantId: string, input: GenerateReportInpu
     citations: { total: citations.total, consistent: citations.consistent },
     posts: { created: posts },
   };
+  // Compare against the most recent prior report of the same scope (if any).
+  const previous = await prisma.gmbReport.findFirst({
+    where: {
+      tenantId,
+      type: input.type ?? GmbReportType.MONTHLY,
+      locationId: input.locationId ?? null,
+      periodEnd: { lt: periodStart },
+    },
+    orderBy: { periodEnd: "desc" },
+    select: { data: true },
+  });
+  const prevSnapshot = previous ? snapshotFromReportData(previous.data) : null;
+  const trend = prevSnapshot ? compareReportSnapshots(snapshot, prevSnapshot) : null;
+
   // Store the full module summaries (richer than the snapshot) for the UI.
-  const data = { reviews, insights, citations, ranking, posts: { created: posts } };
+  const data = { reviews, insights, citations, ranking, posts: { created: posts }, ...(trend ? { trend } : {}) };
   const summary = buildReportNarrative(snapshot);
   const actionPlan = buildActionPlan(snapshot);
 

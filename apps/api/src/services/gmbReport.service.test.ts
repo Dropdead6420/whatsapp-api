@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GmbReportType } from "@nexaflow/db";
-import { buildActionPlan, buildReportNarrative, compareReportSnapshots, toSafeReport, type ReportSnapshot } from "./gmbReport.service";
+import { buildActionPlan, buildReportNarrative, compareReportSnapshots, snapshotFromReportData, toSafeReport, type ReportSnapshot } from "./gmbReport.service";
 
 const healthy: ReportSnapshot = {
   reviews: { count: 20, average: 4.6, unanswered: 0 },
@@ -90,5 +90,24 @@ describe("compareReportSnapshots", () => {
     const t = compareReportSnapshots(healthy, healthy);
     expect([t.reviewsCount, t.averageRating, t.totalViews, t.totalActions, t.top3, t.postsCreated]).toEqual([0, 0, 0, 0, 0, 0]);
     expect(t.momentum).toBe("steady");
+  });
+});
+
+describe("snapshotFromReportData", () => {
+  it("round-trips a stored report data blob back into a snapshot", () => {
+    const data = { reviews: healthy.reviews, insights: healthy.insights, ranking: healthy.ranking, citations: healthy.citations, posts: healthy.posts };
+    expect(snapshotFromReportData(data)).toEqual(healthy);
+  });
+
+  it("returns null when sections are missing or the blob is not an object", () => {
+    expect(snapshotFromReportData({ reviews: {}, insights: {} })).toBeNull();
+    expect(snapshotFromReportData(null)).toBeNull();
+    expect(snapshotFromReportData("nope")).toBeNull();
+  });
+
+  it("defaults missing numbers to 0 (defensive against partial blobs)", () => {
+    const snap = snapshotFromReportData({ reviews: {}, insights: {}, ranking: {}, citations: {}, posts: {} });
+    expect(snap?.reviews.count).toBe(0);
+    expect(snap?.insights.totalViews).toBe(0);
   });
 });
