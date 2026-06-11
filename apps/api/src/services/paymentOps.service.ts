@@ -48,6 +48,12 @@ export interface PaymentWebhookFilters {
   limit: number;
 }
 
+export interface InvoiceFilters {
+  status?: "draft" | "sent" | "paid" | "failed";
+  tenantId?: string;
+  limit: number;
+}
+
 function clampLimit(raw: unknown, fallback = 50, max = 200): number {
   const n =
     typeof raw === "number"
@@ -111,6 +117,27 @@ export function parsePaymentWebhookFilters(query: {
   };
 }
 
+export function parseInvoiceFilters(query: {
+  status?: unknown;
+  tenantId?: unknown;
+  limit?: unknown;
+}): InvoiceFilters {
+  const status =
+    typeof query.status === "string"
+      ? query.status.trim().toLowerCase()
+      : "";
+  return {
+    status: ["draft", "sent", "paid", "failed"].includes(status)
+      ? (status as InvoiceFilters["status"])
+      : undefined,
+    tenantId:
+      typeof query.tenantId === "string" && query.tenantId.trim().length > 0
+        ? query.tenantId.trim()
+        : undefined,
+    limit: clampLimit(query.limit, 100, 500),
+  };
+}
+
 export async function listPaymentOrders(filters: PaymentOrderFilters) {
   return prismaRead.paymentOrder.findMany({
     where: {
@@ -164,6 +191,49 @@ export async function listPaymentWebhookLogs(filters: PaymentWebhookFilters) {
       // actually needs to inspect one event.
     },
     orderBy: { processedAt: "desc" },
+    take: filters.limit,
+  });
+}
+
+export async function listInvoices(filters: InvoiceFilters) {
+  return prismaRead.invoice.findMany({
+    where: {
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.tenantId ? { tenantId: filters.tenantId } : {}),
+    },
+    select: {
+      id: true,
+      tenantId: true,
+      invoiceNumber: true,
+      amountInPaisa: true,
+      subtotalInPaisa: true,
+      taxInPaisa: true,
+      currency: true,
+      status: true,
+      paymentOrderId: true,
+      rechargeRequestId: true,
+      razorpayInvoiceId: true,
+      stripeInvoiceId: true,
+      pdfUrl: true,
+      dueAt: true,
+      paidAt: true,
+      createdAt: true,
+      tenant: {
+        select: {
+          name: true,
+          type: true,
+          status: true,
+        },
+      },
+      currencySnapshot: {
+        select: {
+          displayCurrency: true,
+          displayAmountMinor: true,
+          exchangeRateMicros: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
     take: filters.limit,
   });
 }

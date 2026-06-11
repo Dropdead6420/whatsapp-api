@@ -11,14 +11,29 @@ import { UserRole } from "@nexaflow/shared";
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import {
+  listInvoices,
   listPaymentOrders,
   listPaymentWebhookLogs,
+  parseInvoiceFilters,
   parsePaymentOrderFilters,
   parsePaymentWebhookFilters,
 } from "../services/paymentOps.service";
 
 const router = Router();
 router.use(requireAuth, requireRole(UserRole.SUPER_ADMIN));
+
+router.get(
+  "/invoices",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const filters = parseInvoiceFilters(req.query);
+      const items = await listInvoices(filters);
+      res.json({ success: true, data: items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.get(
   "/orders",
