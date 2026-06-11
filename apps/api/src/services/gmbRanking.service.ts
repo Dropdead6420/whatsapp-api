@@ -170,8 +170,21 @@ export async function listKeywords(tenantId: string, filter: ListKeywordsFilter 
       ...(filter.activeOnly ? { isActive: true } : {}),
     },
     orderBy: { createdAt: "desc" },
+    include: {
+      snapshots: { orderBy: { checkedAt: "desc" }, take: 1, select: { rank: true, checkedAt: true } },
+    },
   });
-  return rows.map(toSafeKeyword);
+  // Carry each keyword's latest check so list views can show buckets and a
+  // portfolio visibility summary without fetching every trend.
+  return rows.map((row) => {
+    const latest = row.snapshots[0];
+    return {
+      ...toSafeKeyword(row),
+      latestRank: latest ? latest.rank : null,
+      bucket: latest ? rankBucket(latest.rank) : null,
+      lastCheckedAt: latest?.checkedAt ?? null,
+    };
+  });
 }
 
 export interface AddKeywordInput {

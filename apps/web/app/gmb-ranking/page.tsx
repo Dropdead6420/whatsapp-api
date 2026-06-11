@@ -19,6 +19,9 @@ interface Keyword {
   id: string;
   keyword: string;
   isActive: boolean;
+  latestRank?: number | null;
+  bucket?: string | null;
+  lastCheckedAt?: string | null;
 }
 
 interface Snapshot {
@@ -178,17 +181,40 @@ export default function GmbRankingPage() {
 
         <div>
           <h2 className="mb-2 text-base font-semibold text-slate-950">Tracked keywords</h2>
+          {keywords.length > 0 && (() => {
+            const checked = keywords.filter((k) => k.bucket != null);
+            const tally = { top3: 0, top10: 0, beyond: 0, not_found: 0 } as Record<string, number>;
+            for (const k of checked) tally[k.bucket as string] = (tally[k.bucket as string] ?? 0) + 1;
+            const visibility = checked.length > 0 ? Math.round(((tally.top3 + tally.top10 * 0.5) / checked.length) * 100) : null;
+            const unchecked = keywords.length - checked.length;
+            return (
+              <div className="mb-3 rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Visibility score</p>
+                  <span className={`text-2xl font-bold ${visibility == null ? "text-slate-400" : visibility >= 70 ? "text-emerald-600" : visibility >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                    {visibility == null ? "—" : `${visibility}/100`}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {tally.top3} in top 3 · {tally.top10} in top 10 · {tally.beyond} beyond · {tally.not_found} not found
+                  {unchecked > 0 && ` · ${unchecked} unchecked`}
+                </p>
+              </div>
+            );
+          })()}
           <div className="space-y-3">
             {keywords.length === 0 && <p className="text-sm text-slate-500">No keywords tracked yet.</p>}
             {keywords.map((k) => {
               const d = detail[k.id];
+              const bucket = d?.trend?.bucket ?? k.bucket;
+              const latest = d?.trend ? d.trend.latest : k.latestRank;
               return (
                 <div key={k.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-slate-800">{k.keyword}</span>
-                    {d?.trend && (
-                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${BUCKET_STYLES[d.trend.bucket]}`}>
-                        {d.trend.latest == null ? "not found" : `#${d.trend.latest}`}
+                    {bucket != null && (
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${BUCKET_STYLES[bucket]}`}>
+                        {latest == null ? "not found" : `#${latest}`}
                       </span>
                     )}
                   </div>
