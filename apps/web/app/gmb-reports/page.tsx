@@ -7,7 +7,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { useAuth } from "../../src/hooks/useAuth";
-import { api, ApiClientError } from "../../src/lib/api";
+import { api, ApiClientError, API_BASE, tokenStore } from "../../src/lib/api";
 
 const TYPES = ["WEEKLY", "MONTHLY", "CUSTOM"] as const;
 
@@ -97,6 +97,27 @@ export default function GmbReportsPage() {
     }
   }
 
+  async function downloadPdf(id: string) {
+    setErr(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/gmb/reports/${id}/pdf`, {
+        headers: { Authorization: `Bearer ${tokenStore.getAccess() ?? ""}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gmb-report-${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      setErr("Unable to download the PDF.");
+    }
+  }
+
   async function remove(id: string) {
     if (!window.confirm("Delete this report?")) return;
     try {
@@ -156,7 +177,10 @@ export default function GmbReportsPage() {
             <div key={r.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-800">{r.type} · {fmt(r.periodStart)} – {fmt(r.periodEnd)}</span>
-                <button onClick={() => void remove(r.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>
+                <span className="flex items-center gap-3">
+                  <button onClick={() => void downloadPdf(r.id)} className="text-xs font-medium text-sky-700 hover:underline">Download PDF</button>
+                  <button onClick={() => void remove(r.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>
+                </span>
               </div>
               {r.data?.trend && (
                 <p className="mt-2 text-xs text-slate-500">

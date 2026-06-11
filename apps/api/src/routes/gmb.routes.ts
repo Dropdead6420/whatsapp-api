@@ -116,6 +116,7 @@ import {
   getReport,
   listReports,
 } from "../services/gmbReport.service";
+import { renderGmbReportPdf } from "../services/gmbReportPdf.service";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -1043,6 +1044,19 @@ router.post("/reports/generate", async (req: RequestWithAuth, res: Response, nex
 router.get("/reports/:id", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     res.json({ success: true, data: await getReport(req.tenantId!, req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Download a report as PDF (planning PDF §3: "Download PDF reports").
+router.get("/reports/:id/pdf", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const report = await getReport(req.tenantId!, req.params.id);
+    const buffer = await renderGmbReportPdf({ report });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="gmb-report-${report.id}.pdf"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
