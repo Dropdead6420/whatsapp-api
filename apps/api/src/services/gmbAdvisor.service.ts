@@ -95,6 +95,31 @@ export function scoreProfile(s: ProfileSignals): ProfileScore {
   return { score, grade: gradeFromScore(score), breakdown };
 }
 
+export interface FocusArea {
+  area: string;
+  points: number;
+  weight: number;
+  /** Points left on the table for this area (weight − points). */
+  gap: number;
+  /** Gap as a percent of the area's weight (0–100). */
+  gapPercent: number;
+}
+
+/**
+ * Rank score areas by the points left on the table (biggest opportunity first),
+ * so the advisor can point the customer at the highest-impact fix. Pure; a
+ * fully-optimized profile returns an empty list.
+ */
+export function rankFocusAreas(score: ProfileScore): FocusArea[] {
+  return score.breakdown
+    .map((b) => {
+      const gap = Math.max(0, b.weight - b.points);
+      return { area: b.area, points: b.points, weight: b.weight, gap, gapPercent: b.weight > 0 ? Math.round((gap / b.weight) * 100) : 0 };
+    })
+    .filter((a) => a.gap > 0)
+    .sort((a, b) => b.gap - a.gap || b.gapPercent - a.gapPercent || a.area.localeCompare(b.area));
+}
+
 export type TaskPriority = "high" | "medium" | "low";
 
 export interface AdvisorTask {

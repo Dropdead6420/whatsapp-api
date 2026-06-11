@@ -3,6 +3,7 @@ import {
   buildAdvisorTasks,
   gradeFromScore,
   type ProfileSignals,
+  rankFocusAreas,
   scoreProfile,
   toSafeAdvisor,
 } from "./gmbAdvisor.service";
@@ -49,6 +50,23 @@ describe("scoreProfile", () => {
     // zero-signal areas contribute zero points
     expect(r.breakdown.find((b) => b.area === "ranking")!.points).toBe(0);
     expect(r.breakdown.find((b) => b.area === "citations")!.points).toBe(0);
+  });
+});
+
+describe("rankFocusAreas", () => {
+  it("ranks the biggest point gaps first for a weak profile", () => {
+    const focus = rankFocusAreas(scoreProfile(weak));
+    expect(focus.length).toBeGreaterThan(0);
+    // every entry has a real gap, sorted descending
+    for (let i = 1; i < focus.length; i++) {
+      expect(focus[i].gap).toBeLessThanOrEqual(focus[i - 1].gap);
+    }
+    // ranking has 0 points of weight 20 → the single biggest opportunity
+    expect(focus[0]).toMatchObject({ area: "ranking", gap: 20, gapPercent: 100 });
+  });
+
+  it("returns no focus areas for a fully-optimized profile", () => {
+    expect(rankFocusAreas(scoreProfile(strong))).toEqual([]);
   });
 });
 
