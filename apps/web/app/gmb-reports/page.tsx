@@ -17,6 +17,17 @@ interface ActionItem {
   task: string;
 }
 
+interface ReportTrend {
+  reviewsCount: number;
+  averageRating: number;
+  totalViews: number;
+  totalActions: number;
+  top3: number;
+  consistentCitations: number;
+  postsCreated: number;
+  momentum: "improving" | "declining" | "steady";
+}
+
 interface Report {
   id: string;
   type: string;
@@ -24,6 +35,7 @@ interface Report {
   periodEnd: string;
   summary: string | null;
   actionPlan: ActionItem[] | null;
+  data?: { trend?: ReportTrend } | null;
 }
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -31,6 +43,14 @@ const PRIORITY_STYLES: Record<string, string> = {
   medium: "bg-amber-50 text-amber-700",
   low: "bg-slate-100 text-slate-600",
 };
+
+const MOMENTUM_STYLES: Record<string, string> = {
+  improving: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  declining: "bg-red-50 text-red-700 border-red-200",
+  steady: "bg-slate-100 text-slate-600 border-slate-200",
+};
+
+const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 const toIso = (d: string) => (d ? new Date(d).toISOString() : undefined);
 
@@ -138,6 +158,15 @@ export default function GmbReportsPage() {
                 <span className="text-sm font-medium text-slate-800">{r.type} · {fmt(r.periodStart)} – {fmt(r.periodEnd)}</span>
                 <button onClick={() => void remove(r.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>
               </div>
+              {r.data?.trend && (
+                <p className="mt-2 text-xs text-slate-500">
+                  <span className={`mr-2 rounded-full border px-2 py-0.5 text-xs font-medium ${MOMENTUM_STYLES[r.data.trend.momentum]}`}>
+                    {r.data.trend.momentum}
+                  </span>
+                  vs last period: {signed(r.data.trend.reviewsCount)} reviews · {signed(r.data.trend.averageRating)}★ ·{" "}
+                  {signed(r.data.trend.totalViews)} views · {signed(r.data.trend.totalActions)} actions · {signed(r.data.trend.top3)} top-3
+                </p>
+              )}
               {r.summary && <p className="mt-2 text-sm text-slate-600">{r.summary}</p>}
               {r.actionPlan && r.actionPlan.length > 0 && (
                 <ul className="mt-3 space-y-1">
