@@ -5,7 +5,7 @@ Everything runs on one VPS. No Vercel. No managed Postgres. No managed Redis.
 | Layer | Where | How |
 |---|---|---|
 | Next.js web | VPS Docker | Built locally so `NEXT_PUBLIC_API_URL` bakes in correctly |
-| Express API + Socket.io | VPS Docker | `ghcr.io/dropdead6420/nexaflow-api` pulled from GHCR |
+| Express API + Socket.io | VPS Docker | `ghcr.io/ishitapriya/nexaflow-api` pulled from GHCR |
 | 8 BullMQ workers | VPS Docker | Same image, `APP_MODE=worker` |
 | Postgres 16 | VPS Docker | Volume-persisted |
 | Redis 7 | VPS Docker | Volume-persisted, AOF on |
@@ -89,7 +89,7 @@ pulls the API image, builds the web image with your domain baked in,
 runs migrations, starts the stack.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Dropdead6420/whatsapp-api/codex/nexaflow-v2-platform/deploy/vps/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/IshitaPriya/whatsapp-api/codex/nexaflow-v2-platform/deploy/vps/bootstrap.sh | bash
 ```
 
 The script will ask:

@@ -9,7 +9,7 @@
 #
 # To deploy:
 #   1. Push this file to GitHub (already done if you're on codex/nexaflow-v2-platform).
-#   2. Render dashboard -> "New" -> "Blueprint" -> connect Dropdead6420/whatsapp-api
+#   2. Render dashboard -> "New" -> "Blueprint" -> connect IshitaPriya/whatsapp-api
 #      -> select branch codex/nexaflow-v2-platform -> apply.
 #   3. Set the secrets listed under `envVars` with `sync: false` in the
 #      Render dashboard (JWT_SECRET, TENANT_TOKEN_ENCRYPTION_KEY, Meta creds, etc).

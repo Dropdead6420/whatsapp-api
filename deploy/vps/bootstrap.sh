@@ -6,13 +6,13 @@
 # stack up.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Dropdead6420/whatsapp-api/codex/nexaflow-v2-platform/deploy/vps/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/IshitaPriya/whatsapp-api/codex/nexaflow-v2-platform/deploy/vps/bootstrap.sh | bash
 # or, after cloning:
 #   cd /opt/nexaflow/whatsapp-api/deploy/vps && bash bootstrap.sh
 
 set -euo pipefail
 
-REPO_URL="https://github.com/Dropdead6420/whatsapp-api.git"
+REPO_URL="https://github.com/IshitaPriya/whatsapp-api.git"
 REPO_BRANCH="codex/nexaflow-v2-platform"
 INSTALL_DIR="/opt/nexaflow"
 APP_DIR="$INSTALL_DIR/whatsapp-api"

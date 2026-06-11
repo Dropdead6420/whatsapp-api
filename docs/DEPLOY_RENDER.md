@@ -25,7 +25,7 @@ Already done — `render.yaml` is on the `codex/nexaflow-v2-platform` branch.
 ### 2. Create the Blueprint on Render
 
 1. Go to https://dashboard.render.com → **New** → **Blueprint**
-2. Connect your GitHub account → select `Dropdead6420/whatsapp-api`
+2. Connect your GitHub account -> select `IshitaPriya/whatsapp-api`
 3. Branch: `codex/nexaflow-v2-platform`
 4. Render reads `render.yaml` and shows a preview of what it'll create:
    - Web service: `nexaflow-api`

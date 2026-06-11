@@ -51,7 +51,7 @@ services:
   api:
     # Pinned to the codex/nexaflow-v2-platform branch image until you
     # merge to main and switch to :latest. Override by setting IMAGE_TAG.
-    image: ghcr.io/dropdead6420/nexaflow-api:${IMAGE_TAG:-codex-nexaflow-v2-platform}
+    image: ghcr.io/ishitapriya/nexaflow-api:${IMAGE_TAG:-codex-nexaflow-v2-platform}
     restart: unless-stopped
     environment:
       # Boot mode
@@ -126,7 +126,7 @@ services:
     networks: [internal]
 
   worker:
-    image: ghcr.io/dropdead6420/nexaflow-api:${IMAGE_TAG:-codex-nexaflow-v2-platform}
+    image: ghcr.io/ishitapriya/nexaflow-api:${IMAGE_TAG:-codex-nexaflow-v2-platform}
     restart: unless-stopped
     environment:
       # Same env as api except APP_MODE flips to worker. The 8 BullMQ

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: ghcr.io/dropdead6420/whatsapp-api-api:latest
+          image: ghcr.io/ishitapriya/nexaflow-api:latest
           ports:
             - containerPort: 3001
           envFrom:
@@ -92,7 +92,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ghcr.io/dropdead6420/whatsapp-api-api:latest
+          image: ghcr.io/ishitapriya/nexaflow-api:latest
           envFrom:
             - secretRef:
                 name: nexaflow-api-env
