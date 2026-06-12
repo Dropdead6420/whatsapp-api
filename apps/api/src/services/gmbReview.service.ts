@@ -1,6 +1,8 @@
 import { prisma, GmbReviewStatus } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import { updateGoogleReviewReply } from "./gmbGoogle.service";
+import { GMB_PROMPT_KEYS, reviewReplyVariables, resolveFeaturePrompt } from "./gmbAiPrompts.service";
+import { runTenantLlmJson } from "./ai.service";
 
 // =====================================================================
 // AdGrowly GMB — Reputation service (planning PDF). Reviews are anchored to
@@ -88,6 +90,45 @@ export function buildReviewReplyDraft(input: ReviewReplyInput): {
   }
 
   return { reply: `${greeting} ${body}`.trim(), sentiment };
+}
+
+/**
+ * Draft a reply with the live LLM gateway, driven by the Super-Admin's
+ * `gmb.review_reply` prompt (or its seed). Sentiment classification stays
+ * deterministic (ratingSentiment); only the reply text is AI-written. Any
+ * failure — no provider key, insufficient credits, provider/parse error —
+ * falls back to the deterministic draft so generate-then-approve never breaks.
+ */
+export async function draftReviewReplyWithAi(
+  tenantId: string,
+  input: ReviewReplyInput,
+): Promise<{ reply: string; sentiment: ReviewSentiment; source: "ai" | "template" }> {
+  const fallback = buildReviewReplyDraft(input);
+  try {
+    const resolved = await resolveFeaturePrompt(
+      GMB_PROMPT_KEYS.reviewReply,
+      reviewReplyVariables({
+        authorName: input.authorName,
+        rating: input.rating,
+        businessName: input.businessName,
+        comment: input.comment,
+      }),
+    );
+    const out = await runTenantLlmJson<{ reply: string }>({
+      tenantId,
+      feature: "gmb_review_reply",
+      system:
+        "You write short, courteous replies to Google reviews on behalf of a local business. Never promise compensation, never argue, keep it under 700 characters, and match the requested tone.",
+      prompt: `${resolved.text}\nTone: ${input.tone ?? "warm"}. Review sentiment: ${fallback.sentiment}.\nReturn JSON: {"reply":"..."}`,
+      maxTokens: 350,
+      temperature: 0.7,
+    });
+    const reply = out?.reply?.trim();
+    if (!reply) return { ...fallback, source: "template" };
+    return { reply: reply.slice(0, 1000), sentiment: fallback.sentiment, source: "ai" };
+  } catch {
+    return { ...fallback, source: "template" };
+  }
 }
 
 export interface ReputationSummary {
@@ -200,7 +241,7 @@ export async function generateReplyDraft(
     where: { id: review.locationId, tenantId },
     select: { name: true },
   });
-  const draft = buildReviewReplyDraft({
+  const draft = await draftReviewReplyWithAi(tenantId, {
     businessName: location?.name ?? "our team",
     rating: review.rating,
     authorName: review.authorName,
