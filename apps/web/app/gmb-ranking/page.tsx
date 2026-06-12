@@ -15,6 +15,12 @@ interface KeywordIdea {
   score: number;
 }
 
+interface KeywordCluster {
+  kind: string;
+  count: number;
+  topKeywords: string[];
+}
+
 interface Keyword {
   id: string;
   keyword: string;
@@ -60,6 +66,8 @@ export default function GmbRankingPage() {
   const [city, setCity] = useState("");
   const [services, setServices] = useState("");
   const [ideas, setIdeas] = useState<KeywordIdea[]>([]);
+  const [clusters, setClusters] = useState<KeywordCluster[]>([]);
+  const [ideaSource, setIdeaSource] = useState<string | null>(null);
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [detail, setDetail] = useState<Record<string, KeywordDetail>>({});
   const [rankInputs, setRankInputs] = useState<Record<string, string>>({});
@@ -85,12 +93,17 @@ export default function GmbRankingPage() {
     setErr(null);
     setNotice(null);
     try {
-      const res = await api.post<{ ideas: KeywordIdea[] }>("/api/v1/gmb/keyword-ideas/generate", {
-        category: category.trim() || undefined,
-        city: city.trim() || undefined,
-        services: services.split(",").map((s) => s.trim()).filter(Boolean),
-      });
+      const res = await api.post<{ ideas: KeywordIdea[]; clusters?: KeywordCluster[]; source?: string }>(
+        "/api/v1/gmb/keyword-ideas/generate",
+        {
+          category: category.trim() || undefined,
+          city: city.trim() || undefined,
+          services: services.split(",").map((s) => s.trim()).filter(Boolean),
+        },
+      );
       setIdeas(res.ideas);
+      setClusters(res.clusters ?? []);
+      setIdeaSource(res.source ?? null);
       if (res.ideas.length === 0) setNotice("Add a category or service to generate ideas.");
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to generate ideas.");
@@ -168,7 +181,21 @@ export default function GmbRankingPage() {
             <button type="submit" className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Generate ideas</button>
           </form>
           {ideas.length > 0 && (
-            <ul className="mt-4 space-y-2">
+            <div className="mt-4 flex flex-wrap items-center gap-1.5">
+              {ideaSource && (
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${ideaSource === "ai" ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-600"}`}>
+                  {ideaSource === "ai" ? "AI-generated" : "Starter ideas"}
+                </span>
+              )}
+              {clusters.map((c) => (
+                <span key={c.kind} title={c.topKeywords.join(", ")} className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                  {c.kind.replace("_", " ")} × {c.count}
+                </span>
+              ))}
+            </div>
+          )}
+          {ideas.length > 0 && (
+            <ul className="mt-3 space-y-2">
               {ideas.map((idea) => (
                 <li key={idea.keyword} className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-sm">
                   <span><span className="text-slate-800">{idea.keyword}</span> <span className="text-xs text-slate-400">· {idea.kind} · {idea.score}</span></span>

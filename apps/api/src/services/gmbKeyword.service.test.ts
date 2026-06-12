@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clusterKeywordIdeas, generateKeywordIdeas, toSafeIdeaSet } from "./gmbKeyword.service";
+import { clusterKeywordIdeas, generateKeywordIdeas, sanitizeAiIdeas, toSafeIdeaSet } from "./gmbKeyword.service";
 
 describe("generateKeywordIdeas", () => {
   it("produces local-intent combinations and ranks city+service highest", () => {
@@ -98,5 +98,31 @@ describe("clusterKeywordIdeas", () => {
 
   it("returns no clusters for an empty idea list", () => {
     expect(clusterKeywordIdeas([])).toEqual([]);
+  });
+});
+
+describe("sanitizeAiIdeas", () => {
+  it("normalizes LLM output: trims, defaults, clamps, dedupes, sorts, caps", () => {
+    const ideas = sanitizeAiIdeas(
+      [
+        { keyword: "  best cafe in pune  ", kind: "city", score: 250 },
+        { keyword: "best cafe in pune", kind: "city", score: 80 }, // dup (lower score loses)
+        { keyword: "espresso bar", kind: "made_up_kind", score: "not-a-number" as unknown as number },
+        { keyword: "   ", kind: "city", score: 90 }, // empty → dropped
+        { keyword: "cold brew pune", kind: "service" }, // missing score → 50
+      ],
+      10,
+    );
+    expect(ideas).toEqual([
+      { keyword: "best cafe in pune", kind: "city", score: 100 }, // clamped from 250
+      { keyword: "cold brew pune", kind: "service", score: 50 }, // missing score defaulted; alphabetical tie-break
+      { keyword: "espresso bar", kind: "long_tail", score: 50 }, // unknown kind + bad score defaulted
+    ]);
+  });
+
+  it("caps at the limit and tolerates non-array input", () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ keyword: `kw ${i}`, kind: "city", score: i }));
+    expect(sanitizeAiIdeas(many, 5)).toHaveLength(5);
+    expect(sanitizeAiIdeas(undefined, 5)).toEqual([]);
   });
 });

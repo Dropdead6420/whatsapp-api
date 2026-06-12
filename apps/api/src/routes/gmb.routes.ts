@@ -69,9 +69,10 @@ import {
   updateCitation,
 } from "../services/gmbCitation.service";
 import {
+  clusterKeywordIdeas,
   createIdeaSet,
   deleteIdeaSet,
-  generateKeywordIdeas,
+  draftKeywordIdeasWithAi,
   getIdeaSet,
   listIdeaSets,
 } from "../services/gmbKeyword.service";
@@ -1095,11 +1096,13 @@ const generateIdeasSchema = z.object(keywordInputShape);
 const createIdeaSetSchema = z.object({ ...keywordInputShape, locationId: z.string().cuid().optional() });
 const ideaSetListSchema = z.object({ locationId: z.string().cuid().optional() });
 
-// Preview keyword ideas without saving.
+// Preview keyword ideas without saving — LLM-backed via the admin's
+// gmb.keyword_finder prompt, deterministic fallback on any failure.
 router.post("/keyword-ideas/generate", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const input = generateIdeasSchema.parse(req.body ?? {});
-    res.json({ success: true, data: { ideas: generateKeywordIdeas(input) } });
+    const { ideas, source } = await draftKeywordIdeasWithAi(req.tenantId!, input);
+    res.json({ success: true, data: { ideas, clusters: clusterKeywordIdeas(ideas), source } });
   } catch (err) {
     next(err);
   }

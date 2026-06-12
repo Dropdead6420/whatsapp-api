@@ -1,5 +1,7 @@
 import { prisma, Prisma } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { GMB_PROMPT_KEYS, keywordIdeasVariables, resolveFeaturePrompt } from "./gmbAiPrompts.service";
+import { runTenantLlmJson } from "./ai.service";
 
 // =====================================================================
 // AdGrowly GMB — AI Keyword Finder (planning PDF §2). Generates local-SEO
@@ -90,6 +92,71 @@ export function generateKeywordIdeas(input: KeywordInput): KeywordIdea[] {
   );
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
   return ideas.slice(0, limit);
+}
+
+const KEYWORD_KINDS = new Set<KeywordKind>(["category", "service", "city", "competitor", "long_tail"]);
+
+/**
+ * Validate + normalize LLM-suggested ideas into the KeywordIdea contract:
+ * trims keywords, drops empties, maps unknown kinds to long_tail, clamps
+ * scores to 0–100 (default 50), dedupes case-insensitively keeping the
+ * highest score, sorts by score, and caps at limit. Pure.
+ */
+export function sanitizeAiIdeas(
+  raw: Array<{ keyword?: unknown; kind?: unknown; score?: unknown }> | undefined,
+  limit: number,
+): KeywordIdea[] {
+  if (!Array.isArray(raw)) return [];
+  const byKey = new Map<string, KeywordIdea>();
+  for (const item of raw) {
+    const keyword = typeof item?.keyword === "string" ? clean(item.keyword) : "";
+    if (!keyword) continue;
+    const kind = KEYWORD_KINDS.has(item?.kind as KeywordKind) ? (item.kind as KeywordKind) : "long_tail";
+    const n = Number(item?.score);
+    const score = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 50;
+    const key = keyword.toLowerCase();
+    const existing = byKey.get(key);
+    if (!existing || score > existing.score) byKey.set(key, { keyword, kind, score });
+  }
+  return [...byKey.values()]
+    .sort((a, b) => b.score - a.score || a.keyword.localeCompare(b.keyword))
+    .slice(0, Math.min(Math.max(limit, 1), 200));
+}
+
+/**
+ * Generate keyword ideas with the live LLM gateway, driven by the Super-Admin's
+ * `gmb.keyword_finder` prompt (or its seed). Any failure — no provider key,
+ * insufficient credits, provider/parse error, or an empty/unusable response —
+ * falls back to the deterministic engine so the finder never breaks.
+ */
+export async function draftKeywordIdeasWithAi(
+  tenantId: string,
+  input: KeywordInput,
+): Promise<{ ideas: KeywordIdea[]; source: "ai" | "template" }> {
+  const fallback = generateKeywordIdeas(input);
+  try {
+    const resolved = await resolveFeaturePrompt(GMB_PROMPT_KEYS.keywordIdeas, keywordIdeasVariables(input));
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    const extras = [
+      input.region ? `Region: ${input.region}.` : "",
+      input.competitors?.length ? `Competitors: ${input.competitors.join(", ")}.` : "",
+      input.seedKeywords?.length ? `Seed keywords: ${input.seedKeywords.join(", ")}.` : "",
+    ].filter(Boolean);
+    const out = await runTenantLlmJson<{ ideas: Array<{ keyword?: string; kind?: string; score?: number }> }>({
+      tenantId,
+      feature: "gmb_keyword_finder",
+      system:
+        "You are a local-SEO strategist for Google Business Profiles. Suggest realistic, high-intent local search keywords only.",
+      prompt: `${resolved.text}\n${extras.join("\n")}\nReturn JSON: {"ideas":[{"keyword":"...","kind":"category|service|city|competitor|long_tail","score":0-100}]} — up to ${limit} ideas, highest local intent first.`,
+      maxTokens: 900,
+      temperature: 0.6,
+    });
+    const ideas = sanitizeAiIdeas(out?.ideas, limit);
+    if (ideas.length === 0) return { ideas: fallback, source: "template" };
+    return { ideas, source: "ai" };
+  } catch {
+    return { ideas: fallback, source: "template" };
+  }
 }
 
 interface IdeaSetRow {
