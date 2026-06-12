@@ -81,7 +81,7 @@ import {
   deleteDescription,
   getDescription,
   listDescriptions,
-  optimizeDescription,
+  optimizeDescriptionWithAi,
   updateDescription,
 } from "../services/gmbDescription.service";
 import {
@@ -1196,11 +1196,12 @@ const updateDescriptionSchema = z
   })
   .refine((b) => Object.keys(b).length > 0, { message: "PATCH body must include a field." });
 
-// Preview an optimized description without saving.
+// Preview an optimized description without saving — LLM-backed via the
+// admin's gmb.description_optimizer prompt, deterministic fallback on failure.
 router.post("/descriptions/optimize", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const input = optimizeDescriptionSchema.parse(req.body);
-    res.json({ success: true, data: optimizeDescription(input) });
+    res.json({ success: true, data: await optimizeDescriptionWithAi(req.tenantId!, input) });
   } catch (err) {
     next(err);
   }

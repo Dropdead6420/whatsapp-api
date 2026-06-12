@@ -26,6 +26,7 @@ interface OptimizeResult {
   analysis: Analysis;
   changes: string[];
   score?: { score: number; keywordCoverage: number; lengthOk: boolean; issues: number };
+  source?: "ai" | "template";
 }
 
 interface Description {
@@ -202,6 +203,12 @@ export default function GmbDescriptionsPage() {
             <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-800">Preview</h3>
+                <span className="flex items-center gap-1.5">
+                {preview.source && (
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${preview.source === "ai" ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-600"}`}>
+                    {preview.source === "ai" ? "AI" : "Starter"}
+                  </span>
+                )}
                 {preview.score && (
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -216,6 +223,7 @@ export default function GmbDescriptionsPage() {
                     Quality {preview.score.score}/100
                   </span>
                 )}
+                </span>
               </div>
               <p className="mt-2 whitespace-pre-wrap rounded-md bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">{preview.optimized}</p>
               <p className="mt-2 text-xs text-slate-500">

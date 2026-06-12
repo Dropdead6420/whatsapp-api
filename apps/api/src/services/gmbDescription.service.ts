@@ -1,5 +1,7 @@
 import { prisma, Prisma, GmbDescriptionTarget, GmbDescriptionStatus } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { GMB_PROMPT_KEYS, descriptionVariables, resolveFeaturePrompt } from "./gmbAiPrompts.service";
+import { runTenantLlmJson } from "./ai.service";
 
 // =====================================================================
 // AdGrowly GMB — AI Description Optimizer (planning PDF §2). Improves a
@@ -158,6 +160,47 @@ export function optimizeDescription(input: OptimizeInput): {
     changes,
     score: scoreDescription(analysis),
   };
+}
+
+/**
+ * Optimize with the live LLM gateway, driven by the Super-Admin's
+ * `gmb.description_optimizer` prompt (or its seed). The deterministic
+ * analyzer + quality score still measure the AI's output, so the headline
+ * number stays objective. Any failure falls back to the deterministic
+ * optimizer — the feature never breaks.
+ */
+export async function optimizeDescriptionWithAi(
+  tenantId: string,
+  input: OptimizeInput,
+): Promise<ReturnType<typeof optimizeDescription> & { source: "ai" | "template" }> {
+  const fallback = { ...optimizeDescription(input), source: "template" as const };
+  try {
+    const resolved = await resolveFeaturePrompt(
+      GMB_PROMPT_KEYS.description,
+      descriptionVariables({ businessName: input.businessName ?? "", keywords: input.keywords }),
+    );
+    const limit = input.maxLength ?? 750;
+    const out = await runTenantLlmJson<{ description: string }>({
+      tenantId,
+      feature: "gmb_description_optimizer",
+      system:
+        "You optimize Google Business Profile descriptions. Use keywords naturally (no stuffing), write in first person plural, no URLs or phone numbers, stay within the character limit.",
+      prompt: `${resolved.text}\nCurrent description: ${collapse(input.text)}\nTone: ${input.tone ?? "professional"}. Hard limit: ${limit} characters.\nReturn JSON: {"description":"..."}`,
+      maxTokens: 500,
+      temperature: 0.7,
+    });
+    let optimized = collapse(out?.description ?? "");
+    if (!optimized) return fallback;
+    const changes = ["Rewritten by AI using the admin's description prompt."];
+    if (input.maxLength && optimized.length > input.maxLength) {
+      optimized = truncateAtWord(optimized, input.maxLength);
+      changes.push(`Trimmed to the ${input.maxLength}-character limit.`);
+    }
+    const analysis = analyzeDescription(optimized, { keywords: input.keywords, maxLength: input.maxLength });
+    return { optimized, analysis, changes, score: scoreDescription(analysis), source: "ai" };
+  } catch {
+    return fallback;
+  }
 }
 
 interface DescriptionRow {
