@@ -127,7 +127,7 @@ describe("buildReportWhatsAppText", () => {
         { priority: "low", task: "A fourth task that must be cut." },
       ],
     });
-    expect(text).toContain("Google Business report (MONTHLY)");
+    expect(text).toContain("NexaFlow AI — Google Business report (MONTHLY)");
     expect(text).toContain("Period: 2026-05-01 → 2026-05-31");
     expect(text).toContain("Vs last period (improving): +3 reviews · +120 views · +15 actions");
     expect(text).toContain("• Reply to 1 unanswered review(s).");
@@ -146,5 +146,14 @@ describe("buildReportWhatsAppText", () => {
     expect(text).not.toContain("Vs last period");
     expect(text).not.toContain("Next actions:");
     expect(text).toContain("Google Business report (WEEKLY)");
+  });
+
+  it("uses the white-label issuer in the title when provided", () => {
+    const text = buildReportWhatsAppText(
+      { type: "MONTHLY", periodStart: "2026-05-01T00:00:00Z", periodEnd: "2026-05-31T00:00:00Z", summary: null, data: {}, actionPlan: null },
+      "Hexbytes Agency",
+    );
+    expect(text).toContain("Hexbytes Agency — Google Business report (MONTHLY)");
+    expect(text).not.toContain("NexaFlow AI");
   });
 });

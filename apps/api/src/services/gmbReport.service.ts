@@ -144,17 +144,20 @@ export function snapshotFromReportData(data: unknown): ReportSnapshot | null {
  * sharing" hook). Plain text — title, period, the narrative summary, the
  * vs-last-period line when present, and up to 3 action items. Pure.
  */
-export function buildReportWhatsAppText(report: {
-  type: string;
-  periodStart: Date | string;
-  periodEnd: Date | string;
-  summary: string | null;
-  data?: unknown;
-  actionPlan?: unknown;
-}): string {
+export function buildReportWhatsAppText(
+  report: {
+    type: string;
+    periodStart: Date | string;
+    periodEnd: Date | string;
+    summary: string | null;
+    data?: unknown;
+    actionPlan?: unknown;
+  },
+  issuerName = "NexaFlow AI",
+): string {
   const day = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
   const lines = [
-    `📊 Google Business report (${report.type})`,
+    `📊 ${issuerName} — Google Business report (${report.type})`,
     `Period: ${day(report.periodStart)} → ${day(report.periodEnd)}`,
   ];
   if (report.summary) lines.push("", report.summary);
@@ -177,6 +180,19 @@ export function buildReportWhatsAppText(report: {
     }
   }
   return lines.join("\n").slice(0, 3500);
+}
+
+/**
+ * White-label issuer for a tenant's reports (planning PDF §4 "Report Templates:
+ * white-label branding"). When the tenant sits under a reseller/agency, the
+ * report carries that partner's brand; otherwise the platform default.
+ */
+export async function resolveReportIssuer(tenantId: string): Promise<string> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { parentTenant: { select: { name: true } } },
+  });
+  return tenant?.parentTenant?.name?.trim() || "NexaFlow AI";
 }
 
 interface ReportRow {

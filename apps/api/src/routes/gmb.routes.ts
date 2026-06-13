@@ -121,6 +121,7 @@ import {
   buildReportWhatsAppText,
   getReport,
   listReports,
+  resolveReportIssuer,
 } from "../services/gmbReport.service";
 import { renderGmbReportPdf } from "../services/gmbReportPdf.service";
 import { checkGmbSchema } from "../services/gmbHealth.service";
@@ -1076,7 +1077,7 @@ router.get("/reports/:id", async (req: RequestWithAuth, res: Response, next: Nex
 router.get("/reports/:id/pdf", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const report = await getReport(req.tenantId!, req.params.id);
-    const buffer = await renderGmbReportPdf({ report });
+    const buffer = await renderGmbReportPdf({ report, issuerName: await resolveReportIssuer(req.tenantId!) });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="gmb-report-${report.id}.pdf"`);
     res.send(buffer);
@@ -1096,7 +1097,7 @@ router.post("/reports/:id/share-whatsapp", async (req: RequestWithAuth, res: Res
   try {
     const { to } = shareReportSchema.parse(req.body);
     const report = await getReport(req.tenantId!, req.params.id);
-    const text = buildReportWhatsAppText(report);
+    const text = buildReportWhatsAppText(report, await resolveReportIssuer(req.tenantId!));
 
     const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId! } });
     if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
