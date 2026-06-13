@@ -4438,3 +4438,19 @@ model PaymentNotificationTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// AdGrowly GMB — opt-in recurring report schedule (planning PDF §2 "AI Monthly
+// Report … frequency"). Soft tenant reference (no FK) to avoid coupling the
+// hot Tenant model; one row per tenant, default disabled. A daily worker
+// generates the period report when due and stamps lastRunAt.
+model GmbReportSchedule {
+  id        String        @id @default(cuid())
+  tenantId  String        @unique
+  enabled   Boolean       @default(false)
+  frequency GmbReportType @default(MONTHLY)
+  lastRunAt DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([enabled])
+}

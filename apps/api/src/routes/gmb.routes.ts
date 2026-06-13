@@ -124,6 +124,7 @@ import {
 } from "../services/gmbReport.service";
 import { renderGmbReportPdf } from "../services/gmbReportPdf.service";
 import { checkGmbSchema } from "../services/gmbHealth.service";
+import { getReportSchedule, setReportSchedule } from "../services/gmbReportScheduler.service";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
@@ -1686,6 +1687,39 @@ router.post("/locations/:id/sync", async (req: RequestWithAuth, res: Response, n
 // --- Scheduled-post publisher (AdGrowly GMB-first) --------------------------
 
 // Publish all due scheduled posts now (also callable from a cron/worker later).
+// Recurring report schedule (opt-in, default off) — drives the auto-report worker.
+router.get("/report-schedule", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await getReportSchedule(req.tenantId!) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const reportScheduleSchema = z.object({
+  enabled: z.boolean(),
+  frequency: z.nativeEnum(GmbReportType).optional(),
+});
+
+router.put("/report-schedule", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = reportScheduleSchema.parse(req.body);
+    const data = await setReportSchedule(req.tenantId!, body);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbReportSchedule",
+      resourceId: req.tenantId!,
+      newValues: { enabled: data.enabled, frequency: data.frequency },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post("/posts/run-scheduled", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     const result = await publishDuePosts(req.tenantId!);

@@ -126,6 +126,10 @@ import {
   stopGmbPostPublisherWorker,
 } from "./services/gmbPostPublisher.service";
 import {
+  startGmbReportScheduleWorker,
+  stopGmbReportScheduleWorker,
+} from "./services/gmbReportScheduler.service";
+import {
   startKnowledgeBaseEmbeddingWorker,
   stopKnowledgeBaseEmbeddingWorker,
 } from "./services/knowledgeBaseEmbedding.service";
@@ -436,6 +440,7 @@ async function startWorkers(): Promise<void> {
   await startDomainHealthWorker();
   await startAnalyticsReportWorker();
   await startGmbPostPublisherWorker();
+  await startGmbReportScheduleWorker();
 }
 
 function stopWorkers(): void {
@@ -460,6 +465,7 @@ function stopWorkers(): void {
   stopDomainHealthWorker();
   stopAnalyticsReportWorker();
   stopGmbPostPublisherWorker();
+  stopGmbReportScheduleWorker();
 }
 
 if (START_HTTP) {

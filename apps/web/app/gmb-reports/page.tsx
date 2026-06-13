@@ -65,6 +65,9 @@ export default function GmbReportsPage() {
   const [periodEnd, setPeriodEnd] = useState("");
   const [locationId, setLocationId] = useState("");
 
+  const [schedule, setSchedule] = useState<{ enabled: boolean; frequency: string; lastRunAt: string | null } | null>(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
   async function refresh() {
     try {
       setErr(null);
@@ -75,8 +78,33 @@ export default function GmbReportsPage() {
     }
   }
 
+  async function loadSchedule() {
+    try {
+      setSchedule(await api.get("/api/v1/gmb/report-schedule"));
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  async function saveSchedule(next: { enabled: boolean; frequency: string }) {
+    setSavingSchedule(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      setSchedule(await api.put("/api/v1/gmb/report-schedule", next));
+      setNotice(next.enabled ? `Automatic ${next.frequency.toLowerCase()} reports on.` : "Automatic reports off.");
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to update the schedule.");
+    } finally {
+      setSavingSchedule(false);
+    }
+  }
+
   useEffect(() => {
-    if (user) void refresh();
+    if (user) {
+      void refresh();
+      void loadSchedule();
+    }
   }, [user]);
 
   async function generate(e: FormEvent<HTMLFormElement>) {
@@ -159,6 +187,42 @@ export default function GmbReportsPage() {
 
       {err && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
       {notice && <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
+
+      {schedule && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Automatic reports</p>
+            <p className="text-xs text-slate-500">
+              {schedule.enabled
+                ? `On — a ${schedule.frequency.toLowerCase()} report generates itself each period.`
+                : "Off — generate reports manually below."}
+              {schedule.lastRunAt && ` Last auto-run ${new Date(schedule.lastRunAt).toLocaleDateString()}.`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={schedule.frequency}
+              disabled={savingSchedule}
+              onChange={(e) => void saveSchedule({ enabled: schedule.enabled, frequency: e.target.value })}
+              className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            >
+              <option value="MONTHLY">Monthly</option>
+              <option value="WEEKLY">Weekly</option>
+            </select>
+            <button
+              onClick={() => void saveSchedule({ enabled: !schedule.enabled, frequency: schedule.frequency })}
+              disabled={savingSchedule}
+              className={`rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-60 ${
+                schedule.enabled
+                  ? "border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  : "bg-emerald-600 text-white hover:bg-emerald-700"
+              }`}
+            >
+              {schedule.enabled ? "Turn off" : "Turn on"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
         <form onSubmit={generate} className="h-fit rounded-md border border-slate-200 bg-white p-4 shadow-sm">
