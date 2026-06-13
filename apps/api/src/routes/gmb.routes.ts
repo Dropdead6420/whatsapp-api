@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from "express";
 import { z } from "zod";
 import {
+  prisma,
   GmbPostStatus,
   GmbPostType,
   GmbLocationStatus,
@@ -115,10 +116,15 @@ import {
 import {
   deleteReport,
   generateReport,
+  buildReportWhatsAppText,
   getReport,
   listReports,
 } from "../services/gmbReport.service";
 import { renderGmbReportPdf } from "../services/gmbReportPdf.service";
+import { sendWhatsAppText } from "../services/whatsapp.service";
+import { assertCanSend, recordSend } from "../services/sendThrottle.service";
+import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
+import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 
 // GMB AI Manager routes (Complete Planning PDF §2.19). Tenant-scoped post
 // drafting + scheduling, gated by GMB_MANAGE. Mutations audited.
@@ -1059,6 +1065,60 @@ router.get("/reports/:id/pdf", async (req: RequestWithAuth, res: Response, next:
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="gmb-report-${report.id}.pdf"`);
     res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+const shareReportSchema = z.object({
+  to: z.string().trim().regex(/^\+?[1-9]\d{6,14}$/, "Enter a valid WhatsApp number (E.164)."),
+});
+
+// Share a report summary over WhatsApp (planning PDF §6 hook: "WhatsApp
+// report sharing"). Full compliant send path: afford + throttle gates,
+// recorded + debited like any outbound message.
+router.post("/reports/:id/share-whatsapp", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const { to } = shareReportSchema.parse(req.body);
+    const report = await getReport(req.tenantId!, req.params.id);
+    const text = buildReportWhatsAppText(report);
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId! } });
+    if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
+      throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "WhatsApp Business API is not configured for this tenant.");
+    }
+    const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+    if (!accessToken) {
+      throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "WhatsApp access token failed to decrypt.");
+    }
+
+    await assertCanAffordMessage(req.tenantId!);
+    await assertCanSend(req.tenantId!, { phoneNumberId: tenant.wabaPhoneNumber });
+
+    const metaMessageId = await sendWhatsAppText({
+      tenantId: req.tenantId!,
+      phoneNumberId: tenant.wabaPhoneNumber,
+      accessToken,
+      to: to.replace(/^\+/, ""),
+      body: text,
+    });
+    await recordSend(req.tenantId!, { phoneNumberId: tenant.wabaPhoneNumber });
+    await debitMessage(req.tenantId!, metaMessageId, {
+      actorUserId: req.userId,
+      reason: `GMB report share ${report.id}`,
+    });
+
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbReportShare",
+      resourceId: report.id,
+      newValues: { channel: "whatsapp", metaMessageId },
+      ...extractRequestMeta(req),
+    });
+
+    res.json({ success: true, data: { sent: true, metaMessageId } });
   } catch (err) {
     next(err);
   }

@@ -97,6 +97,19 @@ export default function GmbReportsPage() {
     }
   }
 
+  async function shareWhatsApp(id: string) {
+    const to = window.prompt("Send this report to which WhatsApp number? (E.164, e.g. +9198…)");
+    if (!to?.trim()) return;
+    setErr(null);
+    setNotice(null);
+    try {
+      await api.post(`/api/v1/gmb/reports/${id}/share-whatsapp`, { to: to.trim() });
+      setNotice(`Report sent to ${to.trim()} on WhatsApp.`);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to share the report.");
+    }
+  }
+
   async function downloadPdf(id: string) {
     setErr(null);
     try {
@@ -178,6 +191,7 @@ export default function GmbReportsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-800">{r.type} · {fmt(r.periodStart)} – {fmt(r.periodEnd)}</span>
                 <span className="flex items-center gap-3">
+                  <button onClick={() => void shareWhatsApp(r.id)} className="text-xs font-medium text-emerald-700 hover:underline">Share on WhatsApp</button>
                   <button onClick={() => void downloadPdf(r.id)} className="text-xs font-medium text-sky-700 hover:underline">Download PDF</button>
                   <button onClick={() => void remove(r.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>
                 </span>
