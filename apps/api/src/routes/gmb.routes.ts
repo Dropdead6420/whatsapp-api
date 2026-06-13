@@ -96,6 +96,7 @@ import {
   deleteImageRequest,
   getImageRequest,
   listImageRequests,
+  processImageRequest,
   updateImageRequest,
 } from "../services/gmbImage.service";
 import { getDashboard } from "../services/gmbDashboard.service";
@@ -1427,6 +1428,26 @@ router.patch("/images/:id", async (req: RequestWithAuth, res: Response, next: Ne
       resource: "GmbImageRequest",
       resourceId: image.id,
       newValues: { fieldsUpdated: Object.keys(body), status: image.status },
+      ...extractRequestMeta(req),
+    });
+    res.json({ success: true, data: image });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Run the generation for a pending/failed request via the admin's IMAGE
+// provider chain. Credit-gated; lands in READY or FAILED with the reason.
+router.post("/images/:id/generate", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const image = await processImageRequest(req.tenantId!, req.params.id);
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "UPDATE",
+      resource: "GmbImageRequest",
+      resourceId: image.id,
+      newValues: { generated: true, status: image.status },
       ...extractRequestMeta(req),
     });
     res.json({ success: true, data: image });

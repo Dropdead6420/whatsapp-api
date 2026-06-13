@@ -19,6 +19,7 @@ interface ImageReq {
   aspect: string;
   status: "PENDING" | "READY" | "FAILED" | "APPROVED" | "REJECTED";
   resultUrl: string | null;
+  error?: string | null;
   hasCredential: boolean;
 }
 
@@ -35,6 +36,7 @@ export default function GmbImagesPage() {
   const [items, setItems] = useState<ImageReq[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<string | null>(null);
 
   const [subject, setSubject] = useState("");
@@ -98,6 +100,19 @@ export default function GmbImagesPage() {
       await refresh();
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to update status.");
+    }
+  }
+
+  async function generate(id: string) {
+    setErr(null);
+    setBusyId(id);
+    try {
+      await api.post(`/api/v1/gmb/images/${id}/generate`, {});
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to generate the image.");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -181,13 +196,32 @@ export default function GmbImagesPage() {
               </div>
               <p className="mt-1 text-xs text-slate-400">{it.size} · {it.aspect}{it.hasCredential ? " · provider set" : " · no provider"}</p>
               <pre className="mt-2 whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">{it.prompt}</pre>
-              {it.resultUrl && <a href={it.resultUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-emerald-700 underline">View result</a>}
-              {(it.status === "PENDING" || it.status === "READY") && (
-                <div className="mt-3 flex gap-2">
-                  <button onClick={() => void setStatus(it.id, "APPROVED")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">Approve</button>
-                  <button onClick={() => void setStatus(it.id, "REJECTED")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Reject</button>
-                </div>
+              {it.status === "FAILED" && it.error && (
+                <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{it.error}</p>
               )}
+              {it.resultUrl && (
+                <a href={it.resultUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={it.resultUrl} alt={it.subject} className="max-h-40 rounded-md border border-slate-200 object-cover" />
+                </a>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(it.status === "PENDING" || it.status === "FAILED") && (
+                  <button
+                    onClick={() => void generate(it.id)}
+                    disabled={busyId === it.id}
+                    className="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+                  >
+                    {busyId === it.id ? "Generating…" : it.status === "FAILED" ? "Retry generation" : "Generate now"}
+                  </button>
+                )}
+                {(it.status === "PENDING" || it.status === "READY") && (
+                  <>
+                    <button onClick={() => void setStatus(it.id, "APPROVED")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">Approve</button>
+                    <button onClick={() => void setStatus(it.id, "REJECTED")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Reject</button>
+                  </>
+                )}
+              </div>
             </div>
           ))}
         </div>

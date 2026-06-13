@@ -1,5 +1,8 @@
-import { prisma, GmbImageStatus } from "@nexaflow/db";
+import { prisma, GmbImageStatus, AiProviderKey, AiProviderKind, SecretScope } from "@nexaflow/db";
 import { ApiError, ErrorCodes } from "@nexaflow/shared";
+import { assertCanAffordAi, debitAi } from "./billing.service";
+import { resolveProviderChain } from "./aiProviderHub.service";
+import { resolveSecretValue, type SecretContext } from "./secretVault.service";
 
 // =====================================================================
 // AdGrowly GMB — AI Image Generator (planning PDF §2). Builds an image-model
@@ -195,4 +198,129 @@ export async function updateImageRequest(tenantId: string, id: string, input: Up
 export async function deleteImageRequest(tenantId: string, id: string) {
   await findOwnedOrThrow(tenantId, id);
   await prisma.gmbImageRequest.delete({ where: { id } });
+}
+
+// ---------------------------------------------------------------------
+// Generation executor (planning PDF §2: "Image model API key, size, style,
+// quality, safety and credit cost" — all admin-controlled). Resolves the
+// admin's IMAGE provider chain (customer scope first, then platform), calls
+// the provider, and moves the request PENDING/FAILED → READY or FAILED.
+// Credit-gated like every other AI feature.
+// ---------------------------------------------------------------------
+
+async function generateViaOpenAiImages(args: {
+  apiKey: string;
+  baseUrl: string | null;
+  model: string;
+  prompt: string;
+  size: ImageSize;
+  quality?: string | null;
+}): Promise<string> {
+  const base = (args.baseUrl ?? "https://api.openai.com").replace(/\/+$/, "");
+  const res = await fetch(`${base}/v1/images/generations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${args.apiKey}` },
+    body: JSON.stringify({
+      model: args.model,
+      prompt: args.prompt,
+      n: 1,
+      size: args.size,
+      ...(args.quality ? { quality: args.quality } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Image provider HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { data?: Array<{ url?: string; b64_json?: string }> };
+  const url = json.data?.[0]?.url;
+  if (url) return url;
+  if (json.data?.[0]?.b64_json) {
+    throw new Error("Model returned an inline image; configure a URL-returning image model (e.g. dall-e-3).");
+  }
+  throw new Error("Image provider returned no image.");
+}
+
+/**
+ * Generate the image for a PENDING (or retry a FAILED) request. Walks the
+ * admin-configured IMAGE provider chain — the tenant's own providers first,
+ * then the platform's — and records which provider/key produced the result.
+ * Never throws on provider trouble: the request lands in FAILED with the
+ * reason so the operator can fix configuration and retry.
+ */
+export async function processImageRequest(tenantId: string, id: string) {
+  const row = await findOwnedOrThrow(tenantId, id);
+  if (row.status !== GmbImageStatus.PENDING && row.status !== GmbImageStatus.FAILED) {
+    throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "Only pending or failed image requests can be generated.");
+  }
+  await assertCanAffordAi(tenantId, "gmb_image_generation");
+
+  const contexts: SecretContext[] = [
+    { scope: SecretScope.CUSTOMER, tenantId },
+    { scope: SecretScope.PLATFORM, tenantId: null },
+  ];
+  let lastError = "No IMAGE provider is configured. Add one under AI Providers with kind IMAGE.";
+
+  for (const ctx of contexts) {
+    const chain = await resolveProviderChain(ctx, AiProviderKind.IMAGE).catch(() => []);
+    for (const cfg of chain) {
+      if (!cfg.secretId) continue;
+      if (cfg.provider !== AiProviderKey.OPENAI) {
+        lastError = `Provider ${cfg.provider} is not yet supported for image generation — configure an OpenAI IMAGE provider.`;
+        continue;
+      }
+      const apiKey = await resolveSecretValue(ctx, cfg.secretId).catch(() => null);
+      if (!apiKey) continue;
+      try {
+        const resultUrl = await generateViaOpenAiImages({
+          apiKey,
+          baseUrl: cfg.baseUrl,
+          model: cfg.defaultModel ?? "dall-e-3",
+          prompt: row.prompt,
+          size: normalizeSize(row.size),
+          quality: row.quality,
+        });
+        const updated = await prisma.gmbImageRequest.update({
+          where: { id },
+          data: {
+            status: GmbImageStatus.READY,
+            resultUrl,
+            error: null,
+            provider: String(cfg.provider),
+            secretId: cfg.secretId,
+          },
+        });
+        // Mirror ai.service's usage+debit path so the Credit Engine's
+        // per-feature rules apply (token counts don't exist for images).
+        try {
+          const usage = await prisma.aiUsage.create({
+            data: {
+              tenantId,
+              model: cfg.defaultModel ?? "dall-e-3",
+              feature: "gmb_image_generation",
+              inputTokens: 0,
+              outputTokens: 0,
+              costInCents: 0,
+            },
+          });
+          await debitAi(tenantId, {
+            aiUsageId: usage.id,
+            feature: "gmb_image_generation",
+            reason: "AI image generation (GBP)",
+          });
+        } catch (err) {
+          console.error("[gmb-image] failed to log usage/debit", err);
+        }
+        return toSafeImage(updated);
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : "Image provider call failed.";
+      }
+    }
+  }
+
+  const failed = await prisma.gmbImageRequest.update({
+    where: { id },
+    data: { status: GmbImageStatus.FAILED, error: lastError.slice(0, 500) },
+  });
+  return toSafeImage(failed);
 }
