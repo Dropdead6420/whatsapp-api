@@ -3360,6 +3360,7 @@ enum SecretProvider {
   GEMINI
   DEEPSEEK
   GROK
+  REPLICATE
   RAZORPAY
   STRIPE
   PAYPAL
@@ -3422,6 +3423,7 @@ enum AiProviderKey {
   GEMINI
   DEEPSEEK
   GROK
+  REPLICATE
   CUSTOM
 }
 

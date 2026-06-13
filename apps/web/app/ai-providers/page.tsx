@@ -10,7 +10,7 @@ import { DashboardShell } from "../../src/components/DashboardShell";
 import { useAuth } from "../../src/hooks/useAuth";
 import { api, ApiClientError } from "../../src/lib/api";
 
-const PROVIDERS = ["OPENAI", "ANTHROPIC", "GEMINI", "DEEPSEEK", "GROK", "CUSTOM"] as const;
+const PROVIDERS = ["OPENAI", "ANTHROPIC", "GEMINI", "DEEPSEEK", "GROK", "REPLICATE", "CUSTOM"] as const;
 const KINDS = ["TEXT", "IMAGE", "VIDEO", "VOICE", "EMBEDDING"] as const;
 
 interface ProviderConfig {

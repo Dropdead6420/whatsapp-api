@@ -241,6 +241,45 @@ async function generateViaOpenAiImages(args: {
   throw new Error("Image provider returned no image.");
 }
 
+async function generateViaReplicate(args: {
+  apiKey: string;
+  baseUrl: string | null;
+  model: string;
+  prompt: string;
+  size: ImageSize;
+}): Promise<string> {
+  const base = (args.baseUrl ?? "https://api.replicate.com").replace(/\/+$/, "");
+  const [width, height] = args.size.split("x").map(Number);
+  // "owner/name" → latest-version endpoint; a bare 64-char id → version endpoint.
+  const isModelPath = args.model.includes("/");
+  const url = isModelPath ? `${base}/v1/models/${args.model}/predictions` : `${base}/v1/predictions`;
+  const body = isModelPath
+    ? { input: { prompt: args.prompt, width, height } }
+    : { version: args.model, input: { prompt: args.prompt, width, height } };
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${args.apiKey}`,
+      // Hold the connection until the prediction finishes (up to 60s).
+      Prefer: "wait",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Image provider HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { status?: string; output?: unknown; error?: unknown };
+  if (json.status !== "succeeded") {
+    const reason = json.error ? `: ${String(json.error).slice(0, 160)}` : "";
+    throw new Error(`Replicate prediction ${json.status ?? "failed"}${reason}`);
+  }
+  const out = Array.isArray(json.output) ? json.output[0] : json.output;
+  if (typeof out === "string" && out.startsWith("http")) return out;
+  throw new Error("Replicate returned no image URL.");
+}
+
 /**
  * Generate the image for a PENDING (or retry a FAILED) request. Walks the
  * admin-configured IMAGE provider chain — the tenant's own providers first,
@@ -265,21 +304,30 @@ export async function processImageRequest(tenantId: string, id: string) {
     const chain = await resolveProviderChain(ctx, AiProviderKind.IMAGE).catch(() => []);
     for (const cfg of chain) {
       if (!cfg.secretId) continue;
-      if (cfg.provider !== AiProviderKey.OPENAI) {
-        lastError = `Provider ${cfg.provider} is not yet supported for image generation — configure an OpenAI IMAGE provider.`;
+      if (cfg.provider !== AiProviderKey.OPENAI && cfg.provider !== AiProviderKey.REPLICATE) {
+        lastError = `Provider ${cfg.provider} is not yet supported for image generation — configure an OpenAI or Replicate IMAGE provider.`;
         continue;
       }
       const apiKey = await resolveSecretValue(ctx, cfg.secretId).catch(() => null);
       if (!apiKey) continue;
       try {
-        const resultUrl = await generateViaOpenAiImages({
-          apiKey,
-          baseUrl: cfg.baseUrl,
-          model: cfg.defaultModel ?? "dall-e-3",
-          prompt: row.prompt,
-          size: normalizeSize(row.size),
-          quality: row.quality,
-        });
+        const resultUrl =
+          cfg.provider === AiProviderKey.REPLICATE
+            ? await generateViaReplicate({
+                apiKey,
+                baseUrl: cfg.baseUrl,
+                model: cfg.defaultModel ?? "black-forest-labs/flux-schnell",
+                prompt: row.prompt,
+                size: normalizeSize(row.size),
+              })
+            : await generateViaOpenAiImages({
+                apiKey,
+                baseUrl: cfg.baseUrl,
+                model: cfg.defaultModel ?? "dall-e-3",
+                prompt: row.prompt,
+                size: normalizeSize(row.size),
+                quality: row.quality,
+              });
         const updated = await prisma.gmbImageRequest.update({
           where: { id },
           data: {

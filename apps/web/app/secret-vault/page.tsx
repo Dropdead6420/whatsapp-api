@@ -11,7 +11,7 @@ import { useAuth } from "../../src/hooks/useAuth";
 import { api, ApiClientError } from "../../src/lib/api";
 
 const PROVIDERS = [
-  "META", "OPENAI", "ANTHROPIC", "GEMINI", "DEEPSEEK", "GROK",
+  "META", "OPENAI", "ANTHROPIC", "GEMINI", "DEEPSEEK", "GROK", "REPLICATE",
   "RAZORPAY", "STRIPE", "PAYPAL", "PAYU", "SMTP", "CUSTOM",
 ] as const;
 

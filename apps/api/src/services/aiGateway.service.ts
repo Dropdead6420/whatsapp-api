@@ -22,6 +22,7 @@ const DEFAULT_BASE_URL: Record<AiProviderKey, string | null> = {
   GEMINI: "https://generativelanguage.googleapis.com/v1beta",
   DEEPSEEK: "https://api.deepseek.com",
   GROK: "https://api.x.ai/v1",
+  REPLICATE: "https://api.replicate.com", // image/QR generation only — not a chat provider
   CUSTOM: null, // must supply baseUrl
 };
 
@@ -31,6 +32,7 @@ const DEFAULT_MODEL: Record<AiProviderKey, string | null> = {
   GEMINI: "gemini-1.5-flash",
   DEEPSEEK: "deepseek-chat",
   GROK: "grok-2-latest",
+  REPLICATE: null, // the Replicate model path/version comes from the config
   CUSTOM: null,
 };
 
