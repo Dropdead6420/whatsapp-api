@@ -68,16 +68,18 @@ COPY --from=build --chown=nexaflow:nodejs /app/apps/api/src ./apps/api/src
 COPY --from=build --chown=nexaflow:nodejs /app/apps/api/tsconfig.json ./apps/api/tsconfig.json
 COPY --from=build --chown=nexaflow:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=nexaflow:nodejs /app/apps/api/package.json ./apps/api/package.json
+COPY --from=build --chown=nexaflow:nodejs /app/apps/api/docker-entrypoint.sh ./apps/api/docker-entrypoint.sh
 
 USER nexaflow
 
 EXPOSE 3001
 
-# Basic healthcheck against the public health endpoint.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+# Basic healthcheck against the public health endpoint. Start period covers the
+# first boot's `prisma migrate deploy` (a no-op once the DB is up to date).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD wget --quiet --spider http://localhost:3001/api/v1/health || exit 1
 
-# The TS compiler currently emits ESM imports without `.js` extensions.
-# `tsx` resolves the workspace source correctly until the API is migrated to
-# `moduleResolution: NodeNext` or a post-build alias/extension rewrite.
-CMD ["npx", "tsx", "apps/api/src/index.ts"]
+# Apply pending migrations, then start the app. `tsx` is used because the TS
+# compiler currently emits ESM imports without `.js` extensions; it resolves
+# the workspace source correctly until the API moves to NodeNext resolution.
+CMD ["sh", "apps/api/docker-entrypoint.sh"]
