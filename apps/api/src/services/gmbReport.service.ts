@@ -4,6 +4,8 @@ import { getReputationSummary } from "./gmbReview.service";
 import { getInsightsSummary } from "./gmbInsights.service";
 import { getCitationSummary } from "./gmbCitation.service";
 import { rankBucket } from "./gmbRanking.service";
+import { GMB_PROMPT_KEYS, reportVariables, resolveFeaturePrompt } from "./gmbAiPrompts.service";
+import { runTenantLlmJson } from "./ai.service";
 
 // =====================================================================
 // AdGrowly GMB — Reports (planning PDF §3 Reports + §2 AI Monthly Report). A
@@ -200,6 +202,43 @@ export interface GenerateReportInput {
   generatedByUserId?: string;
 }
 
+/**
+ * Report narrative via the live LLM gateway, driven by the Super-Admin's
+ * `gmb.report` prompt (or its seed). The deterministic narrative doubles as
+ * the grounding fact sheet, so the model can rephrase but not invent numbers.
+ * Falls back to that same deterministic narrative on any failure.
+ */
+async function draftReportNarrativeWithAi(
+  tenantId: string,
+  businessName: string | null,
+  snapshot: ReportSnapshot,
+  trend: ReportTrend | null,
+): Promise<string> {
+  const fallback = buildReportNarrative(snapshot);
+  try {
+    const resolved = await resolveFeaturePrompt(GMB_PROMPT_KEYS.report, reportVariables({ businessName }));
+    const facts = [
+      `Facts (do not invent numbers): ${fallback}`,
+      trend
+        ? `Vs last period (${trend.momentum}): ${trend.reviewsCount} reviews, ${trend.averageRating} rating, ${trend.totalViews} views, ${trend.totalActions} actions, ${trend.top3} top-3 keywords.`
+        : "",
+    ].filter(Boolean);
+    const out = await runTenantLlmJson<{ summary: string }>({
+      tenantId,
+      feature: "gmb_report",
+      system:
+        "You summarize Google Business Profile performance for a business owner. 3–4 plain, encouraging sentences; use only the numbers given; no markdown, no greetings.",
+      prompt: `${resolved.text}\n${facts.join("\n")}\nReturn JSON: {"summary":"..."}`,
+      maxTokens: 350,
+      temperature: 0.5,
+    });
+    const summary = out?.summary?.trim();
+    return summary ? summary.slice(0, 1200) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function generateReport(tenantId: string, input: GenerateReportInput) {
   const periodStart = new Date(input.periodStart);
   const periodEnd = new Date(input.periodEnd);
@@ -246,7 +285,10 @@ export async function generateReport(tenantId: string, input: GenerateReportInpu
 
   // Store the full module summaries (richer than the snapshot) for the UI.
   const data = { reviews, insights, citations, ranking, posts: { created: posts }, ...(trend ? { trend } : {}) };
-  const summary = buildReportNarrative(snapshot);
+  const location = input.locationId
+    ? await prisma.gmbLocation.findFirst({ where: { id: input.locationId, tenantId }, select: { name: true } })
+    : null;
+  const summary = await draftReportNarrativeWithAi(tenantId, location?.name ?? null, snapshot, trend);
   const actionPlan = buildActionPlan(snapshot);
 
   const row = await prisma.gmbReport.create({
