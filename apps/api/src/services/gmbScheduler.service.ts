@@ -1,11 +1,13 @@
 import { prisma, GmbPostStatus } from "@nexaflow/db";
+import { createGoogleLocalPost } from "./gmbGoogle.service";
 
 // =====================================================================
 // AdGrowly GMB — Scheduled-post publisher (planning PDF §3 Post Scheduler).
-// Selects due SCHEDULED posts and publishes them. Live Google Business Profile
-// publishing wires into `publishDuePosts` later (replacing the stub mark-as-
-// published with per-post API calls + FAILED-on-error retry handling). The
-// selection helper is pure and unit-tested.
+// Selects due SCHEDULED posts and publishes them. Posts whose locationLabel
+// matches a Google-connected GmbLocation go live via the Business Profile
+// API (FAILED + error on trouble so a later run can retry); posts without a
+// connected location are marked PUBLISHED as local-only records, preserving
+// the pre-OAuth behavior. The selection helper is pure and unit-tested.
 // =====================================================================
 
 export interface SchedulablePost {
@@ -26,25 +28,80 @@ export function selectDuePosts<T extends SchedulablePost>(posts: T[], now: Date)
 
 export interface PublishResult {
   published: number;
+  /** Created live on Google Business Profile. */
+  live: number;
+  /** Marked published without a connected Google location. */
+  localOnly: number;
+  /** Live publish attempts that errored (now FAILED, retryable). */
+  failed: number;
   ids: string[];
 }
 
 /**
- * Publish all of a tenant's due scheduled posts. Currently a stub that marks
- * them PUBLISHED (no live Google connection yet); the real publish call slots
- * in here, setting FAILED + error on failure so a later run can retry.
+ * Publish all of a tenant's due scheduled posts. Each post whose
+ * locationLabel resolves to a Google-connected location (resource name +
+ * credential) is created live on the Business Profile; failures land in
+ * FAILED with the reason so the next run (or a manual retry) can pick them
+ * up. Posts without a connected location keep the local-only behavior.
  */
 export async function publishDuePosts(tenantId: string, now: Date = new Date()): Promise<PublishResult> {
   const due = await prisma.gmbPost.findMany({
     where: { tenantId, status: GmbPostStatus.SCHEDULED, scheduledAt: { lte: now } },
-    select: { id: true },
+    select: { id: true, summary: true, callToActionType: true, callToActionUrl: true, locationLabel: true },
   });
-  if (due.length === 0) return { published: 0, ids: [] };
+  if (due.length === 0) return { published: 0, live: 0, localOnly: 0, failed: 0, ids: [] };
 
-  const ids = due.map((d) => d.id);
-  await prisma.gmbPost.updateMany({
-    where: { id: { in: ids } },
-    data: { status: GmbPostStatus.PUBLISHED, publishedAt: now, error: null },
-  });
-  return { published: ids.length, ids };
+  let live = 0;
+  let localOnly = 0;
+  let failed = 0;
+  const ids: string[] = [];
+
+  for (const post of due) {
+    const location = post.locationLabel
+      ? await prisma.gmbLocation.findFirst({
+          where: { tenantId, name: post.locationLabel },
+          select: { id: true, placeId: true, secretId: true },
+        })
+      : null;
+
+    if (location?.placeId && location.secretId) {
+      try {
+        await createGoogleLocalPost({
+          tenantId,
+          locationId: location.id,
+          locationResourceName: location.placeId,
+          secretId: location.secretId,
+          summary: post.summary,
+          callToActionType: post.callToActionType,
+          callToActionUrl: post.callToActionUrl,
+        });
+        await prisma.gmbPost.update({
+          where: { id: post.id },
+          data: { status: GmbPostStatus.PUBLISHED, publishedAt: now, error: null },
+        });
+        live += 1;
+        ids.push(post.id);
+      } catch (e) {
+        await prisma.gmbPost.update({
+          where: { id: post.id },
+          data: {
+            status: GmbPostStatus.FAILED,
+            error: (e instanceof Error ? e.message : "Google publish failed.").slice(0, 500),
+          },
+        });
+        failed += 1;
+      }
+      continue;
+    }
+
+    // No connected location — record the post as published locally.
+    await prisma.gmbPost.update({
+      where: { id: post.id },
+      data: { status: GmbPostStatus.PUBLISHED, publishedAt: now, error: null },
+    });
+    localOnly += 1;
+    ids.push(post.id);
+  }
+
+  return { published: live + localOnly, live, localOnly, failed, ids };
 }

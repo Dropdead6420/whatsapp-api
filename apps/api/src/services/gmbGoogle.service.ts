@@ -780,3 +780,41 @@ export async function updateGoogleReviewReply(input: {
     reviewName,
   };
 }
+
+/**
+ * Create a Google Business Profile local post. The location's stored resource
+ * name ("accounts/…/locations/…") anchors the call; CTA is included only when
+ * both an action type and a URL exist (CALL-style CTAs without URLs are
+ * dropped rather than rejected). Used by the scheduled-post publisher.
+ */
+export async function createGoogleLocalPost(input: {
+  tenantId: string;
+  locationId: string;
+  locationResourceName: string;
+  secretId: string;
+  summary: string;
+  callToActionType?: string | null;
+  callToActionUrl?: string | null;
+}) {
+  const body = await googleJson<{ name?: string; state?: string; createTime?: string }>({
+    tenantId: input.tenantId,
+    locationId: input.locationId,
+    secretId: input.secretId,
+    operation: "GBP_CREATE_LOCAL_POST",
+    method: "POST",
+    url: `${MY_BUSINESS_BASE}/${input.locationResourceName}/localPosts`,
+    body: {
+      languageCode: "en",
+      topicType: "STANDARD",
+      summary: input.summary,
+      ...(input.callToActionType && input.callToActionUrl
+        ? { callToAction: { actionType: input.callToActionType, url: input.callToActionUrl } }
+        : {}),
+    },
+  });
+  return {
+    name: body.name ?? null,
+    state: body.state ?? null,
+    createTime: body.createTime ?? null,
+  };
+}
