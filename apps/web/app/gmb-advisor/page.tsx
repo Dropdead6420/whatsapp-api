@@ -36,6 +36,7 @@ interface Advice {
   grade: string;
   breakdown: ScoreArea[];
   focusAreas?: FocusArea[];
+  summary?: string | null;
   tasks: Task[];
   createdAt: string;
 }
@@ -139,6 +140,9 @@ export default function GmbAdvisorPage() {
               </div>
               <button onClick={() => void remove(a.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>
             </div>
+            {a.summary && (
+              <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{a.summary}</p>
+            )}
             {a.focusAreas && a.focusAreas.length > 0 && (
               <p className="mt-3 text-xs text-slate-500">
                 <span className="font-medium text-slate-700">Focus first:</span>{" "}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAdvisorNote,
   buildAdvisorTasks,
   gradeFromScore,
   type ProfileSignals,
@@ -67,6 +68,23 @@ describe("rankFocusAreas", () => {
 
   it("returns no focus areas for a fully-optimized profile", () => {
     expect(rankFocusAreas(scoreProfile(strong))).toEqual([]);
+  });
+});
+
+describe("buildAdvisorNote", () => {
+  it("names the top focus areas with their recoverable points for a weak profile", () => {
+    const profile = scoreProfile(weak);
+    const note = buildAdvisorNote(profile, rankFocusAreas(profile));
+    expect(note).toContain(`${profile.score}/100`);
+    expect(note).toContain("ranking (+20 pts available)");
+    expect(note).toContain("start with the high-priority tasks");
+  });
+
+  it("encourages holding position when fully optimized", () => {
+    const profile = scoreProfile(strong);
+    const note = buildAdvisorNote(profile, rankFocusAreas(profile));
+    expect(note).toContain("excellent shape");
+    expect(note).toContain("hold your position");
   });
 });
 

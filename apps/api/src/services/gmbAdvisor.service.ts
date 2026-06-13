@@ -3,6 +3,8 @@ import { ApiError, ErrorCodes } from "@nexaflow/shared";
 import { getReputationSummary } from "./gmbReview.service";
 import { getCitationSummary } from "./gmbCitation.service";
 import { rankBucket } from "./gmbRanking.service";
+import { GMB_PROMPT_KEYS, rankingAdviceVariables, resolveFeaturePrompt } from "./gmbAiPrompts.service";
+import { runTenantLlmJson } from "./ai.service";
 
 // =====================================================================
 // AdGrowly GMB — AI Ranking Advisor (planning PDF §2). Analyzes a location's
@@ -120,6 +122,24 @@ export function rankFocusAreas(score: ProfileScore): FocusArea[] {
     .sort((a, b) => b.gap - a.gap || b.gapPercent - a.gapPercent || a.area.localeCompare(b.area));
 }
 
+/**
+ * Deterministic coach's note from the score + focus areas — the fallback when
+ * the LLM gateway is unavailable. Pure and unit-tested.
+ */
+export function buildAdvisorNote(score: ProfileScore, focus: FocusArea[]): string {
+  const standing =
+    score.score >= 85
+      ? "Your profile is in excellent shape"
+      : score.score >= 55
+        ? "Your profile has a solid base"
+        : "Your profile needs attention";
+  if (focus.length === 0) {
+    return `${standing} (${score.score}/100, grade ${score.grade}). Keep up the weekly cadence to hold your position.`;
+  }
+  const tops = focus.slice(0, 2).map((f) => `${f.area} (+${f.gap} pts available)`).join(" and ");
+  return `${standing} (${score.score}/100, grade ${score.grade}). The fastest wins this week are ${tops} — start with the high-priority tasks below.`;
+}
+
 export type TaskPriority = "high" | "medium" | "low";
 
 export interface AdvisorTask {
@@ -183,6 +203,7 @@ interface AdvisorRow {
   signals: Prisma.JsonValue;
   breakdown: Prisma.JsonValue;
   tasks: Prisma.JsonValue;
+  summary?: string | null;
   createdAt: Date;
 }
 
@@ -196,6 +217,7 @@ export function toSafeAdvisor(row: AdvisorRow) {
     signals: row.signals,
     breakdown: row.breakdown,
     tasks: row.tasks,
+    summary: row.summary ?? null,
     // Where the most score points are recoverable (biggest opportunity first).
     focusAreas: rankFocusAreas({ score: row.score, grade: row.grade, breakdown }),
     createdAt: row.createdAt,
@@ -250,14 +272,59 @@ async function gatherSignals(tenantId: string, locationId: string): Promise<Prof
   };
 }
 
+/**
+ * Coach's note via the live LLM gateway, driven by the Super-Admin's
+ * `gmb.ranking_advisor` prompt (or its seed). Falls back to the deterministic
+ * buildAdvisorNote on any failure (no key, no credits, provider/parse error).
+ */
+async function draftAdvisorSummaryWithAi(
+  tenantId: string,
+  businessName: string | null,
+  profile: ProfileScore,
+  tasks: AdvisorTask[],
+): Promise<string> {
+  const focus = rankFocusAreas(profile);
+  const fallback = buildAdvisorNote(profile, focus);
+  try {
+    const resolved = await resolveFeaturePrompt(
+      GMB_PROMPT_KEYS.rankingAdvice,
+      rankingAdviceVariables({ businessName }),
+    );
+    const facts = [
+      `Score: ${profile.score}/100 (grade ${profile.grade}).`,
+      focus.length ? `Biggest gaps: ${focus.map((f) => `${f.area} (+${f.gap} pts)`).join(", ")}.` : "No gaps — fully optimized.",
+      tasks.length ? `Planned tasks: ${tasks.slice(0, 5).map((t) => t.task).join(" | ")}` : "",
+    ].filter(Boolean);
+    const out = await runTenantLlmJson<{ summary: string }>({
+      tenantId,
+      feature: "gmb_ranking_advisor",
+      system:
+        "You are a concise local-SEO coach. Write 2–3 encouraging, specific sentences. No greetings, no markdown, no invented data.",
+      prompt: `${resolved.text}\n${facts.join("\n")}\nReturn JSON: {"summary":"..."}`,
+      maxTokens: 250,
+      temperature: 0.6,
+    });
+    const summary = out?.summary?.trim();
+    return summary ? summary.slice(0, 800) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function generateAdvice(
   tenantId: string,
   locationId: string,
   createdByUserId?: string,
 ) {
   const signals = await gatherSignals(tenantId, locationId);
-  const { score, grade, breakdown } = scoreProfile(signals);
+  const profile = scoreProfile(signals);
+  const { score, grade, breakdown } = profile;
   const tasks = buildAdvisorTasks(signals);
+  const location = await prisma.gmbLocation.findFirst({
+    where: { id: locationId, tenantId },
+    select: { name: true },
+  });
+  const summary = await draftAdvisorSummaryWithAi(tenantId, location?.name ?? null, profile, tasks);
 
   const row = await prisma.gmbAdvisorReport.create({
     data: {
@@ -268,6 +335,7 @@ export async function generateAdvice(
       signals: signals as unknown as Prisma.InputJsonValue,
       breakdown: breakdown as unknown as Prisma.InputJsonValue,
       tasks: tasks as unknown as Prisma.InputJsonValue,
+      summary,
       createdByUserId: createdByUserId ?? null,
     },
   });

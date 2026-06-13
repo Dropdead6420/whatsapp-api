@@ -4192,6 +4192,8 @@ model GmbAdvisorReport {
   signals   Json
   breakdown Json
   tasks     Json
+  // Coach's note — LLM-written via the gmb.ranking_advisor prompt (deterministic fallback).
+  summary   String?
 
   createdByUserId String?
 

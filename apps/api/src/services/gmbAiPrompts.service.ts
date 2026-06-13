@@ -91,6 +91,11 @@ export function descriptionVariables(input: {
   };
 }
 
+/** Variables for the `gmb.ranking_advisor` template. */
+export function rankingAdviceVariables(input: { businessName?: string | null }): PromptVars {
+  return { business: (input.businessName ?? "").trim() || "our business" };
+}
+
 /** Variables for the `gmb.keyword_finder` template. */
 export function keywordIdeasVariables(input: {
   category?: string | null;
