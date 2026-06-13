@@ -20,6 +20,8 @@ interface GmbPost {
   callToActionType: string | null;
   scheduledAt: string | null;
   status: string;
+  error: string | null;
+  publishedAt: string | null;
 }
 
 export default function GmbPage() {
@@ -79,6 +81,31 @@ export default function GmbPage() {
     }
   }
 
+  async function publishNow(id: string) {
+    setErr(null);
+    setNotice(null);
+    try {
+      // Mark due now, then run the publisher immediately (the worker would
+      // otherwise pick it up on its next sweep). Live-publishes to Google when
+      // the post's location is connected; records local-only otherwise.
+      await api.post(`/api/v1/gmb/posts/${id}/schedule`, { scheduledAt: new Date().toISOString() });
+      const r = await api.post<{ live: number; localOnly: number; failed: number }>(
+        "/api/v1/gmb/posts/run-scheduled",
+        {},
+      );
+      setNotice(
+        r.failed > 0
+          ? "Publish attempted — check the post for the failure reason."
+          : r.live > 0
+            ? "Published live to Google."
+            : "Marked published (connect a Google location to publish live).",
+      );
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to publish.");
+    }
+  }
+
   async function remove(id: string) {
     if (!window.confirm("Delete this post?")) return;
     try {
@@ -99,8 +126,9 @@ export default function GmbPage() {
         <p className="text-sm font-medium text-emerald-700">Google Business</p>
         <h1 className="text-2xl font-semibold text-slate-950">Business Profile posts</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Draft posts with AI captions and schedule them. Publishing to Google
-          activates once your Business Profile is connected.
+          Draft posts with AI captions, then publish now or schedule them.
+          Posts go live on Google for connected locations; the rest are saved as
+          published records.
         </p>
       </div>
 
@@ -178,8 +206,19 @@ export default function GmbPage() {
                         )}
                       </div>
                       <p className="mt-1 text-sm text-slate-800">{p.summary}</p>
+                      {p.status === "FAILED" && p.error && (
+                        <p className="mt-1.5 rounded-md bg-red-50 px-2 py-1 text-xs text-red-700">{p.error}</p>
+                      )}
+                      {p.status === "PUBLISHED" && p.publishedAt && (
+                        <p className="mt-1 text-xs text-emerald-600">Published {new Date(p.publishedAt).toLocaleString()}</p>
+                      )}
                     </div>
                     <div className="flex flex-none gap-2">
+                      {p.status !== "PUBLISHED" && (
+                        <button onClick={() => void publishNow(p.id)} className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700">
+                          {p.status === "FAILED" ? "Retry" : "Publish now"}
+                        </button>
+                      )}
                       <button onClick={() => void schedule(p.id)} className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Schedule</button>
                       <button onClick={() => void remove(p.id)} className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50">Delete</button>
                     </div>
