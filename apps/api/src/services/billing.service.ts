@@ -40,6 +40,22 @@ export function getMessageCostCredits(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.ceil(raw) : 1;
 }
 
+/**
+ * DB-aware WhatsApp send cost: the SuperAdmin's `whatsapp.send` Credit Engine
+ * rule wins, then the env override, then the default — so per-send pricing is
+ * admin-controlled like AI costs. Falls back safely on any lookup error.
+ * (activeCreditRules + resolveCost are defined below with the AI resolver.)
+ */
+export async function resolveMessageCostCredits(): Promise<number> {
+  try {
+    const cost = resolveCost(await activeCreditRules(), "whatsapp.send");
+    if (cost != null && Number.isFinite(cost) && cost >= 0) return Math.ceil(cost);
+  } catch (err) {
+    console.warn("[billing] credit-rule lookup failed; using env/default message cost:", (err as Error).message);
+  }
+  return getMessageCostCredits();
+}
+
 function aiFeatureCostEnvKey(feature?: string): string | null {
   const suffix = feature
     ?.trim()
@@ -117,7 +133,7 @@ export async function resolveAiCostCredits(feature?: string): Promise<number> {
 export async function assertCanAffordMessage(tenantId: string): Promise<void> {
   if (!billingEnabled()) return;
 
-  const cost = getMessageCostCredits();
+  const cost = await resolveMessageCostCredits();
   const wallet = await prisma.wallet.findUnique({
     where: {
       tenantId_type: {
@@ -180,7 +196,7 @@ export async function debitMessage(
       type: WalletTransactionType.MESSAGE_DEBIT,
       walletType: WalletType.WHATSAPP_USAGE,
       direction: WalletTransactionDirection.DEBIT,
-      amountCredits: getMessageCostCredits(),
+      amountCredits: await resolveMessageCostCredits(),
       reason: opts.reason ?? "WhatsApp message sent",
       referenceType: "Message",
       referenceId: metaMessageId,
