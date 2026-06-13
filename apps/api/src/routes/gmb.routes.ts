@@ -37,6 +37,8 @@ import {
   updateLocation,
 } from "../services/gmbLocation.service";
 import {
+  buildGoogleReviewLink,
+  buildReviewRequestText,
   deleteReview,
   generateReplyDraft,
   getReputationSummary,
@@ -1114,6 +1116,74 @@ router.post("/reports/:id/share-whatsapp", async (req: RequestWithAuth, res: Res
       action: "CREATE",
       resource: "GmbReportShare",
       resourceId: report.id,
+      newValues: { channel: "whatsapp", metaMessageId },
+      ...extractRequestMeta(req),
+    });
+
+    res.json({ success: true, data: { sent: true, metaMessageId } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const reviewRequestSchema = z.object({
+  to: z.string().trim().regex(/^\+?[1-9]\d{6,14}$/, "Enter a valid WhatsApp number (E.164)."),
+  locationId: z.string().cuid().optional(),
+  customerName: z.string().trim().max(120).optional(),
+  link: z.string().trim().url().max(500).optional(),
+});
+
+// Ask a customer for a Google review over WhatsApp (planning PDF §6 hook:
+// "review request sharing"). Same compliant send path as report sharing.
+router.post("/review-request", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    const body = reviewRequestSchema.parse(req.body);
+    const location = body.locationId
+      ? await prisma.gmbLocation.findFirst({
+          where: { id: body.locationId, tenantId: req.tenantId! },
+          select: { name: true, placeId: true },
+        })
+      : null;
+    if (body.locationId && !location) {
+      throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Location not found.");
+    }
+    const text = buildReviewRequestText({
+      businessName: location?.name ?? "our business",
+      customerName: body.customerName,
+      link: body.link ?? buildGoogleReviewLink(location?.placeId),
+    });
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId! } });
+    if (!tenant?.wabaPhoneNumber || !tenant?.wabaAccessToken) {
+      throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "WhatsApp Business API is not configured for this tenant.");
+    }
+    const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+    if (!accessToken) {
+      throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "WhatsApp access token failed to decrypt.");
+    }
+
+    await assertCanAffordMessage(req.tenantId!);
+    await assertCanSend(req.tenantId!, { phoneNumberId: tenant.wabaPhoneNumber });
+
+    const metaMessageId = await sendWhatsAppText({
+      tenantId: req.tenantId!,
+      phoneNumberId: tenant.wabaPhoneNumber,
+      accessToken,
+      to: body.to.replace(/^\+/, ""),
+      body: text,
+    });
+    await recordSend(req.tenantId!, { phoneNumberId: tenant.wabaPhoneNumber });
+    await debitMessage(req.tenantId!, metaMessageId, {
+      actorUserId: req.userId,
+      reason: `GMB review request${location ? ` (${location.name})` : ""}`,
+    });
+
+    await logAudit({
+      tenantId: req.tenantId!,
+      userId: req.userId!,
+      action: "CREATE",
+      resource: "GmbReviewRequest",
+      resourceId: body.locationId ?? "tenant",
       newValues: { channel: "whatsapp", metaMessageId },
       ...extractRequestMeta(req),
     });

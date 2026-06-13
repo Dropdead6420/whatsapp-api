@@ -131,6 +131,39 @@ export async function draftReviewReplyWithAi(
   }
 }
 
+/**
+ * Public "write a review" link for a location. Only well-formed Google Maps
+ * place ids work here — locations synced via the Business Profile API store
+ * the account resource name ("accounts/…/locations/…"), which has no public
+ * review URL, so those return null and callers fall back to a linkless ask.
+ */
+export function buildGoogleReviewLink(placeId: string | null | undefined): string | null {
+  const id = (placeId ?? "").trim();
+  if (!id || id.includes("/")) return null;
+  return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(id)}`;
+}
+
+/**
+ * WhatsApp-ready review request (planning PDF §6 hook: "review request
+ * sharing"). Friendly, short, with the review link when one exists. Pure.
+ */
+export function buildReviewRequestText(input: {
+  businessName: string;
+  customerName?: string | null;
+  link?: string | null;
+}): string {
+  const business = input.businessName.trim() || "our business";
+  const firstName = (input.customerName ?? "").trim().split(/\s+/)[0] || "";
+  const greeting = firstName ? `Hi ${firstName}!` : "Hi!";
+  const lines = [
+    `${greeting} Thank you for choosing ${business}. 🙏`,
+    "",
+    "If you have a moment, we'd really appreciate a quick Google review — it helps neighbours find us.",
+  ];
+  if (input.link) lines.push("", input.link);
+  return lines.join("\n");
+}
+
 export interface ReputationSummary {
   count: number;
   average: number;

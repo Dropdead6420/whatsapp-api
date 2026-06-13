@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { GmbReviewStatus } from "@nexaflow/db";
 import {
+  buildGoogleReviewLink,
   buildReviewReplyDraft,
+  buildReviewRequestText,
   ratingSentiment,
   summarizeReviews,
   toSafeReview,
@@ -101,5 +103,39 @@ describe("summarizeReviews", () => {
     expect(summary.count).toBe(0);
     expect(summary.average).toBe(0);
     expect(summary.unanswered).toBe(0);
+  });
+});
+
+describe("buildGoogleReviewLink", () => {
+  it("builds a writereview URL for a plain Maps place id", () => {
+    expect(buildGoogleReviewLink("ChIJabc123")).toBe(
+      "https://search.google.com/local/writereview?placeid=ChIJabc123",
+    );
+  });
+
+  it("returns null for resource names, blanks and null", () => {
+    expect(buildGoogleReviewLink("accounts/1/locations/2")).toBeNull();
+    expect(buildGoogleReviewLink("   ")).toBeNull();
+    expect(buildGoogleReviewLink(null)).toBeNull();
+  });
+});
+
+describe("buildReviewRequestText", () => {
+  it("greets by first name, names the business, and appends the link", () => {
+    const text = buildReviewRequestText({
+      businessName: "Acme Cafe",
+      customerName: "Priya Sharma",
+      link: "https://search.google.com/local/writereview?placeid=x",
+    });
+    expect(text).toContain("Hi Priya!");
+    expect(text).toContain("Acme Cafe");
+    expect(text).toContain("writereview?placeid=x");
+  });
+
+  it("falls back to a generic greeting and omits the link line when absent", () => {
+    const text = buildReviewRequestText({ businessName: "  ", customerName: null, link: null });
+    expect(text.startsWith("Hi!")).toBe(true);
+    expect(text).toContain("our business");
+    expect(text).not.toContain("http");
   });
 });

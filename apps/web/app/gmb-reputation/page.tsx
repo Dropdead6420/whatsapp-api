@@ -68,6 +68,24 @@ export default function GmbReputationPage() {
   const [author, setAuthor] = useState("");
   const [comment, setComment] = useState("");
 
+  async function askForReview() {
+    const to = window.prompt("Send a review request to which WhatsApp number? (E.164, e.g. +9198…)");
+    if (!to?.trim()) return;
+    const customerName = window.prompt("Customer name (optional):") ?? "";
+    setErr(null);
+    setNotice(null);
+    try {
+      await api.post("/api/v1/gmb/review-request", {
+        to: to.trim(),
+        locationId: selectedLocationId || locations[0]?.id || undefined,
+        customerName: customerName.trim() || undefined,
+      });
+      setNotice(`Review request sent to ${to.trim()} on WhatsApp.`);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Unable to send the review request.");
+    }
+  }
+
   async function refresh() {
     try {
       setErr(null);
@@ -190,12 +208,20 @@ export default function GmbReputationPage() {
 
   return (
     <DashboardShell user={user} features={features} signOut={signOut}>
-      <div className="mb-6">
-        <p className="text-sm font-medium text-emerald-700">Google Business</p>
-        <h1 className="text-2xl font-semibold text-slate-950">Reputation</h1>
-        <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Read Google-synced and manually logged reviews, generate a reply draft, edit it and publish after review.
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-emerald-700">Google Business</p>
+          <h1 className="text-2xl font-semibold text-slate-950">Reputation</h1>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            Read Google-synced and manually logged reviews, generate a reply draft, edit it and publish after review.
+          </p>
+        </div>
+        <button
+          onClick={() => void askForReview()}
+          className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+        >
+          Ask for a review (WhatsApp)
+        </button>
       </div>
 
       {err && <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>}
