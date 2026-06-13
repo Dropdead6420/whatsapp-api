@@ -86,9 +86,12 @@ export default function GmbImagesPage() {
     setNotice(null);
     try {
       await api.post("/api/v1/gmb/images", buildBody());
-      setNotice("Image request queued.");
+      setNotice("Image request queued — generation starts automatically.");
       setPreviewPrompt(null);
       await refresh();
+      // Auto-generation runs server-side; pick up READY/FAILED shortly after.
+      window.setTimeout(() => void refresh(), 8000);
+      window.setTimeout(() => void refresh(), 20000);
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to queue request.");
     }
@@ -196,7 +199,7 @@ export default function GmbImagesPage() {
               </div>
               <p className="mt-1 text-xs text-slate-400">{it.size} · {it.aspect}{it.hasCredential ? " · provider set" : " · no provider"}</p>
               <pre className="mt-2 whitespace-pre-wrap rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">{it.prompt}</pre>
-              {it.status === "FAILED" && it.error && (
+              {it.error && (it.status === "FAILED" || it.status === "PENDING") && (
                 <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{it.error}</p>
               )}
               {it.resultUrl && (

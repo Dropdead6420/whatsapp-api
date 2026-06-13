@@ -1395,6 +1395,20 @@ router.post("/images", async (req: RequestWithAuth, res: Response, next: NextFun
       newValues: { subject: image.subject, size: image.size },
       ...extractRequestMeta(req),
     });
+    // Fire-and-forget auto-generation so creating a request immediately starts
+    // the image (create stays fast; the page polls for READY/FAILED). Provider
+    // trouble lands in FAILED inside the executor; a credit-gate rejection
+    // throws before any status change, so surface it on the row instead.
+    const tenantId = req.tenantId!;
+    void processImageRequest(tenantId, image.id).catch(async (e) => {
+      try {
+        await updateImageRequest(tenantId, image.id, {
+          error: e instanceof Error ? e.message.slice(0, 300) : "Auto-generation failed.",
+        });
+      } catch {
+        /* best-effort */
+      }
+    });
     res.status(201).json({ success: true, data: image });
   } catch (err) {
     next(err);
