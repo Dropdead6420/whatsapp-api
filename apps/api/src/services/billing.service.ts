@@ -9,6 +9,7 @@ import {
   WalletType,
 } from "@nexaflow/shared";
 import { adjustWalletIdempotent, ensureWallet } from "./wallet.service";
+import { resolveCost } from "./creditRule.service";
 
 /**
  * Per-message + per-AI-call billing hooks.
@@ -56,6 +57,57 @@ export function getAiCostCredits(feature?: string): number {
       : process.env.AI_CALL_COST_CREDITS;
   const raw = Number(configured ?? "1");
   return Number.isFinite(raw) && raw > 0 ? Math.ceil(raw) : 1;
+}
+
+// Maps internal AI feature keys → SuperAdmin Credit Engine catalog actions, so
+// the per-action costs configured at /credit-rules actually apply to charging.
+// Unmapped features fall through to the env/default cost (getAiCostCredits).
+export const AI_FEATURE_ACTION: Record<string, string> = {
+  gmb_review_reply: "ai.review_reply",
+  gmb_post_caption: "ai.post",
+  gmb_keyword_finder: "ai.keyword_ideas",
+  gmb_description_optimizer: "ai.description",
+  gmb_ranking_advisor: "ai.ranking_advice",
+  gmb_report: "ai.report",
+  gmb_image_generation: "ai.image",
+};
+
+// Short-lived cache of active credit rules so per-call cost lookups don't hit
+// the DB every time. The afford-check and the debit happen seconds apart in one
+// request, so a 60s TTL keeps them consistent without staleness risk.
+let creditRuleCache: { at: number; rules: { action: string; cost: number; isActive: boolean }[] } | null = null;
+const CREDIT_RULE_TTL_MS = 60_000;
+
+async function activeCreditRules(): Promise<{ action: string; cost: number; isActive: boolean }[]> {
+  const now = Date.now();
+  if (creditRuleCache && now - creditRuleCache.at < CREDIT_RULE_TTL_MS) {
+    return creditRuleCache.rules;
+  }
+  const rules = await prisma.creditRule.findMany({
+    where: { isActive: true },
+    select: { action: true, cost: true, isActive: true },
+  });
+  creditRuleCache = { at: now, rules };
+  return rules;
+}
+
+/**
+ * DB-aware AI cost resolution: the SuperAdmin's Credit Engine rule for the
+ * feature's mapped action wins, then the per-feature env override, then the
+ * flat default. This is what makes the admin Credit Engine actually control
+ * spend instead of being cosmetic.
+ */
+export async function resolveAiCostCredits(feature?: string): Promise<number> {
+  const action = feature ? AI_FEATURE_ACTION[feature] : undefined;
+  if (action) {
+    try {
+      const cost = resolveCost(await activeCreditRules(), action);
+      if (cost != null && Number.isFinite(cost) && cost >= 0) return Math.ceil(cost);
+    } catch (err) {
+      console.warn("[billing] credit-rule lookup failed; using env/default cost:", (err as Error).message);
+    }
+  }
+  return getAiCostCredits(feature);
 }
 
 /**
@@ -149,7 +201,7 @@ export async function assertCanAffordAi(
 ): Promise<void> {
   if (!billingEnabled()) return;
 
-  const cost = getAiCostCredits(feature);
+  const cost = await resolveAiCostCredits(feature);
   const wallet = await prisma.wallet.findUnique({
     where: {
       tenantId_type: {
@@ -211,7 +263,7 @@ export async function debitAi(
       type: WalletTransactionType.AI_DEBIT,
       walletType: WalletType.AI_CREDIT,
       direction: WalletTransactionDirection.DEBIT,
-      amountCredits: getAiCostCredits(args.feature),
+      amountCredits: await resolveAiCostCredits(args.feature),
       reason: args.reason ?? `AI call (${args.feature ?? "generic"})`,
       referenceType: "AiUsage",
       referenceId: args.aiUsageId ?? null,

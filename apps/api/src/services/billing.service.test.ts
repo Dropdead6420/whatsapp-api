@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getAiCostCredits } from "./billing.service";
+import { AI_FEATURE_ACTION, getAiCostCredits } from "./billing.service";
+import { KNOWN_CREDIT_ACTIONS } from "./creditRule.service";
 
 describe("billing.service AI cost mapping", () => {
   const originalEnv = { ...process.env };
@@ -29,5 +30,29 @@ describe("billing.service AI cost mapping", () => {
 
     expect(getAiCostCredits("copywriting")).toBe(1);
     expect(getAiCostCredits("ai_summarize")).toBe(1);
+  });
+});
+
+describe("AI_FEATURE_ACTION → Credit Engine catalog mapping", () => {
+  const catalogActions = new Set(KNOWN_CREDIT_ACTIONS.map((a) => a.action));
+
+  it("maps every GMB AI feature to a real, configurable catalog action", () => {
+    // A mapping to a non-existent action would silently fall back to the
+    // default cost forever — so each target must exist in the catalog.
+    for (const [feature, action] of Object.entries(AI_FEATURE_ACTION)) {
+      expect(catalogActions.has(action), `${feature} → ${action} missing from KNOWN_CREDIT_ACTIONS`).toBe(true);
+    }
+  });
+
+  it("covers all seven GMB AI features", () => {
+    expect(Object.keys(AI_FEATURE_ACTION).sort()).toEqual([
+      "gmb_description_optimizer",
+      "gmb_image_generation",
+      "gmb_keyword_finder",
+      "gmb_post_caption",
+      "gmb_ranking_advisor",
+      "gmb_report",
+      "gmb_review_reply",
+    ]);
   });
 });

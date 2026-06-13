@@ -16,6 +16,7 @@ export const KNOWN_CREDIT_ACTIONS: { action: string; label: string }[] = [
   { action: "ai.image", label: "AI image generation" },
   { action: "ai.description", label: "AI description optimization" },
   { action: "ai.keyword_ideas", label: "AI keyword ideas" },
+  { action: "ai.ranking_advice", label: "AI ranking advisor" },
   { action: "ai.report", label: "AI report / monthly report" },
   { action: "ranking.check", label: "Local ranking check" },
   { action: "sms.send", label: "SMS send" },
