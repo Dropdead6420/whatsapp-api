@@ -123,6 +123,7 @@ import {
   listReports,
 } from "../services/gmbReport.service";
 import { renderGmbReportPdf } from "../services/gmbReportPdf.service";
+import { checkGmbSchema } from "../services/gmbHealth.service";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
 import { assertCanAffordMessage, debitMessage } from "../services/billing.service";
@@ -133,6 +134,17 @@ import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope, requirePermission(Permissions.GMB_MANAGE));
+
+// Schema self-check: probes every GMB table so un-applied migrations (DB behind
+// the shipped Prisma client) surface as a clear per-table report instead of
+// generic 500s elsewhere. 200 with ok:false when any table is unreachable.
+router.get("/health", async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await checkGmbSchema() });
+  } catch (err) {
+    next(err);
+  }
+});
 
 const ctaEnum = z.enum(["LEARN_MORE", "CALL", "ORDER", "BOOK", "SIGN_UP", "SHOP"]);
 
