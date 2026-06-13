@@ -9,7 +9,7 @@ import {
   WalletType,
 } from "@nexaflow/shared";
 import { adjustWalletIdempotent, ensureWallet } from "./wallet.service";
-import { resolveCost } from "./creditRule.service";
+import { resolveCost, KNOWN_CREDIT_ACTIONS } from "./creditRule.service";
 
 /**
  * Per-message + per-AI-call billing hooks.
@@ -124,6 +124,26 @@ export async function resolveAiCostCredits(feature?: string): Promise<number> {
     }
   }
   return getAiCostCredits(feature);
+}
+
+/**
+ * The current per-action credit cost of each GMB AI feature, for customer-
+ * facing "this costs N credits" hints. Labels come from the Credit Engine
+ * catalog so admin renames flow through. When billing is disabled, costs are
+ * effectively 0 (nothing is charged).
+ */
+export async function listGmbAiCosts(): Promise<{ feature: string; label: string; credits: number }[]> {
+  const labelByAction = new Map(KNOWN_CREDIT_ACTIONS.map((a) => [a.action, a.label]));
+  const charging = billingEnabled();
+  const out: { feature: string; label: string; credits: number }[] = [];
+  for (const [feature, action] of Object.entries(AI_FEATURE_ACTION)) {
+    out.push({
+      feature,
+      label: labelByAction.get(action) ?? action,
+      credits: charging ? await resolveAiCostCredits(feature) : 0,
+    });
+  }
+  return out;
 }
 
 /**

@@ -125,6 +125,7 @@ import {
 } from "../services/gmbReport.service";
 import { renderGmbReportPdf } from "../services/gmbReportPdf.service";
 import { checkGmbSchema } from "../services/gmbHealth.service";
+import { listGmbAiCosts } from "../services/billing.service";
 import { getReportSchedule, setReportSchedule } from "../services/gmbReportScheduler.service";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { assertCanSend, recordSend } from "../services/sendThrottle.service";
@@ -143,6 +144,16 @@ router.use(requireAuth, requireTenantScope, requirePermission(Permissions.GMB_MA
 router.get("/health", async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
     res.json({ success: true, data: await checkGmbSchema() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Per-action AI credit costs, so the customer UI can show "costs N credits"
+// before running an AI feature. Reflects the live Credit Engine pricing.
+router.get("/credit-costs", async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await listGmbAiCosts() });
   } catch (err) {
     next(err);
   }

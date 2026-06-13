@@ -34,6 +34,7 @@ export default function GmbPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [costs, setCosts] = useState<{ feature: string; label: string; credits: number }[]>([]);
 
   async function refresh() {
     try {
@@ -46,6 +47,14 @@ export default function GmbPage() {
 
   useEffect(() => {
     if (user) void refresh();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    api
+      .get<{ feature: string; label: string; credits: number }[]>("/api/v1/gmb/credit-costs")
+      .then(setCosts)
+      .catch(() => setCosts([]));
   }, [user]);
 
   async function generate(e: FormEvent<HTMLFormElement>) {
@@ -179,9 +188,27 @@ export default function GmbPage() {
               {TONES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
-          <button type="submit" disabled={busy} className="mt-5 w-full rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-            {busy ? "Generating..." : "Generate draft"}
-          </button>
+          {(() => {
+            const c = costs.find((x) => x.feature === "gmb_post_caption");
+            return (
+              <button type="submit" disabled={busy} className="mt-5 w-full rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                {busy ? "Generating..." : c && c.credits > 0 ? `Generate draft · ${c.credits} credit${c.credits === 1 ? "" : "s"}` : "Generate draft"}
+              </button>
+            );
+          })()}
+          {costs.length > 0 && (
+            <details className="mt-4 text-xs text-slate-500">
+              <summary className="cursor-pointer font-medium text-slate-600">AI credit costs</summary>
+              <ul className="mt-2 space-y-1">
+                {costs.map((c) => (
+                  <li key={c.feature} className="flex justify-between">
+                    <span>{c.label}</span>
+                    <span className="font-medium text-slate-700">{c.credits === 0 ? "free" : `${c.credits} cr`}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </form>
 
         <section className="rounded-md border border-slate-200 bg-white shadow-sm">
