@@ -12,9 +12,21 @@ import { UserRole } from "@nexaflow/shared";
 import { requireAuth, RequestWithAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import { getMonitorOverview, listLogs, recordLog } from "../services/googleApiMonitor.service";
+import { checkGmbSchema } from "../services/gmbHealth.service";
 
 const router = Router();
 router.use(requireAuth, requireRole(UserRole.SUPER_ADMIN));
+
+// GMB schema self-check — probes every GMB table so un-applied migrations (DB
+// behind the shipped Prisma client) are visible to the SuperAdmin at a glance,
+// rather than surfacing as scattered 500s on customer endpoints.
+router.get("/gmb-schema", async (_req: RequestWithAuth, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, data: await checkGmbSchema() });
+  } catch (err) {
+    next(err);
+  }
+});
 
 const overviewSchema = z.object({ tenantId: z.string().trim().max(64).optional() });
 

@@ -57,6 +57,7 @@ export default function GoogleMonitorPage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
+  const [schema, setSchema] = useState<{ ok: boolean; healthy: number; total: number; checks: { table: string; ok: boolean; error?: string }[] } | null>(null);
 
   async function refresh() {
     try {
@@ -68,6 +69,11 @@ export default function GoogleMonitorPage() {
       ]);
       setOverview(ov);
       setLogs(lg);
+      try {
+        setSchema(await api.get("/api/v1/admin/google-monitor/gmb-schema"));
+      } catch {
+        setSchema(null);
+      }
     } catch (e) {
       setErr(e instanceof ApiClientError ? e.message : "Unable to load monitor (Super Admin only).");
     }
@@ -91,6 +97,20 @@ export default function GoogleMonitorPage() {
             Connection health, token/sync status, rate limits and the raw Google Business Profile API log across the platform.
           </p>
         </div>
+        {schema && (
+          <span
+            title={
+              schema.ok
+                ? "All GMB tables reachable"
+                : schema.checks.filter((c) => !c.ok).map((c) => `${c.table}: ${c.error ?? "missing"}`).join("\n")
+            }
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              schema.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+            }`}
+          >
+            GMB schema {schema.healthy}/{schema.total} {schema.ok ? "✓" : "— migrations pending"}
+          </span>
+        )}
         <button onClick={() => void refresh()} className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Refresh</button>
       </div>
 
