@@ -250,12 +250,44 @@ export async function recordInsight(tenantId: string, input: RecordInsightInput)
   return toSafeInsight(row);
 }
 
+/** Sum raw metric rows into a single InsightMetrics (for period comparison). */
+function aggregateMetrics(rows: InsightMetrics[]): InsightMetrics {
+  const sums = zeroMetrics();
+  for (const row of rows) for (const k of METRIC_KEYS) sums[k] += row[k] ?? 0;
+  return sums;
+}
+
 export async function getInsightsSummary(tenantId: string, filter: InsightFilter = {}) {
   if (filter.locationId) await findLocationOrThrow(tenantId, filter.locationId);
   const rows = await prisma.gmbInsightSnapshot.findMany({
     where: { tenantId, ...periodWhere(filter) },
   });
-  return summarizeInsights(rows);
+  const summary = summarizeInsights(rows);
+
+  // Period-over-period comparison against the equal-length window immediately
+  // before [from, to] — only when an explicit, valid window is requested.
+  let comparison: InsightComparison | null = null;
+  if (filter.from && filter.to) {
+    const from = new Date(filter.from);
+    const to = new Date(filter.to);
+    const spanMs = to.getTime() - from.getTime();
+    if (Number.isFinite(spanMs) && spanMs > 0) {
+      const prevTo = new Date(from.getTime() - 1);
+      const prevFrom = new Date(from.getTime() - spanMs - 1);
+      const prevRows = await prisma.gmbInsightSnapshot.findMany({
+        where: {
+          tenantId,
+          ...(filter.locationId ? { locationId: filter.locationId } : {}),
+          periodStart: { gte: prevFrom, lte: prevTo },
+        },
+      });
+      if (prevRows.length > 0) {
+        comparison = compareInsightTotals(aggregateMetrics(rows), aggregateMetrics(prevRows));
+      }
+    }
+  }
+
+  return { ...summary, comparison };
 }
 
 export async function deleteInsight(tenantId: string, id: string) {

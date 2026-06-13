@@ -33,6 +33,20 @@ interface Insight {
   actionRate: number;
 }
 
+interface Delta {
+  current: number;
+  previous: number;
+  change: number;
+  changePercent: number;
+}
+
+interface Comparison {
+  totalViews: Delta;
+  totalSearches: Delta;
+  totalActions: Delta;
+  actionRate: Delta;
+}
+
 interface Summary {
   periods: number;
   totalViews: number;
@@ -41,6 +55,21 @@ interface Summary {
   actionRate: number;
   rangeStart: string | null;
   rangeEnd: string | null;
+  comparison: Comparison | null;
+}
+
+function Trend({ d }: { d?: Delta }) {
+  if (!d) return null;
+  const up = d.change > 0;
+  const flat = d.change === 0;
+  return (
+    <span
+      className={`mt-1 inline-block text-xs font-medium ${flat ? "text-slate-400" : up ? "text-emerald-600" : "text-red-600"}`}
+      title="vs previous period"
+    >
+      {flat ? "→" : up ? "▲" : "▼"} {d.changePercent > 0 ? "+" : ""}{d.changePercent}% vs prev
+    </span>
+  );
 }
 
 const toIso = (d: string) => (d ? new Date(d).toISOString() : undefined);
@@ -139,14 +168,17 @@ export default function GmbInsightsPage() {
           <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total views</p>
             <p className="mt-1 text-2xl font-semibold text-slate-950">{summary.totalViews}</p>
+            <Trend d={summary.comparison?.totalViews} />
           </div>
           <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total actions</p>
             <p className="mt-1 text-2xl font-semibold text-slate-950">{summary.totalActions}</p>
+            <Trend d={summary.comparison?.totalActions} />
           </div>
           <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Action rate</p>
             <p className="mt-1 text-2xl font-semibold text-slate-950">{Math.round(summary.actionRate * 100)}%</p>
+            <Trend d={summary.comparison?.actionRate} />
           </div>
           <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Periods</p>
