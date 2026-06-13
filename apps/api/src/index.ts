@@ -122,6 +122,10 @@ import {
   stopWabaTokenExpiryWorker,
 } from "./services/wabaTokenExpiry.service";
 import {
+  startGmbPostPublisherWorker,
+  stopGmbPostPublisherWorker,
+} from "./services/gmbPostPublisher.service";
+import {
   startKnowledgeBaseEmbeddingWorker,
   stopKnowledgeBaseEmbeddingWorker,
 } from "./services/knowledgeBaseEmbedding.service";
@@ -431,6 +435,7 @@ async function startWorkers(): Promise<void> {
   startContactRetentionWorker();
   await startDomainHealthWorker();
   await startAnalyticsReportWorker();
+  await startGmbPostPublisherWorker();
 }
 
 function stopWorkers(): void {
@@ -454,6 +459,7 @@ function stopWorkers(): void {
   stopContactRetentionWorker();
   stopDomainHealthWorker();
   stopAnalyticsReportWorker();
+  stopGmbPostPublisherWorker();
 }
 
 if (START_HTTP) {

@@ -25,6 +25,7 @@ export const QueueNames = {
   PLATFORM_MONITOR: "platform-monitor",
   DOMAIN_HEALTH: "domain-health",
   ANALYTICS_REPORTS: "analytics-reports",
+  GMB_POST_PUBLISHER: "gmb-post-publisher",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -56,6 +57,7 @@ interface WebhookDeliveryData {
 export type WebhookJobData = WebhookDeliveryData;
 
 export type WabaTokenExpiryJobData = { kind: "scan" };
+export type GmbPostPublisherJobData = { kind: "sweep" };
 export type KnowledgeBaseEmbeddingJobData =
   | { tenantId: string; entryId: string }
   | { kind: "embed-stale"; tenantId: string; limit: number };
@@ -118,6 +120,10 @@ export function getWebhookQueue(): Queue<WebhookJobData> {
 
 export function getWabaTokenExpiryQueue(): Queue<WabaTokenExpiryJobData> {
   return makeQueue<WabaTokenExpiryJobData>(QueueNames.WABA_TOKEN_EXPIRY);
+}
+
+export function getGmbPostPublisherQueue(): Queue<GmbPostPublisherJobData> {
+  return makeQueue<GmbPostPublisherJobData>(QueueNames.GMB_POST_PUBLISHER);
 }
 
 export function getLeadFollowUpQueue(): Queue<LeadFollowUpJobData> {
