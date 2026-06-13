@@ -12,7 +12,10 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "vps:smoke": "node scripts/vps-smoke-check.mjs",
+    "vps:schema-check": "node scripts/vps-schema-gap-check.mjs",
+    "vps:verify": "npm run vps:schema-check && npm run vps:smoke"
   },
   "keywords": [
     "whatsapp",
