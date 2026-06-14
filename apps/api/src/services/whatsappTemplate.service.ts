@@ -298,6 +298,102 @@ function mapMetaButton(raw: Record<string, unknown>): TemplateButton | null {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Inverse of mapMetaTemplate: build the Graph API "components" payload to
+// SUBMIT one of our templates to Meta for approval. Pure + testable.
+// ---------------------------------------------------------------------------
+
+export interface MetaTemplatePayload {
+  name: string;
+  language: string;
+  category: TemplateCategory;
+  components: Array<Record<string, unknown>>;
+}
+
+/** Map one of our TemplateButtons to Meta's button object. */
+function toMetaButton(b: TemplateButton): Record<string, unknown> {
+  switch (b.type) {
+    case "URL":
+      return { type: "URL", text: b.text, url: b.url };
+    case "PHONE_NUMBER":
+      return { type: "PHONE_NUMBER", text: b.text, phone_number: b.phoneNumber };
+    case "COPY_CODE":
+      return { type: "COPY_CODE", example: b.offerCode };
+    case "FLOW":
+      return { type: "FLOW", text: b.text, ...(b.flowId ? { flow_id: b.flowId } : {}) };
+    case "OTP":
+      return { type: "OTP", otp_type: b.otpType ?? "COPY_CODE", text: b.text };
+    case "CATALOG":
+      return { type: "CATALOG", text: b.text };
+    case "MPM":
+      return { type: "MPM", text: b.text };
+    case "ORDER_DETAILS":
+      return { type: "ORDER_DETAILS", text: b.text };
+    default:
+      return { type: "QUICK_REPLY", text: b.text };
+  }
+}
+
+export function buildMetaTemplatePayload(t: {
+  name: string;
+  language: string;
+  category: string;
+  headerType?: string | null;
+  headerText?: string | null;
+  headerMediaUrl?: string | null;
+  bodyText: string;
+  footerText?: string | null;
+  buttons?: unknown;
+  carousel?: unknown;
+}): MetaTemplatePayload {
+  const components: Array<Record<string, unknown>> = [];
+
+  const headerType = normalizeHeaderType(t.headerType);
+  if (headerType === "TEXT" && t.headerText) {
+    components.push({ type: "HEADER", format: "TEXT", text: t.headerText });
+  } else if (headerType !== "NONE" && headerType !== "TEXT") {
+    const h: Record<string, unknown> = { type: "HEADER", format: headerType };
+    if (t.headerMediaUrl) h.example = { header_handle: [t.headerMediaUrl] };
+    components.push(h);
+  }
+
+  components.push({ type: "BODY", text: t.bodyText });
+  if (t.footerText) components.push({ type: "FOOTER", text: t.footerText });
+
+  const buttons = Array.isArray(t.buttons) ? (t.buttons as TemplateButton[]) : [];
+  if (buttons.length) {
+    components.push({ type: "BUTTONS", buttons: buttons.map(toMetaButton) });
+  }
+
+  const carousel = Array.isArray(t.carousel) ? (t.carousel as CarouselCard[]) : [];
+  if (carousel.length) {
+    components.push({
+      type: "CAROUSEL",
+      cards: carousel.map((c) => {
+        const cardComponents: Array<Record<string, unknown>> = [];
+        const ht = normalizeHeaderType(c.headerType);
+        if (ht !== "NONE" && ht !== "TEXT") {
+          const h: Record<string, unknown> = { type: "HEADER", format: ht };
+          if (c.headerMediaUrl) h.example = { header_handle: [c.headerMediaUrl] };
+          cardComponents.push(h);
+        }
+        cardComponents.push({ type: "BODY", text: c.bodyText });
+        if (c.buttons?.length) {
+          cardComponents.push({ type: "BUTTONS", buttons: c.buttons.map(toMetaButton) });
+        }
+        return { components: cardComponents };
+      }),
+    });
+  }
+
+  return {
+    name: t.name,
+    language: t.language,
+    category: normalizeTemplateCategory(t.category),
+    components,
+  };
+}
+
 export function mapMetaTemplate(raw: unknown): MappedMetaTemplate {
   const t = (raw ?? {}) as Record<string, unknown>;
   const components = Array.isArray(t.components) ? (t.components as Array<Record<string, unknown>>) : [];

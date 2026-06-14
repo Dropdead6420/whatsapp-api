@@ -21,6 +21,7 @@ import {
   validateCarousel,
   mapMetaTemplate,
   assertTemplateContentPolicy,
+  buildMetaTemplatePayload,
 } from "../services/whatsappTemplate.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 
@@ -197,6 +198,85 @@ router.post(
       });
 
       res.json({ success: true, data: { synced: metaTemplates.length, created, updated } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Submit a draft template to Meta for approval. Builds the components payload,
+// POSTs it to {wabaId}/message_templates, then records the Meta template id +
+// SUBMITTED status (or stores the rejection reason on failure).
+// ---------------------------------------------------------------------------
+router.post(
+  "/:id/submit",
+  requirePermission(Permissions.TEMPLATE_SUBMIT),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const template = await prisma.whatsAppTemplate.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+      });
+      if (!template) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Template not found in tenant scope.");
+      }
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId! },
+        select: { wabaId: true, wabaAccessToken: true },
+      });
+      if (!tenant?.wabaId || !tenant?.wabaAccessToken) {
+        throw new ApiError(
+          ErrorCodes.BAD_REQUEST,
+          400,
+          "Connect your WhatsApp Business account (WABA ID + access token) before submitting templates.",
+        );
+      }
+      const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
+      if (!accessToken) {
+        throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "WhatsApp access token failed to decrypt.");
+      }
+
+      const payload = buildMetaTemplatePayload(template);
+      const url = `${META_GRAPH_BASE}/${tenant.wabaId}/message_templates`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        id?: string;
+        error?: { message?: string };
+      };
+
+      if (!response.ok) {
+        const message = data.error?.message ?? `Meta Graph API returned HTTP ${response.status}.`;
+        await prisma.whatsAppTemplate.update({
+          where: { id: template.id },
+          data: { approvalReason: message },
+        });
+        throw new ApiError(ErrorCodes.BAD_REQUEST, 502, message);
+      }
+
+      const updated = await prisma.whatsAppTemplate.update({
+        where: { id: template.id },
+        data: {
+          metaTemplateId: data.id ?? template.metaTemplateId,
+          status: TemplateStatus.SUBMITTED,
+          approvalReason: null,
+        },
+      });
+
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "UPDATE",
+        resource: "WhatsAppTemplate",
+        resourceId: template.id,
+        newValues: { submittedToMeta: true, metaTemplateId: data.id ?? null },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({ success: true, data: updated });
     } catch (err) {
       next(err);
     }

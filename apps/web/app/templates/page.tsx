@@ -281,6 +281,21 @@ export default function TemplatesPage() {
     setPredict(null);
   }
 
+  async function submitToMeta(templateId: string) {
+    setBusy(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      await api.post(`/api/v1/templates/${templateId}/submit`, {});
+      setNotice("Template submitted to Meta for approval.");
+      await refresh(templateId);
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Submit to Meta failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function runPredict() {
     if (!draft.bodyText.trim()) {
       setErr("Add a body before predicting approval.");
@@ -645,6 +660,16 @@ export default function TemplatesPage() {
                   )}
                 </div>
               </div>
+              {(selected.status === "DRAFT" || selected.status === "REJECTED") && (
+                <button
+                  type="button"
+                  onClick={() => void submitToMeta(selected.id)}
+                  disabled={busy}
+                  className="mt-3 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Submit to Meta for approval
+                </button>
+              )}
             </div>
           )}
         </section>

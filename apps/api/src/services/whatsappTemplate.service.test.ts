@@ -8,6 +8,7 @@ import {
   validateCarousel,
   mapMetaTemplate,
   assertTemplateContentPolicy,
+  buildMetaTemplatePayload,
 } from "./whatsappTemplate.service";
 
 describe("normalizeTemplateCategory", () => {
@@ -232,5 +233,54 @@ describe("assertTemplateContentPolicy", () => {
     expect(() =>
       assertTemplateContentPolicy({ bodyText: "Hi there", headerType: "TEXT", headerText: "{{1}} and {{2}}" }),
     ).toThrow(/at most 1 variable/i);
+  });
+});
+
+describe("buildMetaTemplatePayload", () => {
+  it("builds the Graph components payload for a standard template", () => {
+    const payload = buildMetaTemplatePayload({
+      name: "ramadan_sale",
+      language: "en_US",
+      category: "MARKETING",
+      headerType: "TEXT",
+      headerText: "Big news {{1}}",
+      bodyText: "Hi {{1}}, 20% off.",
+      footerText: "Reply STOP to opt out",
+      buttons: [
+        { type: "URL", text: "Shop", url: "https://x.com" },
+        { type: "PHONE_NUMBER", text: "Call", phoneNumber: "+15551234567" },
+      ],
+    });
+    expect(payload).toMatchObject({ name: "ramadan_sale", language: "en_US", category: "MARKETING" });
+    const types = payload.components.map((c) => c.type);
+    expect(types).toEqual(["HEADER", "BODY", "FOOTER", "BUTTONS"]);
+    const buttons = (payload.components.find((c) => c.type === "BUTTONS") as { buttons: Array<Record<string, unknown>> }).buttons;
+    expect(buttons[0]).toEqual({ type: "URL", text: "Shop", url: "https://x.com" });
+    expect(buttons[1]).toEqual({ type: "PHONE_NUMBER", text: "Call", phone_number: "+15551234567" });
+  });
+
+  it("maps OTP buttons and media headers, and omits NONE header", () => {
+    const otp = buildMetaTemplatePayload({
+      name: "otp",
+      language: "en",
+      category: "AUTHENTICATION",
+      headerType: "NONE",
+      bodyText: "{{1}} is your code.",
+      buttons: [{ type: "OTP", text: "Copy code", otpType: "ONE_TAP" }],
+    });
+    expect(otp.components.map((c) => c.type)).toEqual(["BODY", "BUTTONS"]);
+    const b = (otp.components[1] as { buttons: Array<Record<string, unknown>> }).buttons[0];
+    expect(b).toEqual({ type: "OTP", otp_type: "ONE_TAP", text: "Copy code" });
+
+    const media = buildMetaTemplatePayload({
+      name: "promo",
+      language: "en",
+      category: "MARKETING",
+      headerType: "IMAGE",
+      headerMediaUrl: "https://x.com/a.jpg",
+      bodyText: "See this",
+    });
+    const header = media.components[0] as Record<string, unknown>;
+    expect(header).toMatchObject({ type: "HEADER", format: "IMAGE", example: { header_handle: ["https://x.com/a.jpg"] } });
   });
 });
