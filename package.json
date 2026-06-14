@@ -15,7 +15,8 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "vps:smoke": "node scripts/vps-smoke-check.mjs",
     "vps:schema-check": "node scripts/vps-schema-gap-check.mjs",
-    "vps:verify": "npm run vps:schema-check && npm run vps:smoke"
+    "vps:verify": "npm run vps:schema-check && npm run vps:smoke",
+    "vps:redeploy": "bash scripts/vps-redeploy-no-build.sh"
   },
   "keywords": [
     "whatsapp",
