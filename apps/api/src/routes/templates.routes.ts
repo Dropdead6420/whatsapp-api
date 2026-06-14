@@ -13,18 +13,29 @@ import {
   predictTemplateApproval,
 } from "../services/ai.service";
 import { extractRequestMeta, logAudit } from "../services/audit.service";
+import {
+  normalizeHeaderType,
+  validateTemplateButtons,
+} from "../services/whatsappTemplate.service";
 
 const router = Router();
 router.use(requireAuth, requireTenantScope);
 
 const createSchema = z.object({
   name: z.string().min(1).max(120).regex(/^[a-z0-9_]+$/, "Template name must be lowercase letters, digits, or underscores"),
-  category: z.enum(["MARKETING", "OTP", "ACCOUNT_UPDATE"]),
+  // Meta's three buckets. OTP/ACCOUNT_UPDATE are legacy aliases mapped below.
+  category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION", "OTP", "ACCOUNT_UPDATE"]),
   language: z.string().min(2).max(10).default("en_US"),
+  headerType: z.enum(["NONE", "TEXT", "IMAGE", "VIDEO", "DOCUMENT"]).optional(),
   headerText: z.string().max(60).optional(),
+  headerMediaUrl: z.string().url().max(2000).optional(),
   bodyText: z.string().min(1).max(1024),
   footerText: z.string().max(60).optional(),
+  buttons: z.array(z.record(z.unknown())).max(10).optional(),
 });
+
+// Legacy category aliases → Meta buckets, so older callers keep working.
+const CATEGORY_ALIASES: Record<string, string> = { OTP: "AUTHENTICATION", ACCOUNT_UPDATE: "UTILITY" };
 
 router.get("/", async (req: RequestWithAuth, res: Response, next: NextFunction) => {
   try {
@@ -54,15 +65,20 @@ router.post(
           "Template with this name already exists.",
         );
       }
+      const buttons = validateTemplateButtons(body.buttons);
+      const headerType = normalizeHeaderType(body.headerType ?? (body.headerText ? "TEXT" : "NONE"));
       const template = await prisma.whatsAppTemplate.create({
         data: {
           tenantId: req.tenantId!,
           name: body.name,
-          category: body.category,
+          category: CATEGORY_ALIASES[body.category] ?? body.category,
           language: body.language,
-          headerText: body.headerText,
+          headerType,
+          headerText: headerType === "TEXT" ? body.headerText : null,
+          headerMediaUrl: headerType !== "NONE" && headerType !== "TEXT" ? body.headerMediaUrl ?? null : null,
           bodyText: body.bodyText,
           footerText: body.footerText,
+          buttons: buttons.length ? (buttons as unknown as object) : undefined,
           status: TemplateStatus.DRAFT,
           variants: [],
         },

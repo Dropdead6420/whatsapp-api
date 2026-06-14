@@ -1323,12 +1323,16 @@ model WhatsAppTemplate {
 
   name           String
   metaTemplateId String? // Meta's template ID
-  category       String // "MARKETING", "OTP", "ACCOUNT_UPDATE"
+  category       String // "MARKETING", "UTILITY", "AUTHENTICATION"
   language       String  @default("en")
 
+  headerType String? @default("NONE") // NONE | TEXT | IMAGE | VIDEO | DOCUMENT
   headerText String?
+  headerMediaUrl String? // sample media for non-text headers
   bodyText   String // Main message
   footerText String?
+  // Up to 10 typed buttons (Meta components): [{ type, text, url?, phoneNumber?, ... }]
+  buttons    Json?
 
   status         TemplateStatus @default(DRAFT)
   approvalReason String? // Why it was rejected/flagged
