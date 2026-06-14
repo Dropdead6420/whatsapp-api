@@ -79,6 +79,18 @@ describe("validateTemplateButtons", () => {
       ]),
     ).toThrow(/1 catalog/i);
   });
+
+  it("accepts an OTP button with otpType, defaulting unknown to COPY_CODE, ≤1 allowed", () => {
+    const out = validateTemplateButtons([{ type: "OTP", text: "Copy code", otpType: "one_tap" }]);
+    expect(out[0]).toEqual({ type: "OTP", text: "Copy code", otpType: "ONE_TAP" });
+    expect(validateTemplateButtons([{ type: "OTP", text: "Autofill", otpType: "bogus" }])[0].otpType).toBe("COPY_CODE");
+    expect(() =>
+      validateTemplateButtons([
+        { type: "OTP", text: "Copy code", otpType: "COPY_CODE" },
+        { type: "OTP", text: "Autofill", otpType: "ONE_TAP" },
+      ]),
+    ).toThrow(/1 otp/i);
+  });
 });
 
 describe("normalizeTemplateType", () => {

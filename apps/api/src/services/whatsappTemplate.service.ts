@@ -20,6 +20,10 @@ export type TemplateType = (typeof TEMPLATE_TYPES)[number];
 export const CATALOG_FORMATS = ["CATALOG_MESSAGE", "MPM"] as const;
 export type CatalogFormat = (typeof CATALOG_FORMATS)[number];
 
+// Authentication code-delivery methods (the OTP button's behaviour).
+export const OTP_TYPES = ["COPY_CODE", "ONE_TAP", "ZERO_TAP"] as const;
+export type OtpType = (typeof OTP_TYPES)[number];
+
 export const BUTTON_TYPES = [
   "QUICK_REPLY",
   "URL",
@@ -30,6 +34,7 @@ export const BUTTON_TYPES = [
   "CATALOG", // "View catalog" (Catalogue → Catalog Message)
   "MPM", // "View items" (Catalogue → Multi-Product Message)
   "ORDER_DETAILS", // "Review and Pay" (Order Details)
+  "OTP", // Authentication code-delivery button (carries otpType)
 ] as const;
 export type TemplateButtonType = (typeof BUTTON_TYPES)[number];
 
@@ -44,6 +49,7 @@ export interface TemplateButton {
   phoneNumber?: string;
   offerCode?: string;
   flowId?: string;
+  otpType?: OtpType;
 }
 
 export interface CarouselCard {
@@ -112,6 +118,13 @@ export function validateTemplateButtons(raw: unknown): TemplateButton[] {
     } else if (type === "FLOW") {
       const f = String(item?.flowId ?? "").trim();
       if (f) btn.flowId = f;
+    } else if (type === "OTP") {
+      // Authentication code-delivery button. otpType drives the behaviour;
+      // default to COPY_CODE (always supported). At most one per template.
+      const ot = String(item?.otpType ?? "COPY_CODE").trim().toUpperCase();
+      btn.otpType = (OTP_TYPES as readonly string[]).includes(ot) ? (ot as OtpType) : "COPY_CODE";
+      singles.OTP = (singles.OTP ?? 0) + 1;
+      if (singles.OTP > 1) return bad("Only 1 OTP button is allowed.");
     } else if (SINGLETON_TEXT_BUTTONS.includes(type)) {
       // CATALOG / MPM / ORDER_DETAILS — text-only, at most one per template.
       singles[type] = (singles[type] ?? 0) + 1;

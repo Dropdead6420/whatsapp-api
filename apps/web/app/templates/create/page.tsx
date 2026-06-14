@@ -30,7 +30,9 @@ type ButtonType =
   | "FLOW"
   | "CATALOG"
   | "MPM"
-  | "ORDER_DETAILS";
+  | "ORDER_DETAILS"
+  | "OTP";
+type OtpType = "COPY_CODE" | "ONE_TAP" | "ZERO_TAP";
 
 interface DraftButton {
   id: number;
@@ -40,6 +42,7 @@ interface DraftButton {
   phoneNumber?: string;
   offerCode?: string;
   flowId?: string;
+  otpType?: OtpType;
 }
 
 interface CarouselCardDraft {
@@ -57,6 +60,7 @@ function buttonToPayload(b: DraftButton): Record<string, unknown> {
   if (b.type === "PHONE_NUMBER") base.phoneNumber = b.phoneNumber?.trim();
   if (b.type === "COPY_CODE") base.offerCode = b.offerCode?.trim();
   if (b.type === "FLOW" && b.flowId?.trim()) base.flowId = b.flowId.trim();
+  if (b.type === "OTP") base.otpType = b.otpType ?? "COPY_CODE";
   return base;
 }
 
@@ -182,14 +186,27 @@ export default function CreateTemplatePage() {
   ]);
   const [activeCard, setActiveCard] = useState(0);
   const nextCardId = useRef(1);
+  // Authentication (OTP) composer state.
+  const [otpDelivery, setOtpDelivery] = useState<OtpType>("COPY_CODE");
+  const [otpButtonText, setOtpButtonText] = useState("Copy code");
+  const [addSecurity, setAddSecurity] = useState(true);
+  const [addExpiry, setAddExpiry] = useState(false);
+  const [expiryMinutes, setExpiryMinutes] = useState(5);
 
   // Per-type Step-2 layout: Catalogue and Order Details replace the header +
   // free-form buttons with a system-driven button; Carousel swaps the whole
-  // component area for a card builder; everything else uses the standard builder.
+  // component area for a card builder; Authentication is a fixed OTP composer;
+  // everything else uses the standard builder.
   const isCatalogue = templateType === "CATALOGUE";
   const isOrderDetails = templateType === "ORDER_DETAILS";
   const isCarousel = templateType === "CAROUSEL";
-  const isStandard = !isCatalogue && !isOrderDetails && !isCarousel;
+  const isAuth = templateType === "OTP";
+  const isStandard = !isCatalogue && !isOrderDetails && !isCarousel && !isAuth;
+
+  // Authentication body/footer are composed from the fixed OTP format.
+  const AUTH_BASE = "{{1}} is your verification code.";
+  const authBody = addSecurity ? `${AUTH_BASE} For your security, do not share this code.` : AUTH_BASE;
+  const authFooter = addExpiry ? `This code expires in ${expiryMinutes} minutes.` : "";
 
   const [btnMenuOpen, setBtnMenuOpen] = useState(false);
   const [cardBtnMenuOpen, setCardBtnMenuOpen] = useState(false);
@@ -357,8 +374,19 @@ export default function CreateTemplatePage() {
       ];
     if (isOrderDetails)
       return [{ id: -2, type: "ORDER_DETAILS", text: orderButtonText.trim() || "Review and Pay" }];
+    if (isAuth)
+      return otpDelivery === "ZERO_TAP"
+        ? []
+        : [
+            {
+              id: -3,
+              type: "OTP",
+              text: otpButtonText.trim() || (otpDelivery === "ONE_TAP" ? "Autofill" : "Copy code"),
+              otpType: otpDelivery,
+            },
+          ];
     return buttons;
-  }, [isCatalogue, isOrderDetails, catalogFormat, orderButtonText, buttons]);
+  }, [isCatalogue, isOrderDetails, isAuth, catalogFormat, orderButtonText, otpDelivery, otpButtonText, buttons]);
 
   // Clamp the active card index (it can dangle after a card is removed).
   const activeIdx = Math.min(activeCard, cards.length - 1);
@@ -370,7 +398,7 @@ export default function CreateTemplatePage() {
     const cleanName = name.trim();
     if (!/^[a-z0-9_]+$/.test(cleanName))
       return setErr("Template name must be lowercase letters, digits, or underscores.");
-    if (!bodyText.trim()) return setErr("Body text is required.");
+    if (!isAuth && !bodyText.trim()) return setErr("Body text is required.");
     // Header only applies to standard templates (Catalogue/Order Details have none).
     const effHeaderType: HeaderType = isStandard ? headerType : "NONE";
     if (isStandard) {
@@ -416,8 +444,12 @@ export default function CreateTemplatePage() {
           effHeaderType !== "NONE" && effHeaderType !== "TEXT" && headerMediaUrl.trim()
             ? headerMediaUrl.trim()
             : undefined,
-        bodyText: bodyText.trim(),
-        footerText: isCarousel ? undefined : footerText.trim() || undefined,
+        bodyText: isAuth ? authBody : bodyText.trim(),
+        footerText: isAuth
+          ? authFooter || undefined
+          : isCarousel
+            ? undefined
+            : footerText.trim() || undefined,
         buttons: isCarousel ? undefined : payloadButtons.length ? payloadButtons : undefined,
         carousel: carouselPayload && carouselPayload.length ? carouselPayload : undefined,
       });
@@ -577,7 +609,8 @@ export default function CreateTemplatePage() {
             </div>
             )}
 
-            {/* Body */}
+            {/* Body (hidden for authentication — body is the fixed OTP format) */}
+            {!isAuth && (
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-700">Body</span>
@@ -607,6 +640,91 @@ export default function CreateTemplatePage() {
                 {bodyText.length} / 1024
               </span>
             </div>
+            )}
+
+            {/* Authentication (OTP) composer */}
+            {isAuth && (
+              <div className="space-y-4">
+                <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
+                  <span className="text-xs font-semibold text-slate-700">Message body</span>
+                  <p className="mt-1 rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-500">
+                    💡 Authentication bodies are fixed by WhatsApp. Your code is delivered as the{" "}
+                    <span className="font-mono">{`{{1}}`}</span> variable.
+                  </p>
+                  <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
+                    {authBody}
+                  </div>
+                </div>
+
+                <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
+                  <span className="text-xs font-semibold text-slate-700">Code delivery</span>
+                  <div className="mt-2 space-y-2">
+                    {[
+                      { id: "COPY_CODE" as OtpType, label: "Copy code", desc: "Customer taps to copy the code, then pastes it into your app." },
+                      { id: "ONE_TAP" as OtpType, label: "One-tap autofill", desc: "Customer taps once to autofill the code (requires app signature)." },
+                      { id: "ZERO_TAP" as OtpType, label: "Zero-tap", desc: "Code is delivered automatically, no button (requires app signature)." },
+                    ].map((o) => (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => {
+                          setOtpDelivery(o.id);
+                          if (o.id === "COPY_CODE") setOtpButtonText("Copy code");
+                          if (o.id === "ONE_TAP") setOtpButtonText("Autofill");
+                        }}
+                        className={`flex w-full items-start gap-2 rounded-lg border p-2.5 text-left transition ${
+                          otpDelivery === o.id ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500" : "border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        <span className={`mt-0.5 grid h-4 w-4 place-items-center rounded-full border ${otpDelivery === o.id ? "border-emerald-600" : "border-slate-300"}`}>
+                          {otpDelivery === o.id && <span className="h-2 w-2 rounded-full bg-emerald-600" />}
+                        </span>
+                        <span className="flex-1">
+                          <span className="block text-sm font-medium text-slate-800">{o.label}</span>
+                          <span className="mt-0.5 block text-[11px] text-slate-500">{o.desc}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {otpDelivery !== "ZERO_TAP" && (
+                    <label className="mt-2 block text-[11px] font-medium text-slate-600">
+                      Button text
+                      <input
+                        maxLength={25}
+                        value={otpButtonText}
+                        onChange={(e) => setOtpButtonText(e.target.value)}
+                        className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3 space-y-2">
+                  <label className="flex items-center gap-2 text-xs text-slate-700">
+                    <input type="checkbox" checked={addSecurity} onChange={(e) => setAddSecurity(e.target.checked)} />
+                    Add security recommendation
+                    <span className="text-[10px] text-slate-400">(&quot;…do not share this code.&quot;)</span>
+                  </label>
+                  <label className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
+                    <input type="checkbox" checked={addExpiry} onChange={(e) => setAddExpiry(e.target.checked)} />
+                    Add expiry time for the code
+                    {addExpiry && (
+                      <span className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={1}
+                          max={90}
+                          value={expiryMinutes}
+                          onChange={(e) => setExpiryMinutes(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
+                          className="w-16 rounded border border-slate-200 px-2 py-1 text-xs focus:border-emerald-500 focus:outline-none"
+                        />
+                        <span className="text-[10px] text-slate-400">minutes</span>
+                      </span>
+                    )}
+                  </label>
+                </div>
+              </div>
+            )}
 
             {/* Carousel cards */}
             {isCarousel && card && (
@@ -781,8 +899,8 @@ export default function CreateTemplatePage() {
               </div>
             )}
 
-            {/* Footer (hidden for carousel) */}
-            {!isCarousel && (
+            {/* Footer (hidden for carousel + authentication) */}
+            {!isCarousel && !isAuth && (
             <label className="block text-xs font-medium text-slate-700">
               Footer <span className="font-normal text-slate-400">(optional)</span>
               <input
@@ -949,7 +1067,7 @@ export default function CreateTemplatePage() {
             )}
 
             {/* Sample values for placeholders → drives the preview */}
-            {allPlaceholders.length > 0 && (
+            {!isAuth && allPlaceholders.length > 0 && (
               <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
                 <span className="text-xs font-semibold text-slate-700">Sample values</span>
                 <p className="text-[10px] text-slate-400">
@@ -995,8 +1113,8 @@ export default function CreateTemplatePage() {
             <PhonePreview
               headerType={isStandard ? headerType : "NONE"}
               headerText={headerText}
-              bodyHtml={renderWhatsApp(bodyText, samples)}
-              footerText={isCarousel ? "" : footerText}
+              bodyHtml={renderWhatsApp(isAuth ? authBody : bodyText, samples)}
+              footerText={isAuth ? authFooter : isCarousel ? "" : footerText}
               buttons={isCarousel ? [] : previewButtons}
               cards={isCarousel ? cards : undefined}
             />
@@ -1240,6 +1358,7 @@ function PhonePreview({
                 {b.type === "FLOW" && "➡️ "}
                 {(b.type === "CATALOG" || b.type === "MPM") && "🛍️ "}
                 {b.type === "ORDER_DETAILS" && "🧾 "}
+                {b.type === "OTP" && "🔑 "}
                 {b.text || "Button"}
               </div>
             ))}
