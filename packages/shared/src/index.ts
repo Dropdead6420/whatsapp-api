@@ -251,7 +251,7 @@ export interface WhatsAppTemplate {
   tenantId: string;
   name: string;
   metaTemplateId?: string;
-  category: "MARKETING" | "OTP" | "ACCOUNT_UPDATE";
+  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
   language: string;
   headerText?: string;
   bodyText: string;

@@ -12,9 +12,15 @@ import { requirePermission } from "../middleware/rbac";
 const router = Router();
 router.use(requireAuth, requireTenantScope);
 
+const templateCategorySchema = z.preprocess((value) => {
+  if (value === "OTP") return "AUTHENTICATION";
+  if (value === "ACCOUNT_UPDATE") return "UTILITY";
+  return value;
+}, z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]));
+
 const createSchema = z.object({
   name: z.string().min(1).max(120).regex(/^[a-z0-9_]+$/, "Template name must be lowercase letters, digits, or underscores"),
-  category: z.enum(["MARKETING", "OTP", "ACCOUNT_UPDATE"]),
+  category: templateCategorySchema,
   language: z.string().min(2).max(10).default("en_US"),
   headerText: z.string().max(60).optional(),
   bodyText: z.string().min(1).max(1024),

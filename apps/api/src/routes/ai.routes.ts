@@ -372,6 +372,12 @@ router.post(
 // Creates a draft WhatsApp template + a SCHEDULED Campaign in one atomic step.
 // ----------------------------------------------------------------------------
 
+const templateCategorySchema = z.preprocess((value) => {
+  if (value === "OTP") return "AUTHENTICATION";
+  if (value === "ACCOUNT_UPDATE") return "UTILITY";
+  return value;
+}, z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]));
+
 const launchSchema = z.object({
   name: z.string().min(1).max(120),
   goal: z.string().max(600).optional(),
@@ -388,7 +394,7 @@ const launchSchema = z.object({
     hasEmail: z.boolean().optional(),
   }),
   scheduledFor: z.string().datetime().optional(),
-  category: z.enum(["MARKETING", "OTP", "ACCOUNT_UPDATE"]).default("MARKETING"),
+  category: templateCategorySchema.default("MARKETING"),
   language: z.string().min(2).max(10).default("en_US"),
   followUpSequence: z
     .array(

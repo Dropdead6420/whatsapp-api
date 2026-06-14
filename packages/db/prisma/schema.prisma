@@ -442,7 +442,7 @@ model WhatsAppTemplate {
   
   name                     String
   metaTemplateId           String?          // Meta's template ID
-  category                 String           // "MARKETING", "OTP", "ACCOUNT_UPDATE"
+  category                 String           // "MARKETING", "UTILITY", "AUTHENTICATION"
   language                 String           @default("en")
   
   headerText               String?
