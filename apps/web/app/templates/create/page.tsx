@@ -375,16 +375,15 @@ export default function CreateTemplatePage() {
     if (isOrderDetails)
       return [{ id: -2, type: "ORDER_DETAILS", text: orderButtonText.trim() || "Review and Pay" }];
     if (isAuth)
-      return otpDelivery === "ZERO_TAP"
-        ? []
-        : [
-            {
-              id: -3,
-              type: "OTP",
-              text: otpButtonText.trim() || (otpDelivery === "ONE_TAP" ? "Autofill" : "Copy code"),
-              otpType: otpDelivery,
-            },
-          ];
+      // A button is always sent — even zero-tap keeps it as the backup method.
+      return [
+        {
+          id: -3,
+          type: "OTP",
+          text: otpButtonText.trim() || (otpDelivery === "ONE_TAP" ? "Autofill" : "Copy code"),
+          otpType: otpDelivery,
+        },
+      ];
     return buttons;
   }, [isCatalogue, isOrderDetails, isAuth, catalogFormat, orderButtonText, otpDelivery, otpButtonText, buttons]);
 
@@ -642,35 +641,28 @@ export default function CreateTemplatePage() {
             </div>
             )}
 
-            {/* Authentication (OTP) composer */}
+            {/* Authentication (OTP) composer — mirrors Meta's auth template flow */}
             {isAuth && (
-              <div className="space-y-4">
-                <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
-                  <span className="text-xs font-semibold text-slate-700">Message body</span>
-                  <p className="mt-1 rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-500">
-                    💡 Authentication bodies are fixed by WhatsApp. Your code is delivered as the{" "}
-                    <span className="font-mono">{`{{1}}`}</span> variable.
+              <div className="space-y-5">
+                {/* Code delivery setup */}
+                <div>
+                  <span className="text-sm font-semibold text-slate-800">Code delivery setup</span>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Choose how customers send the code from WhatsApp to your app. Edits to this section won&apos;t
+                    require review or count towards edit limits.
                   </p>
-                  <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700">
-                    {authBody}
-                  </div>
-                </div>
-
-                <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
-                  <span className="text-xs font-semibold text-slate-700">Code delivery</span>
                   <div className="mt-2 space-y-2">
                     {[
-                      { id: "COPY_CODE" as OtpType, label: "Copy code", desc: "Customer taps to copy the code, then pastes it into your app." },
-                      { id: "ONE_TAP" as OtpType, label: "One-tap autofill", desc: "Customer taps once to autofill the code (requires app signature)." },
-                      { id: "ZERO_TAP" as OtpType, label: "Zero-tap", desc: "Code is delivered automatically, no button (requires app signature)." },
+                      { id: "COPY_CODE" as OtpType, label: "Copy Code", desc: "Basic authentication with quick setup. Your customers copy and paste the code into your app." },
+                      { id: "ONE_TAP" as OtpType, label: "One-tap autofill", desc: "Customer taps once to autofill the code (requires your app signature)." },
+                      { id: "ZERO_TAP" as OtpType, label: "Zero-tap", desc: "Code is filled automatically; a button is kept as a backup (requires your app signature)." },
                     ].map((o) => (
                       <button
                         key={o.id}
                         type="button"
                         onClick={() => {
                           setOtpDelivery(o.id);
-                          if (o.id === "COPY_CODE") setOtpButtonText("Copy code");
-                          if (o.id === "ONE_TAP") setOtpButtonText("Autofill");
+                          setOtpButtonText(o.id === "ONE_TAP" ? "Autofill" : "Copy code");
                         }}
                         className={`flex w-full items-start gap-2 rounded-lg border p-2.5 text-left transition ${
                           otpDelivery === o.id ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500" : "border-slate-200 hover:border-slate-300"
@@ -686,41 +678,55 @@ export default function CreateTemplatePage() {
                       </button>
                     ))}
                   </div>
-                  {otpDelivery !== "ZERO_TAP" && (
-                    <label className="mt-2 block text-[11px] font-medium text-slate-600">
-                      Button text
-                      <input
-                        maxLength={25}
-                        value={otpButtonText}
-                        onChange={(e) => setOtpButtonText(e.target.value)}
-                        className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
-                      />
-                    </label>
-                  )}
                 </div>
 
-                <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3 space-y-2">
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input type="checkbox" checked={addSecurity} onChange={(e) => setAddSecurity(e.target.checked)} />
-                    Add security recommendation
-                    <span className="text-[10px] text-slate-400">(&quot;…do not share this code.&quot;)</span>
-                  </label>
-                  <label className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
-                    <input type="checkbox" checked={addExpiry} onChange={(e) => setAddExpiry(e.target.checked)} />
-                    Add expiry time for the code
-                    {addExpiry && (
-                      <span className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          min={1}
-                          max={90}
-                          value={expiryMinutes}
-                          onChange={(e) => setExpiryMinutes(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
-                          className="w-16 rounded border border-slate-200 px-2 py-1 text-xs focus:border-emerald-500 focus:outline-none"
-                        />
-                        <span className="text-[10px] text-slate-400">minutes</span>
-                      </span>
-                    )}
+                {/* Content */}
+                <div>
+                  <span className="text-sm font-semibold text-slate-800">Content</span>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Content for authentication message templates can&apos;t be edited. You can add additional
+                    content from the options below.
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    <label className="flex items-center gap-2 text-xs text-slate-700">
+                      <input type="checkbox" checked={addSecurity} onChange={(e) => setAddSecurity(e.target.checked)} />
+                      Add security recommendation
+                    </label>
+                    <label className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
+                      <input type="checkbox" checked={addExpiry} onChange={(e) => setAddExpiry(e.target.checked)} />
+                      Add expiry time for the code
+                      {addExpiry && (
+                        <span className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={1}
+                            max={90}
+                            value={expiryMinutes}
+                            onChange={(e) => setExpiryMinutes(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
+                            className="w-16 rounded border border-slate-200 px-2 py-1 text-xs focus:border-emerald-500 focus:outline-none"
+                          />
+                          <span className="text-[10px] text-slate-400">minutes</span>
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                </div>
+
+                {/* Buttons */}
+                <div>
+                  <span className="text-sm font-semibold text-slate-800">Buttons</span>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    You can customise the button text for both auto-fill and copy code. Even when zero-tap is
+                    turned on, buttons are still needed for the backup code delivery method.
+                  </p>
+                  <label className="mt-2 block text-[11px] font-medium text-slate-600">
+                    {otpDelivery === "ONE_TAP" ? "Auto-fill" : "Copy code"}
+                    <input
+                      maxLength={25}
+                      value={otpButtonText}
+                      onChange={(e) => setOtpButtonText(e.target.value)}
+                      className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                    />
                   </label>
                 </div>
               </div>
