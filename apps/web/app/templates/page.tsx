@@ -8,6 +8,7 @@
 // operators stop guessing whether their template will pass review.
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "../../src/hooks/useAuth";
 import { DashboardShell } from "../../src/components/DashboardShell";
 import { api, ApiClientError } from "../../src/lib/api";
@@ -306,10 +307,16 @@ export default function TemplatesPage() {
           <button
             type="button"
             onClick={newTemplate}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            + Quick create
+          </button>
+          <Link
+            href="/templates/create"
             className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow hover:bg-emerald-700"
           >
-            + New template
-          </button>
+            Create Template
+          </Link>
         </div>
       </header>
 
