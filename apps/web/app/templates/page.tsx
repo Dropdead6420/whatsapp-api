@@ -281,6 +281,28 @@ export default function TemplatesPage() {
     setPredict(null);
   }
 
+  async function deleteTemplate(templateId: string) {
+    if (
+      !window.confirm(
+        "Delete this template? If it was submitted, it will also be removed from Meta.",
+      )
+    )
+      return;
+    setBusy(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      await api.delete(`/api/v1/templates/${templateId}`);
+      setNotice("Template deleted.");
+      setSelectedId(null);
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Delete failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitToMeta(templateId: string) {
     setBusy(true);
     setErr(null);
@@ -660,16 +682,26 @@ export default function TemplatesPage() {
                   )}
                 </div>
               </div>
-              {(selected.status === "DRAFT" || selected.status === "REJECTED") && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(selected.status === "DRAFT" || selected.status === "REJECTED") && (
+                  <button
+                    type="button"
+                    onClick={() => void submitToMeta(selected.id)}
+                    disabled={busy}
+                    className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Submit to Meta for approval
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => void submitToMeta(selected.id)}
+                  onClick={() => void deleteTemplate(selected.id)}
                   disabled={busy}
-                  className="mt-3 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                 >
-                  Submit to Meta for approval
+                  Delete template
                 </button>
-              )}
+              </div>
             </div>
           )}
         </section>

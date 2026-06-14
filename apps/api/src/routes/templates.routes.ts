@@ -284,6 +284,62 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// Delete a template — removes it from Meta (by name, if it was pushed there
+// and the WABA is connected) and then deletes the local row.
+// ---------------------------------------------------------------------------
+router.delete(
+  "/:id",
+  requirePermission(Permissions.TEMPLATE_SUBMIT),
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const template = await prisma.whatsAppTemplate.findFirst({
+        where: { id: req.params.id, tenantId: req.tenantId },
+      });
+      if (!template) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Template not found in tenant scope.");
+      }
+
+      // If it reached Meta and the WABA is connected, delete it there first so
+      // we don't orphan an approved template the tenant can no longer see.
+      if (template.metaTemplateId) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: req.tenantId! },
+          select: { wabaId: true, wabaAccessToken: true },
+        });
+        const accessToken = tenant?.wabaAccessToken ? decryptTokenIfNeeded(tenant.wabaAccessToken) : null;
+        if (tenant?.wabaId && accessToken) {
+          const url = `${META_GRAPH_BASE}/${tenant.wabaId}/message_templates?name=${encodeURIComponent(template.name)}`;
+          const response = await fetch(url, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!response.ok) {
+            const data = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+            throw new ApiError(
+              ErrorCodes.BAD_REQUEST,
+              502,
+              data.error?.message ?? `Meta template delete failed (HTTP ${response.status}).`,
+            );
+          }
+        }
+      }
+
+      await prisma.whatsAppTemplate.delete({ where: { id: template.id } });
+      await logAudit({
+        tenantId: req.tenantId!,
+        userId: req.userId!,
+        action: "DELETE",
+        resource: "WhatsAppTemplate",
+        resourceId: template.id,
+        oldValues: { name: template.name, status: template.status },
+        ...extractRequestMeta(req),
+      });
+
+      res.json({ success: true, data: { id: template.id } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // T-055: AI-assisted template generation + approval prediction.
 //
 // /ai/generate    -> stateless. Returns up to 3 variants the operator
