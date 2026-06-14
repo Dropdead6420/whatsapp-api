@@ -727,8 +727,10 @@ export interface MetaWebhookEntry {
   id: string;
   changes: Array<{
     value: {
-      messaging_product: "whatsapp";
-      metadata: { display_phone_number: string; phone_number_id: string };
+      // Present for message/status events; absent for WABA-level events
+      // (e.g. template status updates), so both are optional.
+      messaging_product?: "whatsapp";
+      metadata?: { display_phone_number: string; phone_number_id: string };
       contacts?: Array<{ profile: { name: string }; wa_id: string }>;
       messages?: Array<{
         from: string;
@@ -743,8 +745,14 @@ export interface MetaWebhookEntry {
         timestamp: string;
         recipient_id: string;
       }>;
+      // Template status updates (field === "message_template_status_update").
+      message_template_id?: string | number;
+      message_template_name?: string;
+      message_template_language?: string;
+      event?: string;
+      reason?: string | null;
     };
-    field: "messages";
+    field: "messages" | "message_template_status_update";
   }>;
 }
 

@@ -254,8 +254,8 @@ export interface MappedMetaTemplate {
   buttons: TemplateButton[];
 }
 
-/** Map Meta's template status string to our TemplateStatus value. */
-function mapMetaStatus(value: unknown): MappedMetaTemplate["status"] {
+/** Map Meta's template status/event string to our TemplateStatus value. */
+export function mapMetaTemplateStatus(value: unknown): MappedMetaTemplate["status"] {
   const v = String(value ?? "").trim().toUpperCase();
   if (v === "APPROVED") return "APPROVED";
   if (v === "REJECTED") return "REJECTED";
@@ -456,7 +456,7 @@ export function mapMetaTemplate(raw: unknown): MappedMetaTemplate {
     language: String(t.language ?? "en_US").trim() || "en_US",
     category,
     templateType,
-    status: mapMetaStatus(t.status),
+    status: mapMetaTemplateStatus(t.status),
     headerType,
     headerText,
     headerMediaUrl,

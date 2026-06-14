@@ -9,6 +9,7 @@ import {
   mapMetaTemplate,
   assertTemplateContentPolicy,
   buildMetaTemplatePayload,
+  mapMetaTemplateStatus,
 } from "./whatsappTemplate.service";
 
 describe("normalizeTemplateCategory", () => {
@@ -310,5 +311,16 @@ describe("buildMetaTemplatePayload", () => {
     });
     const body = payload.components.find((c) => c.type === "BODY") as Record<string, unknown>;
     expect(body.example).toBeUndefined();
+  });
+});
+
+describe("mapMetaTemplateStatus", () => {
+  it("maps Meta status/webhook events to our TemplateStatus", () => {
+    expect(mapMetaTemplateStatus("APPROVED")).toBe("APPROVED");
+    expect(mapMetaTemplateStatus("REJECTED")).toBe("REJECTED");
+    expect(mapMetaTemplateStatus("PENDING")).toBe("SUBMITTED");
+    expect(mapMetaTemplateStatus("PAUSED")).toBe("FLAGGED");
+    expect(mapMetaTemplateStatus("FLAGGED")).toBe("FLAGGED");
+    expect(mapMetaTemplateStatus("anything-else")).toBe("DRAFT");
   });
 });

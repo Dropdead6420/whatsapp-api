@@ -8,7 +8,9 @@ import {
   MessageStatus,
   MetaWebhookBody,
   Permissions,
+  TemplateStatus,
 } from "@nexaflow/shared";
+import { mapMetaTemplateStatus } from "../services/whatsappTemplate.service";
 import {
   requireAuth,
   requireTenantScope,
@@ -89,6 +91,31 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
 
     for (const entry of body.entry) {
       for (const change of entry.changes ?? []) {
+        // Template approval/rejection updates are WABA-level (no phone number).
+        // Resolve the tenant by the WABA id (entry.id) and sync the local row.
+        if (change.field === "message_template_status_update") {
+          const v = change.value;
+          const tmplTenant = await prisma.tenant.findFirst({ where: { wabaId: entry.id } });
+          if (tmplTenant) {
+            const metaId = v.message_template_id != null ? String(v.message_template_id) : null;
+            const tmpl = await prisma.whatsAppTemplate.findFirst({
+              where: metaId
+                ? { tenantId: tmplTenant.id, metaTemplateId: metaId }
+                : { tenantId: tmplTenant.id, name: v.message_template_name ?? "__none__" },
+            });
+            if (tmpl) {
+              await prisma.whatsAppTemplate.update({
+                where: { id: tmpl.id },
+                data: {
+                  status: mapMetaTemplateStatus(v.event) as TemplateStatus,
+                  approvalReason: v.reason ?? null,
+                },
+              });
+            }
+          }
+          continue;
+        }
+
         const phoneNumberId = change.value?.metadata?.phone_number_id;
         if (!phoneNumberId) continue;
 
