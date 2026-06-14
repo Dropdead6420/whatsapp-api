@@ -1326,6 +1326,12 @@ model WhatsAppTemplate {
   category       String // "MARKETING", "UTILITY", "AUTHENTICATION"
   language       String  @default("en")
 
+  // Composer sub-type within the category (drives which builder/preview is used):
+  // CUSTOM | CATALOGUE | FLOWS | ORDER_DETAILS | CAROUSEL | OTP
+  templateType  String? @default("CUSTOM")
+  // Catalogue templates only: CATALOG_MESSAGE | MPM (multi-product message)
+  catalogFormat String?
+
   headerType String? @default("NONE") // NONE | TEXT | IMAGE | VIDEO | DOCUMENT
   headerText String?
   headerMediaUrl String? // sample media for non-text headers
@@ -1333,6 +1339,8 @@ model WhatsAppTemplate {
   footerText String?
   // Up to 10 typed buttons (Meta components): [{ type, text, url?, phoneNumber?, ... }]
   buttons    Json?
+  // Carousel templates only: up to 10 cards, each { headerType, headerMediaUrl?, bodyText, buttons[] }
+  carousel   Json?
 
   status         TemplateStatus @default(DRAFT)
   approvalReason String? // Why it was rejected/flagged

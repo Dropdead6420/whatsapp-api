@@ -22,7 +22,15 @@ import { api, ApiClientError } from "../../../src/lib/api";
 
 type Category = "MARKETING" | "UTILITY" | "AUTHENTICATION";
 type HeaderType = "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT";
-type ButtonType = "QUICK_REPLY" | "URL" | "PHONE_NUMBER" | "COPY_CODE" | "FLOW";
+type ButtonType =
+  | "QUICK_REPLY"
+  | "URL"
+  | "PHONE_NUMBER"
+  | "COPY_CODE"
+  | "FLOW"
+  | "CATALOG"
+  | "MPM"
+  | "ORDER_DETAILS";
 
 interface DraftButton {
   id: number;
@@ -44,16 +52,16 @@ const TEMPLATE_TYPES: Record<
 > = {
   MARKETING: [
     { id: "CUSTOM", label: "Custom", desc: "Promotions, offers and announcements with optional media and buttons.", enabled: true },
-    { id: "CATALOGUE", label: "Catalogue", desc: "Showcase products from your catalogue.", enabled: false },
-    { id: "FLOWS", label: "Flows", desc: "Collect responses with an interactive flow.", enabled: false },
-    { id: "ORDER_DETAILS", label: "Order Details", desc: "Send an itemised order with payment.", enabled: false },
+    { id: "CATALOGUE", label: "Catalogue", desc: "Showcase products from your catalogue.", enabled: true },
+    { id: "FLOWS", label: "Flows", desc: "Collect responses with an interactive flow.", enabled: true },
+    { id: "ORDER_DETAILS", label: "Order Details", desc: "Send an itemised order with payment.", enabled: true },
     { id: "CAROUSEL", label: "Carousel", desc: "Up to 10 swipeable cards.", enabled: false },
   ],
   UTILITY: [
     { id: "CUSTOM", label: "Custom", desc: "Order updates, alerts and account notifications.", enabled: true },
-    { id: "FLOWS", label: "Flows", desc: "Interactive flow for utility journeys.", enabled: false },
+    { id: "FLOWS", label: "Flows", desc: "Interactive flow for utility journeys.", enabled: true },
     { id: "ORDER_STATUS", label: "Order Status", desc: "Structured order status update.", enabled: false },
-    { id: "ORDER_DETAILS", label: "Order Details", desc: "Itemised order details.", enabled: false },
+    { id: "ORDER_DETAILS", label: "Order Details", desc: "Itemised order details.", enabled: true },
   ],
   AUTHENTICATION: [
     { id: "OTP", label: "One-time passcode", desc: "Deliver a verification code with a copy-code button.", enabled: true },
@@ -148,6 +156,15 @@ export default function CreateTemplatePage() {
   const [footerText, setFooterText] = useState("");
   const [buttons, setButtons] = useState<DraftButton[]>([]);
   const [samples, setSamples] = useState<Record<string, string>>({});
+  const [catalogFormat, setCatalogFormat] = useState<"CATALOG_MESSAGE" | "MPM">("CATALOG_MESSAGE");
+  const [orderButtonText, setOrderButtonText] = useState("Review and Pay");
+
+  // Per-type Step-2 layout: Catalogue and Order Details replace the header +
+  // free-form buttons with a system-driven button; everything else uses the
+  // standard component builder.
+  const isCatalogue = templateType === "CATALOGUE";
+  const isOrderDetails = templateType === "ORDER_DETAILS";
+  const isStandard = !isCatalogue && !isOrderDetails;
 
   const [btnMenuOpen, setBtnMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -232,6 +249,22 @@ export default function CreateTemplatePage() {
     [headerText, bodyText],
   );
 
+  // Buttons as they appear on the message: Catalogue/Order Details synthesize a
+  // single system button; standard templates use the builder's buttons.
+  const previewButtons = useMemo<DraftButton[]>(() => {
+    if (isCatalogue)
+      return [
+        {
+          id: -1,
+          type: catalogFormat === "MPM" ? "MPM" : "CATALOG",
+          text: catalogFormat === "MPM" ? "View items" : "View catalog",
+        },
+      ];
+    if (isOrderDetails)
+      return [{ id: -2, type: "ORDER_DETAILS", text: orderButtonText.trim() || "Review and Pay" }];
+    return buttons;
+  }, [isCatalogue, isOrderDetails, catalogFormat, orderButtonText, buttons]);
+
   // --- Submit ---------------------------------------------------------------
   async function submit() {
     setErr(null);
@@ -239,12 +272,16 @@ export default function CreateTemplatePage() {
     if (!/^[a-z0-9_]+$/.test(cleanName))
       return setErr("Template name must be lowercase letters, digits, or underscores.");
     if (!bodyText.trim()) return setErr("Body text is required.");
-    if (headerType === "TEXT" && !headerText.trim())
-      return setErr("Add header text or set the header to None.");
-    if (headerType !== "NONE" && headerType !== "TEXT" && headerMediaUrl && !/^https?:\/\/\S+$/.test(headerMediaUrl))
-      return setErr("Header media must be a valid http(s) URL (or leave it blank).");
+    // Header only applies to standard templates (Catalogue/Order Details have none).
+    const effHeaderType: HeaderType = isStandard ? headerType : "NONE";
+    if (isStandard) {
+      if (headerType === "TEXT" && !headerText.trim())
+        return setErr("Add header text or set the header to None.");
+      if (headerType !== "NONE" && headerType !== "TEXT" && headerMediaUrl && !/^https?:\/\/\S+$/.test(headerMediaUrl))
+        return setErr("Header media must be a valid http(s) URL (or leave it blank).");
+    }
 
-    const payloadButtons = buttons.map((b) => {
+    const payloadButtons = previewButtons.map((b) => {
       const base: Record<string, unknown> = { type: b.type, text: b.text.trim() };
       if (b.type === "URL") base.url = b.url?.trim();
       if (b.type === "PHONE_NUMBER") base.phoneNumber = b.phoneNumber?.trim();
@@ -258,11 +295,13 @@ export default function CreateTemplatePage() {
       await api.post("/api/v1/templates", {
         name: cleanName,
         category,
+        templateType,
+        catalogFormat: isCatalogue ? catalogFormat : undefined,
         language,
-        headerType,
-        headerText: headerType === "TEXT" ? headerText.trim() || undefined : undefined,
+        headerType: effHeaderType,
+        headerText: effHeaderType === "TEXT" ? headerText.trim() || undefined : undefined,
         headerMediaUrl:
-          headerType !== "NONE" && headerType !== "TEXT" && headerMediaUrl.trim()
+          effHeaderType !== "NONE" && effHeaderType !== "TEXT" && headerMediaUrl.trim()
             ? headerMediaUrl.trim()
             : undefined,
         bodyText: bodyText.trim(),
@@ -310,6 +349,10 @@ export default function CreateTemplatePage() {
           onType={setTemplateType}
           onContinue={() => {
             setBodyText((cur) => (isPreset(cur) ? presetBody(category, templateType) : cur));
+            // Flows lead with a "Complete flow" button; seed one if empty.
+            if (templateType === "FLOWS" && buttons.length === 0) {
+              setButtons([{ id: nextBtnId.current++, type: "FLOW", text: "View flow" }]);
+            }
             setStep(2);
           }}
           onCancel={() => router.push("/templates")}
@@ -348,7 +391,41 @@ export default function CreateTemplatePage() {
               </label>
             </div>
 
-            {/* Header */}
+            {/* Catalog format (Catalogue templates only) */}
+            {isCatalogue && (
+              <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
+                <span className="text-xs font-semibold text-slate-700">Catalog format</span>
+                <p className="text-[10px] text-slate-400">Choose the message format that best fits your needs.</p>
+                <div className="mt-2 space-y-2">
+                  {[
+                    { id: "CATALOG_MESSAGE" as const, label: "Catalog Message", desc: "Include the entire catalog to give your users a comprehensive view of all your products." },
+                    { id: "MPM" as const, label: "Multi-Product Message", desc: "Include up to 30 products from the catalog. You specify which products via the API." },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setCatalogFormat(f.id)}
+                      className={`flex w-full items-start gap-2 rounded-lg border p-2.5 text-left transition ${
+                        catalogFormat === f.id
+                          ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500"
+                          : "border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <span className={`mt-0.5 grid h-4 w-4 place-items-center rounded-full border ${catalogFormat === f.id ? "border-emerald-600" : "border-slate-300"}`}>
+                        {catalogFormat === f.id && <span className="h-2 w-2 rounded-full bg-emerald-600" />}
+                      </span>
+                      <span className="flex-1">
+                        <span className="block text-sm font-medium text-slate-800">{f.label}</span>
+                        <span className="mt-0.5 block text-[11px] text-slate-500">{f.desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Header (standard templates only) */}
+            {isStandard && (
             <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-700">Header</span>
@@ -385,6 +462,7 @@ export default function CreateTemplatePage() {
                 )}
               </div>
             </div>
+            )}
 
             {/* Body */}
             <div>
@@ -432,7 +510,56 @@ export default function CreateTemplatePage() {
               </span>
             </label>
 
-            {/* Buttons */}
+            {/* Catalogue: fixed system button (not editable) */}
+            {isCatalogue && (
+              <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
+                <span className="text-xs font-semibold text-slate-700">Button</span>
+                <p className="mt-1 rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-500">
+                  💡 Only one button is supported for this type of template. The button text is not editable.
+                </p>
+                <div className="mt-2 text-xs text-slate-600">
+                  Button text:{" "}
+                  <span className="font-medium text-slate-800">
+                    {catalogFormat === "MPM" ? "View items" : "View catalog"}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Order Details: action + editable button text */}
+            {isOrderDetails && (
+              <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
+                <span className="text-xs font-semibold text-slate-700">Button</span>
+                <p className="mt-1 rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-500">
+                  💡 Only one button is supported for this type of template.
+                </p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className="block text-[11px] font-medium text-slate-600">
+                    Type of action
+                    <select
+                      disabled
+                      value="OPEN_ORDER_DETAILS"
+                      className="mt-1 w-full rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-500"
+                    >
+                      <option value="OPEN_ORDER_DETAILS">Open order details</option>
+                    </select>
+                  </label>
+                  <label className="block text-[11px] font-medium text-slate-600">
+                    Button text
+                    <input
+                      maxLength={25}
+                      value={orderButtonText}
+                      onChange={(e) => setOrderButtonText(e.target.value)}
+                      placeholder="Review and Pay"
+                      className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Buttons (standard templates only) */}
+            {isStandard && (
             <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-700">Buttons</span>
@@ -531,6 +658,7 @@ export default function CreateTemplatePage() {
                 </ul>
               )}
             </div>
+            )}
 
             {/* Sample values for placeholders → drives the preview */}
             {allPlaceholders.length > 0 && (
@@ -577,11 +705,11 @@ export default function CreateTemplatePage() {
           {/* Live phone preview */}
           <aside className="lg:sticky lg:top-4 lg:self-start">
             <PhonePreview
-              headerType={headerType}
+              headerType={isStandard ? headerType : "NONE"}
               headerText={headerText}
               bodyHtml={renderWhatsApp(bodyText, samples)}
               footerText={footerText}
-              buttons={buttons}
+              buttons={previewButtons}
             />
           </aside>
         </div>
@@ -819,6 +947,8 @@ function PhonePreview({
                 {b.type === "PHONE_NUMBER" && "📞 "}
                 {b.type === "COPY_CODE" && "📋 "}
                 {b.type === "FLOW" && "➡️ "}
+                {(b.type === "CATALOG" || b.type === "MPM") && "🛍️ "}
+                {b.type === "ORDER_DETAILS" && "🧾 "}
                 {b.text || "Button"}
               </div>
             ))}

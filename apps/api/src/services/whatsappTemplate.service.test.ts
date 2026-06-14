@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeTemplateCategory,
   normalizeHeaderType,
+  normalizeTemplateType,
+  normalizeCatalogFormat,
   validateTemplateButtons,
+  validateCarousel,
 } from "./whatsappTemplate.service";
 
 describe("normalizeTemplateCategory", () => {
@@ -56,5 +59,75 @@ describe("validateTemplateButtons", () => {
         { type: "PHONE_NUMBER", text: "b", phoneNumber: "+922222222" },
       ]),
     ).toThrow(/1 phone/i);
+  });
+
+  it("accepts the marketing sub-type buttons (catalog / order details) as text-only", () => {
+    const out = validateTemplateButtons([
+      { type: "CATALOG", text: "View catalog" },
+      { type: "ORDER_DETAILS", text: "Review and Pay" },
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({ type: "CATALOG", text: "View catalog" });
+    expect(out[1]).toEqual({ type: "ORDER_DETAILS", text: "Review and Pay" });
+  });
+
+  it("allows at most 1 of each singleton button (catalog/mpm/order details)", () => {
+    expect(() =>
+      validateTemplateButtons([
+        { type: "CATALOG", text: "View catalog" },
+        { type: "CATALOG", text: "Browse" },
+      ]),
+    ).toThrow(/1 catalog/i);
+  });
+});
+
+describe("normalizeTemplateType", () => {
+  it("accepts known sub-types case-insensitively, defaults to CUSTOM", () => {
+    expect(normalizeTemplateType("carousel")).toBe("CAROUSEL");
+    expect(normalizeTemplateType("ORDER_DETAILS")).toBe("ORDER_DETAILS");
+    expect(normalizeTemplateType("nope")).toBe("CUSTOM");
+    expect(normalizeTemplateType(undefined)).toBe("CUSTOM");
+  });
+});
+
+describe("normalizeCatalogFormat", () => {
+  it("accepts the two catalogue formats, defaults to CATALOG_MESSAGE", () => {
+    expect(normalizeCatalogFormat("mpm")).toBe("MPM");
+    expect(normalizeCatalogFormat("CATALOG_MESSAGE")).toBe("CATALOG_MESSAGE");
+    expect(normalizeCatalogFormat("other")).toBe("CATALOG_MESSAGE");
+  });
+});
+
+describe("validateCarousel", () => {
+  it("returns [] for null/empty", () => {
+    expect(validateCarousel(null)).toEqual([]);
+    expect(validateCarousel([])).toEqual([]);
+  });
+
+  it("cleans valid cards with header, body and nested buttons", () => {
+    const out = validateCarousel([
+      {
+        headerType: "image",
+        headerMediaUrl: "https://example.com/a.jpg",
+        bodyText: "Card one",
+        buttons: [{ type: "URL", text: "Buy", url: "https://example.com/buy" }],
+      },
+      { headerType: "none", bodyText: "Card two", buttons: [] },
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0].headerType).toBe("IMAGE");
+    expect(out[0].headerMediaUrl).toBe("https://example.com/a.jpg");
+    expect(out[0].buttons[0].type).toBe("URL");
+    expect(out[1].headerType).toBe("NONE");
+  });
+
+  it("rejects > 10 cards, empty body, over-long body and bad media URL", () => {
+    const many = Array.from({ length: 11 }, () => ({ bodyText: "x" }));
+    expect(() => validateCarousel(many)).toThrow(/at most 10 cards/i);
+    expect(() => validateCarousel([{ bodyText: "" }])).toThrow(/needs body text/i);
+    expect(() => validateCarousel([{ bodyText: "x".repeat(161) }])).toThrow(/160 characters/i);
+    expect(() =>
+      validateCarousel([{ headerType: "image", headerMediaUrl: "nope", bodyText: "ok" }]),
+    ).toThrow(/valid http/i);
   });
 });

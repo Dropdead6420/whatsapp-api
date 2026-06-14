@@ -15,7 +15,10 @@ import {
 import { extractRequestMeta, logAudit } from "../services/audit.service";
 import {
   normalizeHeaderType,
+  normalizeTemplateType,
+  normalizeCatalogFormat,
   validateTemplateButtons,
+  validateCarousel,
 } from "../services/whatsappTemplate.service";
 
 const router = Router();
@@ -25,6 +28,9 @@ const createSchema = z.object({
   name: z.string().min(1).max(120).regex(/^[a-z0-9_]+$/, "Template name must be lowercase letters, digits, or underscores"),
   // Meta's three buckets. OTP/ACCOUNT_UPDATE are legacy aliases mapped below.
   category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION", "OTP", "ACCOUNT_UPDATE"]),
+  // Composer sub-type within the category (defaults to CUSTOM if omitted).
+  templateType: z.enum(["CUSTOM", "CATALOGUE", "FLOWS", "ORDER_DETAILS", "CAROUSEL", "OTP"]).optional(),
+  catalogFormat: z.enum(["CATALOG_MESSAGE", "MPM"]).optional(),
   language: z.string().min(2).max(10).default("en_US"),
   headerType: z.enum(["NONE", "TEXT", "IMAGE", "VIDEO", "DOCUMENT"]).optional(),
   headerText: z.string().max(60).optional(),
@@ -32,6 +38,7 @@ const createSchema = z.object({
   bodyText: z.string().min(1).max(1024),
   footerText: z.string().max(60).optional(),
   buttons: z.array(z.record(z.unknown())).max(10).optional(),
+  carousel: z.array(z.record(z.unknown())).max(10).optional(),
 });
 
 // Legacy category aliases → Meta buckets, so older callers keep working.
@@ -67,11 +74,17 @@ router.post(
       }
       const buttons = validateTemplateButtons(body.buttons);
       const headerType = normalizeHeaderType(body.headerType ?? (body.headerText ? "TEXT" : "NONE"));
+      const templateType = normalizeTemplateType(body.templateType);
+      const carousel = validateCarousel(body.carousel);
+      // catalogFormat only meaningful for Catalogue templates.
+      const catalogFormat = templateType === "CATALOGUE" ? normalizeCatalogFormat(body.catalogFormat) : null;
       const template = await prisma.whatsAppTemplate.create({
         data: {
           tenantId: req.tenantId!,
           name: body.name,
           category: CATEGORY_ALIASES[body.category] ?? body.category,
+          templateType,
+          catalogFormat,
           language: body.language,
           headerType,
           headerText: headerType === "TEXT" ? body.headerText : null,
@@ -79,6 +92,7 @@ router.post(
           bodyText: body.bodyText,
           footerText: body.footerText,
           buttons: buttons.length ? (buttons as unknown as object) : undefined,
+          carousel: carousel.length ? (carousel as unknown as object) : undefined,
           status: TemplateStatus.DRAFT,
           variants: [],
         },
