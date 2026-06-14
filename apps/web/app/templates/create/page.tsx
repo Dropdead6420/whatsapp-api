@@ -511,6 +511,7 @@ export default function CreateTemplatePage() {
                 Template Name
                 <input
                   value={name}
+                  maxLength={512}
                   onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))}
                   placeholder="ramadan_sale_2026"
                   className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 font-mono text-xs focus:border-emerald-500 focus:outline-none"

@@ -7,6 +7,7 @@ import {
   validateTemplateButtons,
   validateCarousel,
   mapMetaTemplate,
+  assertTemplateContentPolicy,
 } from "./whatsappTemplate.service";
 
 describe("normalizeTemplateCategory", () => {
@@ -203,5 +204,33 @@ describe("mapMetaTemplate", () => {
     expect(out.templateType).toBe("CAROUSEL");
     expect(out.language).toBe("en_US");
     expect(out.status).toBe("DRAFT");
+  });
+});
+
+describe("assertTemplateContentPolicy", () => {
+  it("accepts a well-formed template (sequential vars, clean header/footer)", () => {
+    expect(() =>
+      assertTemplateContentPolicy({
+        headerType: "TEXT",
+        headerText: "Hello {{1}}",
+        bodyText: "Hi {{1}}, your order {{2}} ships today.",
+        footerText: "Thanks for shopping",
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects only-variable body, adjacent variables, and non-sequential variables", () => {
+    expect(() => assertTemplateContentPolicy({ bodyText: "{{1}}" })).toThrow(/only variables/i);
+    expect(() => assertTemplateContentPolicy({ bodyText: "Hi {{1}}{{2}}" })).toThrow(/next to each other/i);
+    expect(() => assertTemplateContentPolicy({ bodyText: "Hi {{2}}" })).toThrow(/sequentially/i);
+  });
+
+  it("rejects variables in the footer and more than one in the header", () => {
+    expect(() => assertTemplateContentPolicy({ bodyText: "Hi there", footerText: "Code {{1}}" })).toThrow(
+      /footer cannot contain variables/i,
+    );
+    expect(() =>
+      assertTemplateContentPolicy({ bodyText: "Hi there", headerType: "TEXT", headerText: "{{1}} and {{2}}" }),
+    ).toThrow(/at most 1 variable/i);
   });
 });

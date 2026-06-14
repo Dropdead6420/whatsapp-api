@@ -20,6 +20,7 @@ import {
   validateTemplateButtons,
   validateCarousel,
   mapMetaTemplate,
+  assertTemplateContentPolicy,
 } from "../services/whatsappTemplate.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 
@@ -30,7 +31,7 @@ const router = Router();
 router.use(requireAuth, requireTenantScope);
 
 const createSchema = z.object({
-  name: z.string().min(1).max(120).regex(/^[a-z0-9_]+$/, "Template name must be lowercase letters, digits, or underscores"),
+  name: z.string().min(1).max(512).regex(/^[a-z0-9_]+$/, "Template name must be lowercase letters, digits, or underscores"),
   // Meta's three buckets. OTP/ACCOUNT_UPDATE are legacy aliases mapped below.
   category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION", "OTP", "ACCOUNT_UPDATE"]),
   // Composer sub-type within the category (defaults to CUSTOM if omitted).
@@ -67,6 +68,9 @@ router.post(
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
       const body = createSchema.parse(req.body);
+      // Enforce Meta's authoring policy (variable numbering, footer/header
+      // variable rules, etc.) so we reject locally what Meta would reject.
+      assertTemplateContentPolicy(body);
       const dup = await prisma.whatsAppTemplate.findFirst({
         where: { tenantId: req.tenantId, name: body.name },
       });

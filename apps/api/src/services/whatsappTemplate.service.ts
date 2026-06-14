@@ -180,6 +180,61 @@ export function validateCarousel(raw: unknown): CarouselCard[] {
   });
 }
 
+// Meta's documented authoring limits (characters), surfaced for reuse.
+export const TEMPLATE_LIMITS = {
+  name: 512,
+  headerText: 60,
+  body: 1024,
+  footer: 60,
+  buttonText: 25,
+  carouselCardBody: 160,
+} as const;
+
+/** Distinct {{n}} variable numbers in a string, ascending. */
+function variableNumbers(text: string): number[] {
+  const nums = new Set<number>();
+  for (const m of String(text).matchAll(/\{\{\s*(\d+)\s*\}\}/g)) nums.add(Number(m[1]));
+  return [...nums].sort((a, b) => a - b);
+}
+
+/**
+ * Enforce Meta's authoring policy on template text (beyond simple max-length),
+ * so we reject locally what Meta would reject on submission:
+ *   - body required, ≤1024 chars, and not only variables/whitespace
+ *   - body variables {{n}} numbered sequentially from 1 with no gaps, and no
+ *     two variables placed directly next to each other
+ *   - header TEXT ≤60 chars with at most one variable
+ *   - footer ≤60 chars with no variables
+ * Throws ApiError(400) on the first violation.
+ */
+export function assertTemplateContentPolicy(input: {
+  headerType?: string | null;
+  headerText?: string | null;
+  bodyText: string;
+  footerText?: string | null;
+}): void {
+  const body = String(input.bodyText ?? "");
+  if (!body.trim()) bad("Body text is required.");
+  if (body.length > TEMPLATE_LIMITS.body) bad(`Body must be ${TEMPLATE_LIMITS.body} characters or fewer.`);
+  if (!body.replace(/\{\{\s*\d+\s*\}\}/g, "").trim()) bad("Body must contain text, not only variables.");
+  if (/\{\{\s*\d+\s*\}\}\s*\{\{\s*\d+\s*\}\}/.test(body)) {
+    bad("Body cannot have two variables next to each other — add text between them.");
+  }
+  variableNumbers(body).forEach((n, i) => {
+    if (n !== i + 1) bad("Body variables must be numbered sequentially starting at {{1}} with no gaps.");
+  });
+
+  if (String(input.headerType ?? "").trim().toUpperCase() === "TEXT") {
+    const header = String(input.headerText ?? "");
+    if (header.length > TEMPLATE_LIMITS.headerText) bad(`Header text must be ${TEMPLATE_LIMITS.headerText} characters or fewer.`);
+    if (variableNumbers(header).length > 1) bad("Header text can contain at most 1 variable.");
+  }
+
+  const footer = String(input.footerText ?? "");
+  if (footer.length > TEMPLATE_LIMITS.footer) bad(`Footer must be ${TEMPLATE_LIMITS.footer} characters or fewer.`);
+  if (variableNumbers(footer).length > 0) bad("Footer cannot contain variables.");
+}
+
 // =====================================================================
 // Sync: map a Meta message-template (Graph API shape) into our row shape.
 // Pure + defensive so it can be unit-tested; the route persists the result.
