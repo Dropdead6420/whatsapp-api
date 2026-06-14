@@ -42,6 +42,24 @@ interface DraftButton {
   flowId?: string;
 }
 
+interface CarouselCardDraft {
+  id: number;
+  headerType: HeaderType; // NONE | IMAGE | VIDEO for carousel cards
+  headerMediaUrl: string;
+  bodyText: string;
+  buttons: DraftButton[];
+}
+
+/** Map a draft button to the API payload shape (only its type-specific field). */
+function buttonToPayload(b: DraftButton): Record<string, unknown> {
+  const base: Record<string, unknown> = { type: b.type, text: b.text.trim() };
+  if (b.type === "URL") base.url = b.url?.trim();
+  if (b.type === "PHONE_NUMBER") base.phoneNumber = b.phoneNumber?.trim();
+  if (b.type === "COPY_CODE") base.offerCode = b.offerCode?.trim();
+  if (b.type === "FLOW" && b.flowId?.trim()) base.flowId = b.flowId.trim();
+  return base;
+}
+
 // Template types per category. Only the wired ones are selectable; the rest
 // mirror Meta's composer for visual parity but are flagged "Soon" because the
 // backend models the standard component shape (header/body/footer/buttons),
@@ -55,7 +73,7 @@ const TEMPLATE_TYPES: Record<
     { id: "CATALOGUE", label: "Catalogue", desc: "Showcase products from your catalogue.", enabled: true },
     { id: "FLOWS", label: "Flows", desc: "Collect responses with an interactive flow.", enabled: true },
     { id: "ORDER_DETAILS", label: "Order Details", desc: "Send an itemised order with payment.", enabled: true },
-    { id: "CAROUSEL", label: "Carousel", desc: "Up to 10 swipeable cards.", enabled: false },
+    { id: "CAROUSEL", label: "Carousel", desc: "Up to 10 swipeable cards.", enabled: true },
   ],
   UTILITY: [
     { id: "CUSTOM", label: "Custom", desc: "Order updates, alerts and account notifications.", enabled: true },
@@ -158,19 +176,27 @@ export default function CreateTemplatePage() {
   const [samples, setSamples] = useState<Record<string, string>>({});
   const [catalogFormat, setCatalogFormat] = useState<"CATALOG_MESSAGE" | "MPM">("CATALOG_MESSAGE");
   const [orderButtonText, setOrderButtonText] = useState("Review and Pay");
+  const [cards, setCards] = useState<CarouselCardDraft[]>([
+    { id: 0, headerType: "IMAGE", headerMediaUrl: "", bodyText: "", buttons: [] },
+  ]);
+  const [activeCard, setActiveCard] = useState(0);
+  const nextCardId = useRef(1);
 
   // Per-type Step-2 layout: Catalogue and Order Details replace the header +
-  // free-form buttons with a system-driven button; everything else uses the
-  // standard component builder.
+  // free-form buttons with a system-driven button; Carousel swaps the whole
+  // component area for a card builder; everything else uses the standard builder.
   const isCatalogue = templateType === "CATALOGUE";
   const isOrderDetails = templateType === "ORDER_DETAILS";
-  const isStandard = !isCatalogue && !isOrderDetails;
+  const isCarousel = templateType === "CAROUSEL";
+  const isStandard = !isCatalogue && !isOrderDetails && !isCarousel;
 
   const [btnMenuOpen, setBtnMenuOpen] = useState(false);
+  const [cardBtnMenuOpen, setCardBtnMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const cardBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const nextBtnId = useRef(1);
 
   const types = TEMPLATE_TYPES[category];
@@ -244,6 +270,74 @@ export default function CreateTemplatePage() {
     setButtons((bs) => bs.filter((b) => b.id !== id));
   }
 
+  // --- Carousel cards -------------------------------------------------------
+  function addCard() {
+    setErr(null);
+    if (cards.length >= 10) return setErr("A carousel can have at most 10 cards.");
+    setCards((cs) => [
+      ...cs,
+      { id: nextCardId.current++, headerType: "IMAGE", headerMediaUrl: "", bodyText: "", buttons: [] },
+    ]);
+    setActiveCard(cards.length);
+  }
+
+  function removeCard(idx: number) {
+    setCards((cs) => (cs.length <= 1 ? cs : cs.filter((_, i) => i !== idx)));
+    setActiveCard((a) => (a >= idx && a > 0 ? a - 1 : a));
+  }
+
+  function updateCard(idx: number, patch: Partial<CarouselCardDraft>) {
+    setCards((cs) => cs.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  }
+
+  function addCardButton(idx: number, type: ButtonType) {
+    setErr(null);
+    const preset = BUTTON_MENU.find((m) => m.type === type)!;
+    setCards((cs) =>
+      cs.map((c, i) => {
+        if (i !== idx) return c;
+        if (c.buttons.length >= 2) return c; // Meta allows ≤2 buttons per card
+        return { ...c, buttons: [...c.buttons, { id: nextBtnId.current++, type, text: preset.defaultText }] };
+      }),
+    );
+  }
+
+  function updateCardButton(idx: number, bid: number, patch: Partial<DraftButton>) {
+    setCards((cs) =>
+      cs.map((c, i) =>
+        i === idx ? { ...c, buttons: c.buttons.map((b) => (b.id === bid ? { ...b, ...patch } : b)) } : c,
+      ),
+    );
+  }
+
+  function removeCardButton(idx: number, bid: number) {
+    setCards((cs) =>
+      cs.map((c, i) => (i === idx ? { ...c, buttons: c.buttons.filter((b) => b.id !== bid) } : c)),
+    );
+  }
+
+  // Wrap the selection in the active card's body (only that editor is mounted).
+  function wrapCardSelection(marker: string, endMarker = marker) {
+    const idx = Math.min(activeCard, cards.length - 1);
+    const target = cards[idx];
+    if (!target) return;
+    const el = cardBodyRef.current;
+    const body = target.bodyText;
+    if (!el) {
+      updateCard(idx, { bodyText: body + marker + endMarker });
+      return;
+    }
+    const start = el.selectionStart ?? body.length;
+    const end = el.selectionEnd ?? body.length;
+    const sel = body.slice(start, end) || "text";
+    updateCard(idx, { bodyText: `${body.slice(0, start)}${marker}${sel}${endMarker}${body.slice(end)}` });
+    requestAnimationFrame(() => {
+      el.focus();
+      el.selectionStart = start + marker.length;
+      el.selectionEnd = start + marker.length + sel.length;
+    });
+  }
+
   const allPlaceholders = useMemo(
     () => placeholders(`${headerText} ${bodyText}`),
     [headerText, bodyText],
@@ -265,6 +359,10 @@ export default function CreateTemplatePage() {
     return buttons;
   }, [isCatalogue, isOrderDetails, catalogFormat, orderButtonText, buttons]);
 
+  // Clamp the active card index (it can dangle after a card is removed).
+  const activeIdx = Math.min(activeCard, cards.length - 1);
+  const card = cards[activeIdx];
+
   // --- Submit ---------------------------------------------------------------
   async function submit() {
     setErr(null);
@@ -281,14 +379,27 @@ export default function CreateTemplatePage() {
         return setErr("Header media must be a valid http(s) URL (or leave it blank).");
     }
 
-    const payloadButtons = previewButtons.map((b) => {
-      const base: Record<string, unknown> = { type: b.type, text: b.text.trim() };
-      if (b.type === "URL") base.url = b.url?.trim();
-      if (b.type === "PHONE_NUMBER") base.phoneNumber = b.phoneNumber?.trim();
-      if (b.type === "COPY_CODE") base.offerCode = b.offerCode?.trim();
-      if (b.type === "FLOW" && b.flowId?.trim()) base.flowId = b.flowId.trim();
-      return base;
-    });
+    // Carousel: every card needs body text; media headers need a valid URL.
+    let carouselPayload: Array<Record<string, unknown>> | undefined;
+    if (isCarousel) {
+      if (cards.some((c) => !c.bodyText.trim()))
+        return setErr("Every carousel card needs body text.");
+      const badMedia = cards.find(
+        (c) => c.headerType !== "NONE" && c.headerMediaUrl.trim() && !/^https?:\/\/\S+$/.test(c.headerMediaUrl),
+      );
+      if (badMedia) return setErr("Carousel card media must be a valid http(s) URL (or leave it blank).");
+      carouselPayload = cards.map((c) => ({
+        headerType: c.headerType,
+        headerMediaUrl:
+          c.headerType !== "NONE" && c.headerType !== "TEXT" && c.headerMediaUrl.trim()
+            ? c.headerMediaUrl.trim()
+            : undefined,
+        bodyText: c.bodyText.trim(),
+        buttons: c.buttons.map(buttonToPayload),
+      }));
+    }
+
+    const payloadButtons = previewButtons.map(buttonToPayload);
 
     setBusy(true);
     try {
@@ -305,8 +416,9 @@ export default function CreateTemplatePage() {
             ? headerMediaUrl.trim()
             : undefined,
         bodyText: bodyText.trim(),
-        footerText: footerText.trim() || undefined,
-        buttons: payloadButtons.length ? payloadButtons : undefined,
+        footerText: isCarousel ? undefined : footerText.trim() || undefined,
+        buttons: isCarousel ? undefined : payloadButtons.length ? payloadButtons : undefined,
+        carousel: carouselPayload && carouselPayload.length ? carouselPayload : undefined,
       });
       router.push("/templates");
     } catch (e) {
@@ -495,7 +607,181 @@ export default function CreateTemplatePage() {
               </span>
             </div>
 
-            {/* Footer */}
+            {/* Carousel cards */}
+            {isCarousel && card && (
+              <div className="rounded-md border border-slate-100 bg-slate-50/60 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-700">Carousel</span>
+                  <span className="text-[10px] text-slate-400">{cards.length}/10 cards</span>
+                </div>
+
+                {/* Card tabs */}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {cards.map((c, i) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setActiveCard(i)}
+                      className={`rounded-md px-2.5 py-1 text-[11px] font-medium ${
+                        i === activeIdx ? "bg-emerald-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      Card {i + 1}
+                    </button>
+                  ))}
+                  {cards.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={addCard}
+                      className="rounded-md border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-500 hover:bg-white"
+                    >
+                      + Add Card
+                    </button>
+                  )}
+                  {cards.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeCard(activeIdx)}
+                      className="ml-auto rounded p-1 text-[11px] text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="Remove this card"
+                    >
+                      ✕ Remove card
+                    </button>
+                  )}
+                </div>
+
+                {/* Active card editor */}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-600">Card header</span>
+                    <select
+                      value={card.headerType}
+                      onChange={(e) => updateCard(activeIdx, { headerType: e.target.value as HeaderType })}
+                      className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+                    >
+                      {(["NONE", "IMAGE", "VIDEO"] as HeaderType[]).map((h) => (
+                        <option key={h} value={h}>
+                          {h === "NONE" ? "None" : h.charAt(0) + h.slice(1).toLowerCase()}
+                        </option>
+                      ))}
+                    </select>
+                    {card.headerType !== "NONE" && (
+                      <input
+                        value={card.headerMediaUrl}
+                        onChange={(e) => updateCard(activeIdx, { headerMediaUrl: e.target.value })}
+                        placeholder={`https://… sample ${card.headerType.toLowerCase()} URL`}
+                        className="mt-1.5 w-full rounded border border-slate-200 px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-slate-600">Card body</span>
+                      <div className="flex items-center gap-1">
+                        <FmtBtn label="B" title="Bold" onClick={() => wrapCardSelection("*")} bold />
+                        <FmtBtn label="I" title="Italic" onClick={() => wrapCardSelection("_")} italic />
+                        <FmtBtn label="S" title="Strikethrough" onClick={() => wrapCardSelection("~")} strike />
+                        <FmtBtn label="</>" title="Monospace" onClick={() => wrapCardSelection("```")} mono />
+                      </div>
+                    </div>
+                    <textarea
+                      ref={cardBodyRef}
+                      rows={3}
+                      maxLength={160}
+                      value={card.bodyText}
+                      onChange={(e) => updateCard(activeIdx, { bodyText: e.target.value })}
+                      placeholder="Enter the text for this card"
+                      className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+                    />
+                    <span className="block text-right text-[10px] text-slate-400">{card.bodyText.length} / 160</span>
+                  </div>
+                </div>
+
+                {/* Card buttons (≤2) */}
+                <div className="mt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-slate-600">Card buttons</span>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        disabled={card.buttons.length >= 2}
+                        onClick={() => setCardBtnMenuOpen((o) => !o)}
+                        className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                      >
+                        + Add a button
+                      </button>
+                      {cardBtnMenuOpen && card.buttons.length < 2 && (
+                        <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+                          {BUTTON_MENU.filter((m) => ["QUICK_REPLY", "URL", "PHONE_NUMBER"].includes(m.type)).map((m) => (
+                            <button
+                              key={m.type}
+                              type="button"
+                              onClick={() => {
+                                addCardButton(activeIdx, m.type);
+                                setCardBtnMenuOpen(false);
+                              }}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                            >
+                              <span>{m.icon}</span>
+                              {m.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {card.buttons.length > 0 && (
+                    <ul className="mt-1.5 space-y-1.5">
+                      {card.buttons.map((b) => (
+                        <li key={b.id} className="rounded border border-slate-200 bg-white p-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                              {BUTTON_MENU.find((m) => m.type === b.type)?.icon} {b.type.replace("_", " ")}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeCardButton(activeIdx, b.id)}
+                              className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              title="Remove"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
+                            <input
+                              maxLength={25}
+                              value={b.text}
+                              onChange={(e) => updateCardButton(activeIdx, b.id, { text: e.target.value })}
+                              placeholder="Button label"
+                              className="rounded border border-slate-200 px-2 py-1 text-xs focus:border-emerald-500 focus:outline-none"
+                            />
+                            {b.type === "URL" && (
+                              <input
+                                value={b.url ?? ""}
+                                onChange={(e) => updateCardButton(activeIdx, b.id, { url: e.target.value })}
+                                placeholder="https://example.com"
+                                className="rounded border border-slate-200 px-2 py-1 text-xs focus:border-emerald-500 focus:outline-none"
+                              />
+                            )}
+                            {b.type === "PHONE_NUMBER" && (
+                              <input
+                                value={b.phoneNumber ?? ""}
+                                onChange={(e) => updateCardButton(activeIdx, b.id, { phoneNumber: e.target.value })}
+                                placeholder="+919812345678"
+                                className="rounded border border-slate-200 px-2 py-1 text-xs focus:border-emerald-500 focus:outline-none"
+                              />
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Footer (hidden for carousel) */}
+            {!isCarousel && (
             <label className="block text-xs font-medium text-slate-700">
               Footer <span className="font-normal text-slate-400">(optional)</span>
               <input
@@ -509,6 +795,7 @@ export default function CreateTemplatePage() {
                 {footerText.length} / 60
               </span>
             </label>
+            )}
 
             {/* Catalogue: fixed system button (not editable) */}
             {isCatalogue && (
@@ -708,8 +995,9 @@ export default function CreateTemplatePage() {
               headerType={isStandard ? headerType : "NONE"}
               headerText={headerText}
               bodyHtml={renderWhatsApp(bodyText, samples)}
-              footerText={footerText}
-              buttons={previewButtons}
+              footerText={isCarousel ? "" : footerText}
+              buttons={isCarousel ? [] : previewButtons}
+              cards={isCarousel ? cards : undefined}
             />
           </aside>
         </div>
@@ -900,12 +1188,14 @@ function PhonePreview({
   bodyHtml,
   footerText,
   buttons,
+  cards,
 }: {
   headerType: HeaderType;
   headerText: string;
   bodyHtml: string;
   footerText: string;
   buttons: DraftButton[];
+  cards?: CarouselCardDraft[];
 }) {
   const mediaLabel: Record<string, string> = {
     IMAGE: "🖼️  Image",
@@ -950,6 +1240,36 @@ function PhonePreview({
                 {(b.type === "CATALOG" || b.type === "MPM") && "🛍️ "}
                 {b.type === "ORDER_DETAILS" && "🧾 "}
                 {b.text || "Button"}
+              </div>
+            ))}
+          </div>
+        )}
+        {cards && cards.length > 0 && (
+          <div className="mt-1.5 flex gap-2 overflow-x-auto pb-1">
+            {cards.map((c) => (
+              <div key={c.id} className="w-40 shrink-0 rounded-lg bg-white p-2 shadow-sm">
+                {c.headerType !== "NONE" && (
+                  <div className="mb-1 grid h-20 place-items-center rounded bg-slate-100 text-[10px] text-slate-400">
+                    {mediaLabel[c.headerType] ?? "Media"}
+                  </div>
+                )}
+                <div
+                  className="break-words text-[11px] leading-snug text-slate-800"
+                  dangerouslySetInnerHTML={{
+                    __html: renderWhatsApp(c.bodyText, {}) || "<span class='text-slate-300'>Card body…</span>",
+                  }}
+                />
+                {c.buttons.length > 0 && (
+                  <div className="mt-1 space-y-0.5">
+                    {c.buttons.map((b) => (
+                      <div key={b.id} className="rounded bg-slate-50 py-1 text-center text-[10px] font-medium text-[#1f8aff]">
+                        {b.type === "URL" && "🔗 "}
+                        {b.type === "PHONE_NUMBER" && "📞 "}
+                        {b.text || "Button"}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
