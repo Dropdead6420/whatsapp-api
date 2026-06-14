@@ -1099,6 +1099,42 @@ router.get(
   },
 );
 
+// SuperAdmin oversight: read a tenant's WhatsApp templates (read-only).
+router.get(
+  "/tenants/:id/templates",
+  async (req: RequestWithAuth, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, name: true },
+      });
+      if (!tenant) {
+        throw new ApiError(ErrorCodes.NOT_FOUND, 404, "Tenant not found.");
+      }
+      const templates = await prismaRead.whatsAppTemplate.findMany({
+        where: { tenantId: tenant.id },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          templateType: true,
+          language: true,
+          status: true,
+          bodyText: true,
+          aiScoreApprovalChance: true,
+          messageCount: true,
+          createdAt: true,
+        },
+      });
+      res.json({ success: true, data: { tenant, templates } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 const featuresPatchSchema = z.object({
   features: z.record(z.boolean()),
 });

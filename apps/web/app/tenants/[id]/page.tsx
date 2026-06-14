@@ -58,6 +58,19 @@ interface CreditLine {
   suspendedAt: string | null;
 }
 
+interface AdminTemplateRow {
+  id: string;
+  name: string;
+  category: string;
+  templateType: string | null;
+  language: string;
+  status: string;
+  bodyText: string;
+  aiScoreApprovalChance: number | null;
+  messageCount: number;
+  createdAt: string;
+}
+
 function parseColors(raw: string | null): BrandColors {
   if (!raw) return {};
   try {
@@ -92,6 +105,9 @@ export default function TenantDetailPage() {
   const [newLineDueDate, setNewLineDueDate] = useState("");
   const [newLineNotes, setNewLineNotes] = useState("");
   const [creditLineBusy, setCreditLineBusy] = useState(false);
+
+  // WhatsApp templates oversight (read-only).
+  const [waTemplates, setWaTemplates] = useState<AdminTemplateRow[]>([]);
 
   const [form, setForm] = useState({
     name: "",
@@ -189,6 +205,18 @@ export default function TenantDetailPage() {
     }
   }
 
+  async function loadTemplates() {
+    if (!id) return;
+    try {
+      const data = await api.get<{ templates: AdminTemplateRow[] }>(
+        `/api/v1/admin/tenants/${id}/templates`,
+      );
+      setWaTemplates(data.templates);
+    } catch {
+      setWaTemplates([]);
+    }
+  }
+
   async function openCreditLine() {
     if (!id) return;
     const limit = Number(newLineLimit);
@@ -257,6 +285,7 @@ export default function TenantDetailPage() {
       load();
       loadFeatures();
       loadCreditLines();
+      loadTemplates();
     }
   }, [user, id]);
 
@@ -684,6 +713,71 @@ export default function TenantDetailPage() {
             </ul>
           </section>
         )}
+
+        <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-slate-500">
+            WhatsApp Templates
+          </h2>
+          <p className="mb-4 text-xs text-slate-500">
+            Read-only oversight of this tenant&apos;s message templates ({waTemplates.length}).
+          </p>
+          {waTemplates.length === 0 ? (
+            <p className="text-sm text-slate-400">No templates for this tenant yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
+                    <th className="py-2 pr-3">Name</th>
+                    <th className="py-2 pr-3">Category / Type</th>
+                    <th className="py-2 pr-3">Lang</th>
+                    <th className="py-2 pr-3">Status</th>
+                    <th className="py-2 pr-3">Sent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waTemplates.map((t) => (
+                    <tr key={t.id} className="border-b border-slate-50 align-top">
+                      <td className="py-2 pr-3">
+                        <div className="font-mono text-xs font-medium text-slate-800">{t.name}</div>
+                        <div className="mt-0.5 max-w-md truncate text-[11px] text-slate-400">
+                          {t.bodyText}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-slate-600">
+                        {t.category}
+                        {t.templateType ? (
+                          <span className="text-slate-400"> · {t.templateType}</span>
+                        ) : null}
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-[11px] text-slate-500">{t.language}</td>
+                      <td className="py-2 pr-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                            t.status === "APPROVED"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : t.status === "REJECTED"
+                                ? "bg-red-100 text-red-700"
+                                : t.status === "SUBMITTED"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : t.status === "FLAGGED"
+                                    ? "bg-amber-100 text-amber-700"
+                                    : "bg-slate-200 text-slate-700"
+                          }`}
+                        >
+                          {t.status}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-slate-600">
+                        {t.messageCount.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
         <div className="flex justify-end gap-2">
           <Link
