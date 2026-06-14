@@ -46,6 +46,9 @@ const createSchema = z.object({
   footerText: z.string().max(60).optional(),
   buttons: z.array(z.record(z.unknown())).max(10).optional(),
   carousel: z.array(z.record(z.unknown())).max(10).optional(),
+  samples: z
+    .object({ body: z.array(z.string()).max(20).optional(), header: z.string().max(200).optional() })
+    .optional(),
 });
 
 // Legacy category aliases → Meta buckets, so older callers keep working.
@@ -103,6 +106,9 @@ router.post(
           footerText: body.footerText,
           buttons: buttons.length ? (buttons as unknown as object) : undefined,
           carousel: carousel.length ? (carousel as unknown as object) : undefined,
+          samples: body.samples && (body.samples.body?.length || body.samples.header)
+            ? (body.samples as unknown as object)
+            : undefined,
           status: TemplateStatus.DRAFT,
           variants: [],
         },

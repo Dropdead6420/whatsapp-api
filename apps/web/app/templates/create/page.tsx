@@ -429,6 +429,21 @@ export default function CreateTemplatePage() {
 
     const payloadButtons = previewButtons.map(buttonToPayload);
 
+    // Example values Meta requires for variables: ordered by the body's (and
+    // header's) {{n}} placeholders, pulled from the sample-values inputs.
+    const effBody = isAuth ? authBody : bodyText;
+    const bodySamples = placeholders(effBody).map((n) => samples[n] ?? "");
+    const headerVarNums = isStandard && headerType === "TEXT" ? placeholders(headerText) : [];
+    const headerSample = headerVarNums.length ? samples[headerVarNums[0]]?.trim() || undefined : undefined;
+    const bodyHasSample = bodySamples.some((s) => s.trim());
+    const samplesPayload =
+      bodyHasSample || headerSample
+        ? {
+            ...(bodyHasSample ? { body: bodySamples } : {}),
+            ...(headerSample ? { header: headerSample } : {}),
+          }
+        : undefined;
+
     setBusy(true);
     try {
       await api.post("/api/v1/templates", {
@@ -451,6 +466,7 @@ export default function CreateTemplatePage() {
             : footerText.trim() || undefined,
         buttons: isCarousel ? undefined : payloadButtons.length ? payloadButtons : undefined,
         carousel: carouselPayload && carouselPayload.length ? carouselPayload : undefined,
+        samples: samplesPayload,
       });
       router.push("/templates");
     } catch (e) {

@@ -345,19 +345,33 @@ export function buildMetaTemplatePayload(t: {
   footerText?: string | null;
   buttons?: unknown;
   carousel?: unknown;
+  samples?: unknown;
 }): MetaTemplatePayload {
   const components: Array<Record<string, unknown>> = [];
 
+  // Example values Meta requires for any template that uses variables.
+  const samples = (t.samples ?? {}) as { body?: unknown; header?: unknown };
+  const bodySamples = Array.isArray(samples.body) ? samples.body.map((v) => String(v)) : [];
+  const headerSample = typeof samples.header === "string" ? samples.header : undefined;
+
   const headerType = normalizeHeaderType(t.headerType);
   if (headerType === "TEXT" && t.headerText) {
-    components.push({ type: "HEADER", format: "TEXT", text: t.headerText });
+    const h: Record<string, unknown> = { type: "HEADER", format: "TEXT", text: t.headerText };
+    if (headerSample && variableNumbers(t.headerText).length > 0) {
+      h.example = { header_text: [headerSample] };
+    }
+    components.push(h);
   } else if (headerType !== "NONE" && headerType !== "TEXT") {
     const h: Record<string, unknown> = { type: "HEADER", format: headerType };
     if (t.headerMediaUrl) h.example = { header_handle: [t.headerMediaUrl] };
     components.push(h);
   }
 
-  components.push({ type: "BODY", text: t.bodyText });
+  const bodyComponent: Record<string, unknown> = { type: "BODY", text: t.bodyText };
+  if (bodySamples.length > 0 && variableNumbers(t.bodyText).length > 0) {
+    bodyComponent.example = { body_text: [bodySamples] };
+  }
+  components.push(bodyComponent);
   if (t.footerText) components.push({ type: "FOOTER", text: t.footerText });
 
   const buttons = Array.isArray(t.buttons) ? (t.buttons as TemplateButton[]) : [];

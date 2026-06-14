@@ -283,4 +283,32 @@ describe("buildMetaTemplatePayload", () => {
     const header = media.components[0] as Record<string, unknown>;
     expect(header).toMatchObject({ type: "HEADER", format: "IMAGE", example: { header_handle: ["https://x.com/a.jpg"] } });
   });
+
+  it("emits Meta example fields from samples when the body/header use variables", () => {
+    const payload = buildMetaTemplatePayload({
+      name: "promo",
+      language: "en_US",
+      category: "MARKETING",
+      headerType: "TEXT",
+      headerText: "Hi {{1}}",
+      bodyText: "Hello {{1}}, code {{2}}.",
+      samples: { body: ["Asha", "SAVE20"], header: "Asha" },
+    });
+    const header = payload.components.find((c) => c.type === "HEADER") as Record<string, unknown>;
+    const body = payload.components.find((c) => c.type === "BODY") as Record<string, unknown>;
+    expect(header.example).toEqual({ header_text: ["Asha"] });
+    expect(body.example).toEqual({ body_text: [["Asha", "SAVE20"]] });
+  });
+
+  it("omits example when there are no variables even if samples are supplied", () => {
+    const payload = buildMetaTemplatePayload({
+      name: "plain",
+      language: "en",
+      category: "UTILITY",
+      bodyText: "No variables here.",
+      samples: { body: ["unused"] },
+    });
+    const body = payload.components.find((c) => c.type === "BODY") as Record<string, unknown>;
+    expect(body.example).toBeUndefined();
+  });
 });
