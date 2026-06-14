@@ -77,9 +77,10 @@ const TEMPLATE_TYPES: Record<
   ],
   UTILITY: [
     { id: "CUSTOM", label: "Custom", desc: "Order updates, alerts and account notifications.", enabled: true },
-    { id: "FLOWS", label: "Flows", desc: "Interactive flow for utility journeys.", enabled: true },
-    { id: "ORDER_STATUS", label: "Order Status", desc: "Structured order status update.", enabled: false },
-    { id: "ORDER_DETAILS", label: "Order Details", desc: "Itemised order details.", enabled: true },
+    { id: "CATALOGUE", label: "Catalogue", desc: "Showcase products from your catalogue.", enabled: true },
+    { id: "FLOWS", label: "Flows", desc: "Collect responses with an interactive flow.", enabled: true },
+    { id: "ORDER_DETAILS", label: "Order Details", desc: "Send an itemised order with payment.", enabled: true },
+    { id: "CAROUSEL", label: "Carousel", desc: "Up to 10 swipeable cards.", enabled: true },
   ],
   AUTHENTICATION: [
     { id: "OTP", label: "One-time passcode", desc: "Deliver a verification code with a copy-code button.", enabled: true },
