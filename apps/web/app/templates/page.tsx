@@ -24,6 +24,7 @@ interface Template {
   id: string;
   name: string;
   category: string;
+  templateType: string | null;
   language: string;
   headerText: string | null;
   bodyText: string;
@@ -52,6 +53,16 @@ interface PredictResult {
 }
 
 const CATEGORIES = ["MARKETING", "UTILITY", "AUTHENTICATION"] as const;
+const CATEGORY_FILTERS = ["ALL", "MARKETING", "UTILITY", "AUTHENTICATION"] as const;
+const TYPE_FILTERS = [
+  "ALL",
+  "CUSTOM",
+  "CATALOGUE",
+  "FLOWS",
+  "ORDER_DETAILS",
+  "CAROUSEL",
+  "OTP",
+] as const;
 const STATUS_FILTERS = [
   "ALL",
   "DRAFT",
@@ -94,6 +105,11 @@ export default function TemplatesPage() {
   const [draft, setDraft] = useState(emptyDraft());
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]>("ALL");
+  const [categoryFilter, setCategoryFilter] =
+    useState<(typeof CATEGORY_FILTERS)[number]>("ALL");
+  const [typeFilter, setTypeFilter] =
+    useState<(typeof TYPE_FILTERS)[number]>("ALL");
+  const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -113,9 +129,15 @@ export default function TemplatesPage() {
   );
 
   const visibleTemplates = useMemo(() => {
-    if (statusFilter === "ALL") return templates;
-    return templates.filter((t) => t.status === statusFilter);
-  }, [templates, statusFilter]);
+    const q = search.trim().toLowerCase();
+    return templates.filter((t) => {
+      if (statusFilter !== "ALL" && t.status !== statusFilter) return false;
+      if (categoryFilter !== "ALL" && t.category !== categoryFilter) return false;
+      if (typeFilter !== "ALL" && (t.templateType ?? "CUSTOM") !== typeFilter) return false;
+      if (q && !`${t.name} ${t.bodyText}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [templates, statusFilter, categoryFilter, typeFilter, search]);
 
   async function refresh(nextSelectedId = selectedId) {
     try {
@@ -363,7 +385,43 @@ export default function TemplatesPage() {
       <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
         {/* List */}
         <aside className="rounded-md border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 p-3">
+          <div className="space-y-2 border-b border-slate-100 p-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name or body…"
+              className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs focus:border-emerald-500 focus:outline-none"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                Category
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value as (typeof CATEGORY_FILTERS)[number])}
+                  className="mt-0.5 w-full rounded border border-slate-200 px-1.5 py-1 text-xs focus:border-emerald-500 focus:outline-none"
+                >
+                  {CATEGORY_FILTERS.map((c) => (
+                    <option key={c} value={c}>
+                      {c === "ALL" ? "All categories" : c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                Template Type
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value as (typeof TYPE_FILTERS)[number])}
+                  className="mt-0.5 w-full rounded border border-slate-200 px-1.5 py-1 text-xs focus:border-emerald-500 focus:outline-none"
+                >
+                  {TYPE_FILTERS.map((t) => (
+                    <option key={t} value={t}>
+                      {t === "ALL" ? "All types" : t.replace("_", " ")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {STATUS_FILTERS.map((s) => (
                 <button
