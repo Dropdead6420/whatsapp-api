@@ -130,6 +130,10 @@ import {
   stopGmbReportScheduleWorker,
 } from "./services/gmbReportScheduler.service";
 import {
+  startTemplateStatusSyncWorker,
+  stopTemplateStatusSyncWorker,
+} from "./services/whatsappTemplateSync.service";
+import {
   startKnowledgeBaseEmbeddingWorker,
   stopKnowledgeBaseEmbeddingWorker,
 } from "./services/knowledgeBaseEmbedding.service";
@@ -441,6 +445,7 @@ async function startWorkers(): Promise<void> {
   await startAnalyticsReportWorker();
   await startGmbPostPublisherWorker();
   await startGmbReportScheduleWorker();
+  await startTemplateStatusSyncWorker();
 }
 
 function stopWorkers(): void {
@@ -466,6 +471,7 @@ function stopWorkers(): void {
   stopAnalyticsReportWorker();
   stopGmbPostPublisherWorker();
   stopGmbReportScheduleWorker();
+  stopTemplateStatusSyncWorker();
 }
 
 if (START_HTTP) {

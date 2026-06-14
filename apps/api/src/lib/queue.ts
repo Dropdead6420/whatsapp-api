@@ -27,6 +27,7 @@ export const QueueNames = {
   ANALYTICS_REPORTS: "analytics-reports",
   GMB_POST_PUBLISHER: "gmb-post-publisher",
   GMB_REPORT_SCHEDULE: "gmb-report-schedule",
+  TEMPLATE_STATUS_SYNC: "template-status-sync",
 } as const;
 
 export type QueueName = (typeof QueueNames)[keyof typeof QueueNames];
@@ -60,6 +61,7 @@ export type WebhookJobData = WebhookDeliveryData;
 export type WabaTokenExpiryJobData = { kind: "scan" };
 export type GmbPostPublisherJobData = { kind: "sweep" };
 export type GmbReportScheduleJobData = { kind: "sweep" };
+export type TemplateStatusSyncJobData = { kind: "sweep" };
 export type KnowledgeBaseEmbeddingJobData =
   | { tenantId: string; entryId: string }
   | { kind: "embed-stale"; tenantId: string; limit: number };
@@ -130,6 +132,10 @@ export function getGmbPostPublisherQueue(): Queue<GmbPostPublisherJobData> {
 
 export function getGmbReportScheduleQueue(): Queue<GmbReportScheduleJobData> {
   return makeQueue<GmbReportScheduleJobData>(QueueNames.GMB_REPORT_SCHEDULE);
+}
+
+export function getTemplateStatusSyncQueue(): Queue<TemplateStatusSyncJobData> {
+  return makeQueue<TemplateStatusSyncJobData>(QueueNames.TEMPLATE_STATUS_SYNC);
 }
 
 export function getLeadFollowUpQueue(): Queue<LeadFollowUpJobData> {

@@ -19,10 +19,10 @@ import {
   normalizeCatalogFormat,
   validateTemplateButtons,
   validateCarousel,
-  mapMetaTemplate,
   assertTemplateContentPolicy,
   buildMetaTemplatePayload,
 } from "../services/whatsappTemplate.service";
+import { syncTemplatesFromMeta } from "../services/whatsappTemplateSync.service";
 import { decryptTokenIfNeeded } from "../lib/tokenCrypto";
 
 const META_GRAPH_BASE =
@@ -130,80 +130,17 @@ router.post(
   requirePermission(Permissions.TEMPLATE_SUBMIT),
   async (req: RequestWithAuth, res: Response, next: NextFunction) => {
     try {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: req.tenantId! },
-        select: { wabaId: true, wabaAccessToken: true },
-      });
-      if (!tenant?.wabaId || !tenant?.wabaAccessToken) {
-        throw new ApiError(
-          ErrorCodes.BAD_REQUEST,
-          400,
-          "Connect your WhatsApp Business account (WABA ID + access token) before syncing templates.",
-        );
-      }
-      const accessToken = decryptTokenIfNeeded(tenant.wabaAccessToken);
-      if (!accessToken) {
-        throw new ApiError(ErrorCodes.BAD_REQUEST, 400, "WhatsApp access token failed to decrypt.");
-      }
-
-      const fields = "name,language,category,status,components";
-      const url = `${META_GRAPH_BASE}/${tenant.wabaId}/message_templates?limit=200&fields=${encodeURIComponent(fields)}`;
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const payload = (await response.json().catch(() => ({}))) as {
-        data?: unknown[];
-        error?: { message?: string };
-      };
-      if (!response.ok) {
-        throw new ApiError(
-          ErrorCodes.BAD_REQUEST,
-          502,
-          payload.error?.message ?? `Meta Graph API returned HTTP ${response.status}.`,
-        );
-      }
-
-      const metaTemplates = Array.isArray(payload.data) ? payload.data : [];
-      let created = 0;
-      let updated = 0;
-      for (const mt of metaTemplates) {
-        const m = mapMetaTemplate(mt);
-        if (!m.name || !m.bodyText) continue; // skip malformed entries
-        const fieldsToWrite = {
-          category: m.category,
-          templateType: m.templateType,
-          language: m.language,
-          headerType: m.headerType,
-          headerText: m.headerText,
-          headerMediaUrl: m.headerMediaUrl,
-          bodyText: m.bodyText,
-          footerText: m.footerText,
-          buttons: m.buttons.length ? (m.buttons as unknown as object) : undefined,
-          status: m.status as TemplateStatus,
-        };
-        const existing = await prisma.whatsAppTemplate.findFirst({
-          where: { tenantId: req.tenantId!, name: m.name, language: m.language },
-        });
-        if (existing) {
-          await prisma.whatsAppTemplate.update({ where: { id: existing.id }, data: fieldsToWrite });
-          updated += 1;
-        } else {
-          await prisma.whatsAppTemplate.create({
-            data: { tenantId: req.tenantId!, name: m.name, variants: [], ...fieldsToWrite },
-          });
-          created += 1;
-        }
-      }
-
+      const result = await syncTemplatesFromMeta(req.tenantId!);
       await logAudit({
         tenantId: req.tenantId!,
         userId: req.userId!,
         action: "UPDATE",
         resource: "WhatsAppTemplate",
         resourceId: "sync",
-        newValues: { synced: metaTemplates.length, created, updated },
+        newValues: result,
         ...extractRequestMeta(req),
       });
-
-      res.json({ success: true, data: { synced: metaTemplates.length, created, updated } });
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
