@@ -6,6 +6,7 @@ import {
   normalizeCatalogFormat,
   validateTemplateButtons,
   validateCarousel,
+  mapMetaTemplate,
 } from "./whatsappTemplate.service";
 
 describe("normalizeTemplateCategory", () => {
@@ -141,5 +142,66 @@ describe("validateCarousel", () => {
     expect(() =>
       validateCarousel([{ headerType: "image", headerMediaUrl: "nope", bodyText: "ok" }]),
     ).toThrow(/valid http/i);
+  });
+});
+
+describe("mapMetaTemplate", () => {
+  it("maps a Meta marketing template (header/body/footer/buttons) to our shape", () => {
+    const out = mapMetaTemplate({
+      name: "ramadan_sale",
+      language: "en_US",
+      category: "MARKETING",
+      status: "APPROVED",
+      components: [
+        { type: "HEADER", format: "TEXT", text: "Big news {{1}}" },
+        { type: "BODY", text: "Hi {{1}}, 20% off this week." },
+        { type: "FOOTER", text: "Reply STOP to opt out" },
+        {
+          type: "BUTTONS",
+          buttons: [
+            { type: "QUICK_REPLY", text: "Stop" },
+            { type: "URL", text: "Shop", url: "https://x.com" },
+            { type: "PHONE_NUMBER", text: "Call", phone_number: "+15551234567" },
+          ],
+        },
+      ],
+    });
+    expect(out.name).toBe("ramadan_sale");
+    expect(out.status).toBe("APPROVED");
+    expect(out.category).toBe("MARKETING");
+    expect(out.headerType).toBe("TEXT");
+    expect(out.headerText).toBe("Big news {{1}}");
+    expect(out.bodyText).toBe("Hi {{1}}, 20% off this week.");
+    expect(out.footerText).toBe("Reply STOP to opt out");
+    expect(out.buttons).toHaveLength(3);
+    expect(out.buttons[1]).toEqual({ type: "URL", text: "Shop", url: "https://x.com" });
+    expect(out.buttons[2].phoneNumber).toBe("+15551234567");
+  });
+
+  it("infers OTP type for authentication and maps PENDING → SUBMITTED", () => {
+    const out = mapMetaTemplate({
+      name: "otp_login",
+      language: "en",
+      category: "AUTHENTICATION",
+      status: "PENDING",
+      components: [
+        { type: "BODY", text: "{{1}} is your verification code." },
+        { type: "BUTTONS", buttons: [{ type: "OTP", otp_type: "COPY_CODE", text: "Copy code" }] },
+      ],
+    });
+    expect(out.templateType).toBe("OTP");
+    expect(out.status).toBe("SUBMITTED");
+    expect(out.buttons[0]).toEqual({ type: "OTP", text: "Copy code", otpType: "COPY_CODE" });
+  });
+
+  it("infers CAROUSEL when a carousel component is present and defaults missing fields", () => {
+    const out = mapMetaTemplate({
+      name: "spring",
+      category: "marketing",
+      components: [{ type: "BODY", text: "Browse" }, { type: "CAROUSEL", cards: [] }],
+    });
+    expect(out.templateType).toBe("CAROUSEL");
+    expect(out.language).toBe("en_US");
+    expect(out.status).toBe("DRAFT");
   });
 });

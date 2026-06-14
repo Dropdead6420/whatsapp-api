@@ -179,3 +179,124 @@ export function validateCarousel(raw: unknown): CarouselCard[] {
     return out;
   });
 }
+
+// =====================================================================
+// Sync: map a Meta message-template (Graph API shape) into our row shape.
+// Pure + defensive so it can be unit-tested; the route persists the result.
+// =====================================================================
+
+export interface MappedMetaTemplate {
+  name: string;
+  language: string;
+  category: TemplateCategory;
+  templateType: TemplateType;
+  status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "FLAGGED";
+  headerType: HeaderType;
+  headerText: string | null;
+  headerMediaUrl: string | null;
+  bodyText: string;
+  footerText: string | null;
+  buttons: TemplateButton[];
+}
+
+/** Map Meta's template status string to our TemplateStatus value. */
+function mapMetaStatus(value: unknown): MappedMetaTemplate["status"] {
+  const v = String(value ?? "").trim().toUpperCase();
+  if (v === "APPROVED") return "APPROVED";
+  if (v === "REJECTED") return "REJECTED";
+  if (v === "PENDING" || v === "SUBMITTED" || v === "IN_APPEAL" || v === "PENDING_DELETION") return "SUBMITTED";
+  if (v === "PAUSED" || v === "DISABLED" || v === "FLAGGED") return "FLAGGED";
+  return "DRAFT";
+}
+
+/** Map a single Meta button object to our TemplateButton (null if unknown). */
+function mapMetaButton(raw: Record<string, unknown>): TemplateButton | null {
+  const type = String(raw?.type ?? "").trim().toUpperCase();
+  const text = String(raw?.text ?? "").trim();
+  switch (type) {
+    case "QUICK_REPLY":
+      return { type: "QUICK_REPLY", text: text || "Quick reply" };
+    case "URL":
+      return { type: "URL", text: text || "Visit website", url: String(raw?.url ?? "").trim() };
+    case "PHONE_NUMBER":
+      return { type: "PHONE_NUMBER", text: text || "Call", phoneNumber: String(raw?.phone_number ?? "").trim() };
+    case "COPY_CODE":
+      return { type: "COPY_CODE", text: text || "Copy code", offerCode: String(raw?.example ?? "").trim() || undefined };
+    case "FLOW":
+      return { type: "FLOW", text: text || "Open", flowId: String(raw?.flow_id ?? "").trim() || undefined };
+    case "CATALOG":
+      return { type: "CATALOG", text: text || "View catalog" };
+    case "MPM":
+      return { type: "MPM", text: text || "View items" };
+    case "ORDER_DETAILS":
+      return { type: "ORDER_DETAILS", text: text || "Review and Pay" };
+    case "OTP": {
+      const ot = String(raw?.otp_type ?? "COPY_CODE").trim().toUpperCase();
+      return {
+        type: "OTP",
+        text: text || "Copy code",
+        otpType: (OTP_TYPES as readonly string[]).includes(ot) ? (ot as OtpType) : "COPY_CODE",
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+export function mapMetaTemplate(raw: unknown): MappedMetaTemplate {
+  const t = (raw ?? {}) as Record<string, unknown>;
+  const components = Array.isArray(t.components) ? (t.components as Array<Record<string, unknown>>) : [];
+
+  let headerType: HeaderType = "NONE";
+  let headerText: string | null = null;
+  let headerMediaUrl: string | null = null;
+  let bodyText = "";
+  let footerText: string | null = null;
+  let buttons: TemplateButton[] = [];
+  let hasCarousel = false;
+
+  for (const c of components) {
+    const ctype = String(c?.type ?? "").trim().toUpperCase();
+    if (ctype === "HEADER") {
+      headerType = normalizeHeaderType(c?.format);
+      if (headerType === "TEXT") {
+        headerText = String(c?.text ?? "").trim() || null;
+      } else if (headerType !== "NONE") {
+        const ex = c?.example as Record<string, unknown> | undefined;
+        const handle = Array.isArray(ex?.header_handle) ? ex?.header_handle[0] : undefined;
+        headerMediaUrl = handle ? String(handle) : null;
+      }
+    } else if (ctype === "BODY") {
+      bodyText = String(c?.text ?? "").trim();
+    } else if (ctype === "FOOTER") {
+      footerText = String(c?.text ?? "").trim() || null;
+    } else if (ctype === "BUTTONS") {
+      const bs = Array.isArray(c?.buttons) ? (c.buttons as Array<Record<string, unknown>>) : [];
+      buttons = bs.map(mapMetaButton).filter((b): b is TemplateButton => b !== null);
+    } else if (ctype === "CAROUSEL") {
+      hasCarousel = true;
+    }
+  }
+
+  const category = normalizeTemplateCategory(t.category);
+  let templateType: TemplateType = "CUSTOM";
+  if (hasCarousel) templateType = "CAROUSEL";
+  else if (category === "AUTHENTICATION") templateType = "OTP";
+  else if (buttons.some((b) => b.type === "CATALOG" || b.type === "MPM")) templateType = "CATALOGUE";
+  else if (buttons.some((b) => b.type === "ORDER_DETAILS")) templateType = "ORDER_DETAILS";
+  else if (buttons.some((b) => b.type === "FLOW")) templateType = "FLOWS";
+
+  return {
+    name: String(t.name ?? "").trim(),
+    language: String(t.language ?? "en_US").trim() || "en_US",
+    category,
+    templateType,
+    status: mapMetaStatus(t.status),
+    headerType,
+    headerText,
+    headerMediaUrl,
+    bodyText,
+    footerText,
+    buttons,
+  };
+}

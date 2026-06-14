@@ -131,6 +131,26 @@ export default function TemplatesPage() {
     }
   }
 
+  async function syncTemplates() {
+    setBusy(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      const result = await api.post<{ synced: number; created: number; updated: number }>(
+        "/api/v1/templates/sync",
+        {},
+      );
+      setNotice(
+        `Synced ${result.synced} template${result.synced === 1 ? "" : "s"} from Meta — ${result.created} new, ${result.updated} updated.`,
+      );
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof ApiClientError ? e.message : "Sync failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (user) void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,6 +330,14 @@ export default function TemplatesPage() {
             className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
           >
             + Quick create
+          </button>
+          <button
+            type="button"
+            onClick={() => void syncTemplates()}
+            disabled={busy}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          >
+            ⟳ Sync Templates
           </button>
           <Link
             href="/templates/create"
